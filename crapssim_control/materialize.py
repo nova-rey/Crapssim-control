@@ -11,6 +11,7 @@ Supported intents:
 """
 
 from typing import Optional, Tuple, List, Dict, Any
+from .legalize import legalize_odds
 
 # Try to import common bet classes. If not present, we fall back to names.
 try:
@@ -43,7 +44,6 @@ def _set_amount(obj, amount: int):
 def _set_working(obj, working: Optional[bool]):
     if working is None:
         return
-    # Most engines use a 'working' boolean
     if hasattr(obj, "working"):
         try:
             setattr(obj, "working", bool(working))
@@ -54,7 +54,6 @@ def _set_working(obj, working: Optional[bool]):
 def _set_odds(obj, odds: Optional[int]):
     if odds is None:
         return
-    # Many engines expose 'odds_amount' (pass/come odds, or lay odds)
     for attr in ("odds_amount", "odds", "lay_odds"):
         if hasattr(obj, attr):
             try:
@@ -80,7 +79,6 @@ def _make_bet(kind: str, number: Optional[int], amount: int):
             self.number = number
             self.amount = int(amount)
             self.working = True
-            # Provide an odds-like attribute so odds setting works in tests
             self.odds_amount = 0
     return _Shim(k, number, amount)
 
@@ -141,22 +139,33 @@ def _clear_all_bets(player):
             except Exception:
                 pass
 
-def _apply_meta(bet_obj, meta: Dict[str, Any]):
+def _apply_meta_with_legalization(player, bet_obj, kind: str, meta: Dict[str, Any], odds_policy: str | int | None):
     if not meta:
         return
     _set_working(bet_obj, meta.get("working"))
-    _set_odds(bet_obj, meta.get("odds"))
 
-def apply_intents(player, intents: List[BetIntent]):
+    # Odds legalization for PASS odds (v0). If table has no point, odds = 0.
+    if "odds" in meta and kind == "pass":
+        table = getattr(player, "table", None)
+        point = getattr(table, "point_number", None) if table else None
+        bubble = bool(getattr(table, "bubble", False)) if table else False
+        base_flat = int(getattr(bet_obj, "amount", 0))
+        policy = odds_policy if odds_policy is not None else "3-4-5x"
+        legalized = legalize_odds(point, int(meta["odds"]), base_flat, bubble=bubble, policy=policy)
+        _set_odds(bet_obj, legalized)
+
+def apply_intents(player, intents: List[BetIntent], *, odds_policy: str | int | None = None):
     """
     Apply a list of bet intents onto the player.
     Strategy: if a __clear__ sentinel is present, clear first, then lay down all intents.
     Otherwise, upsert each intent individually.
+
+    odds_policy: table-level odds policy ("3-4-5x", "2x", "5x", "10x", or int)
     """
     if not intents:
         return
 
-    if any(k == "__clear__" for (k, _, _, __) in intents):
+    if any(k == "__clear__" for (k, *rest) in intents):
         _clear_all_bets(player)
         intents = [t for t in intents if t[0] != "__clear__"]
 
@@ -176,7 +185,6 @@ def apply_intents(player, intents: List[BetIntent]):
 
         existing = _find_existing(player, kind, number)
         if existing is not None:
-            # Update amount
             replaced = False
             if not _set_amount(existing, amount):
                 _remove_bet(player, existing)
@@ -184,9 +192,8 @@ def apply_intents(player, intents: List[BetIntent]):
                 _add_bet(player, newb)
                 existing = newb
                 replaced = True
-            # Apply meta after amount is set (either branch)
-            _apply_meta(existing, meta)
+            _apply_meta_with_legalization(player, existing, kind, meta, odds_policy)
         else:
             newb = _make_bet(kind, number, amount)
             _add_bet(player, newb)
-            _apply_meta(newb, meta)
+            _apply_meta_with_legalization(player, newb, kind, meta, odds_policy)
