@@ -1,1 +1,2 @@
-from crapssim_control import ControlStrategy
+from .controller import ControlStrategy
+__all__ = ["ControlStrategy"]
