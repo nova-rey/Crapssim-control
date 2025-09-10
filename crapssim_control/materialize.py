@@ -1,11 +1,16 @@
+# crapssim_control/materialize.py
 """
 Materialize bet intents onto a CrapsSim player, best-effort (duck-typed).
-Supported intents: ("pass", None, amt), ("dont_pass", None, amt),
-                   ("field", None, amt), ("place", number, amt),
-                   ("__clear__", None, 0)
+
+Supported intents:
+  ("pass", None, amt, meta),
+  ("dont_pass", None, amt, meta),
+  ("field", None, amt, meta),
+  ("place", number, amt, meta),
+  ("__clear__", None, 0, {})
 """
 
-from typing import Optional, Tuple, List
+from typing import Optional, Tuple, List, Dict, Any
 
 # Try to import common bet classes. If not present, we fall back to names.
 try:
@@ -13,37 +18,52 @@ try:
 except Exception:  # editing without engine available
     _PassLine = _DontPass = _Field = _Place = None  # type: ignore
 
-BetIntent = Tuple[str, Optional[int], int]
+BetIntent = Tuple[str, Optional[int], int, Dict[str, Any]]
 
 
 def _bet_kind(obj) -> str:
-    # Normalize a bet object's "kind" for matching
     k = getattr(obj, "kind", None)
     if isinstance(k, str):
         return k.lower()
-    # fallback: class name
     return obj.__class__.__name__.lower()
-
 
 def _bet_number(obj) -> Optional[int]:
     return getattr(obj, "number", None)
 
-
 def _set_amount(obj, amount: int):
-    # Common field name is "amount"; try that first.
     if hasattr(obj, "amount"):
         setattr(obj, "amount", int(amount))
         return True
-    # Some engines might keep base on "base" or similar; try best effort.
     for attr in ("base", "wager", "value"):
         if hasattr(obj, attr):
             setattr(obj, attr, int(amount))
             return True
     return False
 
+def _set_working(obj, working: Optional[bool]):
+    if working is None:
+        return
+    # Most engines use a 'working' boolean
+    if hasattr(obj, "working"):
+        try:
+            setattr(obj, "working", bool(working))
+            return
+        except Exception:
+            pass
+
+def _set_odds(obj, odds: Optional[int]):
+    if odds is None:
+        return
+    # Many engines expose 'odds_amount' (pass/come odds, or lay odds)
+    for attr in ("odds_amount", "odds", "lay_odds"):
+        if hasattr(obj, attr):
+            try:
+                setattr(obj, attr, int(odds))
+                return
+            except Exception:
+                pass
 
 def _make_bet(kind: str, number: Optional[int], amount: int):
-    # Construct a new bet object using engine classes when available.
     k = kind.lower()
     if k == "pass" and _PassLine is not None:
         return _PassLine(int(amount))
@@ -53,15 +73,16 @@ def _make_bet(kind: str, number: Optional[int], amount: int):
         return _Field(int(amount))
     if k == "place" and _Place is not None and number is not None:
         return _Place(int(number), int(amount))
-    # Fallback: a tiny shim object with expected attributes so tests can run.
+    # Fallback shim object so tests can run without the engine.
     class _Shim:
         def __init__(self, kind, number, amount):
             self.kind = kind
             self.number = number
             self.amount = int(amount)
             self.working = True
+            # Provide an odds-like attribute so odds setting works in tests
+            self.odds_amount = 0
     return _Shim(k, number, amount)
-
 
 def _find_existing(player, kind: str, number: Optional[int]):
     bets = getattr(player, "bets", None)
@@ -76,12 +97,7 @@ def _find_existing(player, kind: str, number: Optional[int]):
         return b
     return None
 
-
 def _add_bet(player, bet_obj) -> bool:
-    """
-    Try common ways to add a bet: player.add_bet(), player.place_bet(), append to player.bets
-    Returns True if success.
-    """
     for meth in ("add_bet", "place_bet", "add"):
         fn = getattr(player, meth, None)
         if callable(fn):
@@ -90,16 +106,13 @@ def _add_bet(player, bet_obj) -> bool:
                 return True
             except Exception:
                 pass
-    # Last resort: append directly if it's a list
     bets = getattr(player, "bets", None)
     if isinstance(bets, list):
         bets.append(bet_obj)
         return True
     return False
 
-
 def _remove_bet(player, bet_obj) -> bool:
-    # Try dedicated method first
     for meth in ("remove_bet", "drop_bet"):
         fn = getattr(player, meth, None)
         if callable(fn):
@@ -108,20 +121,17 @@ def _remove_bet(player, bet_obj) -> bool:
                 return True
             except Exception:
                 pass
-    # Fallback: list remove
     bets = getattr(player, "bets", None)
     if isinstance(bets, list) and bet_obj in bets:
         bets.remove(bet_obj)
         return True
     return False
 
-
 def _clear_all_bets(player):
     bets = getattr(player, "bets", None)
     if isinstance(bets, list):
         bets[:] = []
         return
-    # Try a method if present
     for meth in ("clear_bets", "remove_all_bets"):
         fn = getattr(player, meth, None)
         if callable(fn):
@@ -131,6 +141,11 @@ def _clear_all_bets(player):
             except Exception:
                 pass
 
+def _apply_meta(bet_obj, meta: Dict[str, Any]):
+    if not meta:
+        return
+    _set_working(bet_obj, meta.get("working"))
+    _set_odds(bet_obj, meta.get("odds"))
 
 def apply_intents(player, intents: List[BetIntent]):
     """
@@ -141,13 +156,19 @@ def apply_intents(player, intents: List[BetIntent]):
     if not intents:
         return
 
-    if any(k == "__clear__" for (k, _, _) in intents):
+    if any(k == "__clear__" for (k, _, _, __) in intents):
         _clear_all_bets(player)
         intents = [t for t in intents if t[0] != "__clear__"]
 
-    for kind, number, amount in intents:
+    for item in intents:
+        # Allow both 3-tuple (legacy) and 4-tuple (with meta)
+        if len(item) == 3:
+            kind, number, amount = item  # type: ignore
+            meta: Dict[str, Any] = {}
+        else:
+            kind, number, amount, meta = item  # type: ignore
+
         if amount <= 0:
-            # treat zero/negative as remove for that slot
             existing = _find_existing(player, kind, number)
             if existing is not None:
                 _remove_bet(player, existing)
@@ -156,11 +177,16 @@ def apply_intents(player, intents: List[BetIntent]):
         existing = _find_existing(player, kind, number)
         if existing is not None:
             # Update amount
+            replaced = False
             if not _set_amount(existing, amount):
-                # If we can’t set amount, replace the bet
                 _remove_bet(player, existing)
                 newb = _make_bet(kind, number, amount)
                 _add_bet(player, newb)
+                existing = newb
+                replaced = True
+            # Apply meta after amount is set (either branch)
+            _apply_meta(existing, meta)
         else:
             newb = _make_bet(kind, number, amount)
             _add_bet(player, newb)
+            _apply_meta(newb, meta)

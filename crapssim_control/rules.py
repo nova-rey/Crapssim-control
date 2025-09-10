@@ -5,11 +5,10 @@ from .eval import safe_eval
 from .templates import render_template
 from .varstore import VarStore
 
-BetIntent = Tuple[str, Optional[int], int]
-
+# BetIntent now allows meta dict as 4th element
+BetIntent = Tuple[str, Optional[int], int, Dict[str, Any]]
 
 def _match_on(on: Dict[str, Any], ev: Dict[str, Any]) -> bool:
-    """All keys in 'on' must match the event dict."""
     if not on:
         return False
     if on.get("event") != ev.get("event"):
@@ -21,52 +20,31 @@ def _match_on(on: Dict[str, Any], ev: Dict[str, Any]) -> bool:
             return False
     return True
 
-
 def _eval_expr(expr: str, vs: VarStore):
-    """Evaluate an expression with whitespace tolerance."""
     return safe_eval(str(expr).strip(), vs.names())
 
-
 def _do_assignment(vs: VarStore, stmt: str):
-    """
-    Support:
-      name = expr
-      name += expr
-      name -= expr
-    Whitespace is tolerated around operators.
-    """
     s = stmt.strip()
-
     if "+=" in s:
         name, expr = s.split("+=", 1)
         key = name.strip()
         vs.user[key] = vs.user.get(key, 0) + _eval_expr(expr, vs)
         return
-
     if "-=" in s:
         name, expr = s.split("-=", 1)
         key = name.strip()
         vs.user[key] = vs.user.get(key, 0) - _eval_expr(expr, vs)
         return
-
     if "=" in s:
         name, expr = s.split("=", 1)
         key = name.strip()
         vs.user[key] = _eval_expr(expr, vs)
         return
-
     raise ValueError(f"Unsupported assignment: {stmt}")
 
-
 def run_rules_for_event(spec: dict, vs: VarStore, event: Dict[str, Any]) -> List[BetIntent]:
-    """
-    Evaluate SPEC rules matching this event.
-    Returns a list of BetIntent tuples to apply later.
-    """
     intents: List[BetIntent] = []
     rules: List[dict] = spec.get("rules", [])
-
-    # Expose event name for expressions if desired
     vs.user["_event"] = event.get("event")
 
     for rule in rules:
@@ -82,7 +60,6 @@ def run_rules_for_event(spec: dict, vs: VarStore, event: Dict[str, Any]) -> List
             action = str(action).strip()
 
             if action.startswith("apply_template"):
-                # apply_template('ModeName') or apply_template(modeVar)
                 inside = action[len("apply_template"):].strip()
                 if not (inside.startswith("(") and inside.endswith(")")):
                     raise AssertionError("apply_template must be like apply_template('Mode')")
@@ -90,7 +67,6 @@ def run_rules_for_event(spec: dict, vs: VarStore, event: Dict[str, Any]) -> List
                 if (arg.startswith("'") and arg.endswith("'")) or (arg.startswith('"') and arg.endswith('"')):
                     mode_name = arg.strip("'\"")
                 else:
-                    # treat as variable name
                     mode_name = str(vs.user.get(arg, arg))
 
                 mode = spec.get("modes", {}).get(mode_name, {})
@@ -103,15 +79,12 @@ def run_rules_for_event(spec: dict, vs: VarStore, event: Dict[str, Any]) -> List
                 _do_assignment(vs, action)
 
             elif action.startswith("log("):
-                # Stub for future logging sink
                 pass
 
             elif action == "clear_bets()":
-                # Sentinel handled by materializer
-                intents.append(("__clear__", None, 0))
+                intents.append(("__clear__", None, 0, {}))
 
             else:
-                # Unknown action → ignore for now
                 pass
 
     vs.user.pop("_event", None)
