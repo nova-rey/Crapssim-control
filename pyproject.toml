@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "crapssim-control"
+version = "0.1.0a0"
+description = "Runtime that executes conditional JSON craps strategies on top of CrapsSim."
+readme = "README.md"
+authors = [{name="Rey & Nova"}]
+requires-python = ">=3.9"
+dependencies = [
+  "crapssim>=0.1.0",   # adjust if your engine publishes under a different name
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
