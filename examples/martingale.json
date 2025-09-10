@@ -1,0 +1,27 @@
+{
+  "meta": {"version": 0, "name": "Pass Martingale (cap 4x)"},
+  "table": {"bubble": false, "level": 10},
+  "variables": {
+    "base_units": 10,
+    "units": 10,
+    "cap_mult": 4
+  },
+  "modes": {
+    "Main": { "template": { "pass": "units" } }
+  },
+  "rules": [
+    { "on": { "event": "comeout" }, "do": [ "apply_template('Main')" ] },
+
+    { "on": { "event": "bet_resolved", "bet": "pass", "result": "lose" },
+      "do": [
+        "units = min(units * 2, base_units * cap_mult)",
+        "apply_template('Main')"
+      ] },
+
+    { "on": { "event": "bet_resolved", "bet": "pass", "result": "win" },
+      "do": [
+        "units = base_units",
+        "apply_template('Main')"
+      ] }
+  ]
+}
