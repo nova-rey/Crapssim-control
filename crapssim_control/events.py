@@ -1,68 +1,103 @@
-from typing import Optional, Dict, Any
-from .snapshotter import GameState
+# crapssim_control/eval.py
+import ast, operator, math
 
-def _pass_result(prev: Optional[GameState], curr: GameState) -> Optional[str]:
-    """Return 'win'/'lose'/None for PassLine on this roll."""
-    total = curr.table.dice[2] if curr.table.dice else None
-    if total is None:
-        return None
-    # Come-out logic (point is OFF on the roll)
-    if curr.table.comeout:
-        if total in (7, 11):
-            return "win"
-        if total in (2, 3, 12):
-            return "lose"
-        return None  # point will be established; resolution later
-    # Point is ON now: win by hitting point, lose on 7-out
-    if prev and prev.table.point_on:
-        if total == prev.table.point_number:
-            return "win"
-        if total == 7:
-            return "lose"
-    return None
+_ALLOWED_FUNCS = {
+    "min": min,
+    "max": max,
+    "abs": abs,
+    "round": round,
+    "floor": math.floor,
+    "ceil": math.ceil,
+}
 
-def _dp_result(prev: Optional[GameState], curr: GameState) -> Optional[str]:
-    """Return 'win'/'lose'/None for DontPass (assume bar-12)."""
-    total = curr.table.dice[2] if curr.table.dice else None
-    if total is None:
-        return None
-    if curr.table.comeout:
-        if total in (2, 3):
-            return "win"
-        if total in (7, 11):
-            return "lose"
-        if total == 12:
-            return None  # push on 12 by common rules
-        return None
-    if prev and prev.table.point_on:
-        if total == 7:
-            return "win"
-        if total == prev.table.point_number:
-            return "lose"
-    return None
+_BIN_OPS = {
+    ast.Add: operator.add,
+    ast.Sub: operator.sub,
+    ast.Mult: operator.mul,
+    ast.Div: operator.truediv,
+    ast.FloorDiv: operator.floordiv,
+    ast.Mod: operator.mod,
+}
 
-def derive_event(prev: Optional[GameState], curr: GameState) -> Dict[str, Any]:
+_COMP_OPS = {
+    ast.Eq: operator.eq,
+    ast.NotEq: operator.ne,
+    ast.Lt: operator.lt,
+    ast.LtE: operator.le,
+    ast.Gt: operator.gt,
+    ast.GtE: operator.ge,
+}
+
+_BOOL_OPS = {
+    ast.And: all,
+    ast.Or: any,
+}
+
+def safe_eval(expr: str, names: dict) -> int | float | bool:
     """
-    v0.1 event derivation priority:
-      1) bet_resolved (pass/dp) if a win/lose happened
-      2) seven_out
-      3) point_established
-      4) roll
+    Evaluate a tiny expression with a strict whitelist.
+
+    Allowed:
+      - literals (ints/floats/bools)
+      - provided variable names (from 'names' dict)
+      - arithmetic: + - * / // %
+      - comparisons: == != < <= > >=
+      - boolean: and/or/not
+      - funcs: min, max, abs, round, floor, ceil
     """
-    # Bet resolutions first so rules can react immediately
-    p = _pass_result(prev, curr)
-    if p in ("win", "lose"):
-        return {"event": "bet_resolved", "bet": "pass", "result": p}
+    expr = str(expr).strip()  # tolerate leading/trailing whitespace in SPEC strings
+    node = ast.parse(expr, mode="eval").body
+    return _eval(node, names)
 
-    dp = _dp_result(prev, curr)
-    if dp in ("win", "lose"):
-        return {"event": "bet_resolved", "bet": "dont_pass", "result": dp}
+def _eval(node, names):
+    if isinstance(node, ast.Constant):
+        return node.value
 
-    if curr.just_seven_out:
-        return {"event": "seven_out"}
+    if isinstance(node, ast.Name):
+        if node.id in names:
+            return names[node.id]
+        if node.id in _ALLOWED_FUNCS:
+            return _ALLOWED_FUNCS[node.id]
+        raise NameError(f"name '{node.id}' not allowed")
 
-    if curr.just_established_point:
-        return {"event": "point_established", "number": curr.table.point_number}
+    if isinstance(node, ast.BinOp):
+        op = _BIN_OPS.get(type(node.op))
+        if not op:
+            raise TypeError("operator not allowed")
+        return op(_eval(node.left, names), _eval(node.right, names))
 
-    total = curr.table.dice[2] if curr.table.dice else None
-    return {"event": "roll", "total": total}
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.UAdd, ast.USub, ast.Not)):
+        val = _eval(node.operand, names)
+        if isinstance(node.op, ast.UAdd):
+            return +val
+        if isinstance(node.op, ast.USub):
+            return -val
+        if isinstance(node.op, ast.Not):
+            return not val
+
+    if isinstance(node, ast.Call):
+        func = _eval(node.func, names)
+        args = [_eval(a, names) for a in node.args]
+        if func in _ALLOWED_FUNCS.values():
+            return func(*args)
+        raise TypeError("function not allowed")
+
+    if isinstance(node, ast.BoolOp):
+        opf = _BOOL_OPS.get(type(node.op))
+        if not opf:
+            raise TypeError("bool op not allowed")
+        vals = [_eval(v, names) for v in node.values]
+        return opf(vals)
+
+    if isinstance(node, ast.Compare):
+        left = _eval(node.left, names)
+        result = True
+        for op, comparator in zip(node.ops, node.comparators):
+            right = _eval(comparator, names)
+            if not _COMP_OPS[type(op)](left, right):
+                result = False
+                break
+            left = right
+        return result
+
+    raise TypeError("expression not allowed")
