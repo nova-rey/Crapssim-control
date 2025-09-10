@@ -9,7 +9,10 @@ Supported intents:
   ("come", None, amt, meta),
   ("dont_come", None, amt, meta),
   ("place", number, amt, meta),
+
+  Special control intents:
   ("__clear__", None, 0, {})
+  ("__apply_odds__", <'come'|'dont_come'>, desired_odds, {"scope": "all"|"newest"})
 """
 
 from typing import Optional, Tuple, List, Dict, Any
@@ -106,6 +109,13 @@ def _find_existing(player, kind: str, number: Optional[int]):
         return b
     return None
 
+def _iter_bets(player, kind: str):
+    bets = getattr(player, "bets", None)
+    if not bets:
+        return []
+    k = kind.lower()
+    return [b for b in list(bets) if _bet_kind(b) == k]
+
 def _add_bet(player, bet_obj) -> bool:
     for meth in ("add_bet", "place_bet", "add"):
         fn = getattr(player, meth, None)
@@ -155,8 +165,7 @@ def _apply_meta_with_legalization(player, bet_obj, kind: str, meta: Dict[str, An
         return
     _set_working(bet_obj, meta.get("working"))
 
-    # PASS/DP odds already handled earlier; Come/DC odds are deferred for v0
-    # because they require per-bet point numbers after movement.
+    # PASS/DP odds handled when included in meta.
     if "odds" in meta:
         if kind == "pass":
             table = getattr(player, "table", None)
@@ -178,8 +187,37 @@ def _apply_meta_with_legalization(player, bet_obj, kind: str, meta: Dict[str, An
             else:
                 _set_odds(bet_obj, legalized)
         else:
-            # come / dont_come: odds intentionally ignored in v0
+            # come / dont_come odds are handled by __apply_odds__ intents (per-number)
             pass
+
+def _apply_odds_to_existing(player, kind: str, desired_odds: int, scope: str, odds_policy: str | int | None):
+    """
+    Apply odds to existing Come / Don't Come bets based on their current numbers.
+    - kind: 'come' | 'dont_come'
+    - scope: 'all' | 'newest' (newest = last in player's bet list of that kind)
+    """
+    bets = _iter_bets(player, kind)
+    if not bets:
+        return
+
+    targets = bets if scope == "all" else [bets[-1]]
+
+    table = getattr(player, "table", None)
+    bubble = bool(getattr(table, "bubble", False)) if table else False
+    policy = odds_policy if odds_policy is not None else "3-4-5x"
+
+    for b in targets:
+        point = _bet_number(b)
+        base_flat = int(getattr(b, "amount", 0))
+        if kind == "come":
+            legalized = legalize_odds(point, int(desired_odds), base_flat, bubble=bubble, policy=policy)
+            _set_odds(b, legalized)
+        elif kind == "dont_come":
+            legalized = legalize_lay_odds(point, int(desired_odds), base_flat, bubble=bubble, policy=policy)
+            if hasattr(b, "lay_odds"):
+                setattr(b, "lay_odds", int(legalized))
+            else:
+                _set_odds(b, legalized)
 
 def apply_intents(player, intents: List[BetIntent], *, odds_policy: str | int | None = None):
     """
@@ -192,11 +230,22 @@ def apply_intents(player, intents: List[BetIntent], *, odds_policy: str | int | 
     if not intents:
         return
 
+    # Clear first if present
     if any(k == "__clear__" for (k, *rest) in intents):
         _clear_all_bets(player)
         intents = [t for t in intents if t[0] != "__clear__"]
 
+    # Handle apply-odds control intents up-front (they affect existing bets)
+    control_intents = [t for t in intents if t[0] == "__apply_odds__"]
+    for _, kind, amt, meta in control_intents:
+        scope = (meta or {}).get("scope", "all")
+        _apply_odds_to_existing(player, str(kind), int(amt), str(scope), odds_policy)
+
+    # Normal upsert intents
     for item in intents:
+        if item[0] == "__apply_odds__":
+            continue  # already handled
+
         # Allow both 3-tuple (legacy) and 4-tuple (with meta)
         if len(item) == 3:
             kind, number, amount = item  # type: ignore
