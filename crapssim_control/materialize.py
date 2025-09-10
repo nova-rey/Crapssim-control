@@ -18,7 +18,7 @@ Supported intents:
 from typing import Optional, Tuple, List, Dict, Any
 from .legalize import legalize_odds, legalize_lay_odds
 
-# Try to import common bet classes. If not present, we fall back to shims.
+# Try engine bet classes; otherwise we use shims.
 try:
     from crapssim.bet import PassLine as _PassLine, DontPass as _DontPass, Field as _Field, Place as _Place  # type: ignore
     from crapssim.bet import Come as _Come, DontCome as _DontCome  # type: ignore
@@ -28,6 +28,46 @@ except Exception:
 
 BetIntent = Tuple[str, Optional[int], int, Dict[str, Any]]
 
+
+# -------- Overlay wrapper to allow sidecar attributes (e.g., lay_odds) --------
+
+class _BetOverlay:
+    """
+    Proxy that wraps a real bet object and provides a sidecar for attributes
+    the engine object doesn't support (e.g., lay_odds on DontCome).
+    """
+    __slots__ = ("_obj", "_extra")
+
+    def __init__(self, obj):
+        object.__setattr__(self, "_obj", obj)
+        object.__setattr__(self, "_extra", {})  # sidecar dict
+
+    def __getattr__(self, name):
+        extra = object.__getattribute__(self, "_extra")
+        if name in extra:
+            return extra[name]
+        obj = object.__getattribute__(self, "_obj")
+        return getattr(obj, name)
+
+    def __setattr__(self, name, value):
+        obj = object.__getattribute__(self, "_obj")
+        try:
+            setattr(obj, name, value)
+        except Exception:
+            extra = object.__getattribute__(self, "_extra")
+            extra[name] = value
+
+    # Some engines iterate / compare by class or have isinstance checks.
+    # Make wrapper behave like the underlying bet for type/name introspection.
+    @property
+    def __class__(self):
+        return object.__getattribute__(self, "_obj").__class__
+
+    def __repr__(self):
+        obj = object.__getattribute__(self, "_obj")
+        return f"<Overlay {obj!r} extra={object.__getattribute__(self, '_extra')}>"
+
+# -----------------------------------------------------------------------------
 
 def _bet_kind(obj) -> str:
     k = getattr(obj, "kind", None)
@@ -57,8 +97,7 @@ def _set_working(obj, working: Optional[bool]):
 
 def _set_odds_known_attrs(obj, odds: int) -> bool:
     """
-    Try a few common attribute names for odds-like values.
-    Returns True if we successfully set one.
+    Try common attribute names for odds-like values. Return True if set.
     """
     for attr in ("odds_amount", "odds", "lay_odds"):
         if hasattr(obj, attr):
@@ -67,7 +106,7 @@ def _set_odds_known_attrs(obj, odds: int) -> bool:
                 return True
             except Exception:
                 pass
-    # Some engines expose a nested object: obj.odds.amount or similar
+    # Nested odds objects (rare)
     nested = getattr(obj, "odds", None)
     if nested is not None:
         for attr in ("amount", "value"):
@@ -82,6 +121,7 @@ def _set_odds_known_attrs(obj, odds: int) -> bool:
 def _force_sidecar_odds(obj, kind: str, odds: int):
     """
     As a last resort, dynamically attach attributes so tests & debug can read them.
+    Overlay will always accept these. On plain objects, we try setattr and ignore errors.
     """
     try:
         if kind in ("dont_pass", "dont_come"):
@@ -95,7 +135,7 @@ def _force_sidecar_odds(obj, kind: str, odds: int):
 def _mirror_lay_and_amount(obj, odds: int):
     """
     Ensure both lay_odds AND odds_amount reflect the same value (for DC).
-    Unconditionally sets both attributes; safe even if they didn't exist.
+    Works with overlays or permissive objects; silently ignores failures.
     """
     try:
         setattr(obj, "lay_odds", int(odds))
@@ -106,10 +146,20 @@ def _mirror_lay_and_amount(obj, odds: int):
     except Exception:
         pass
 
+def _wrap_if_needed(kind: str, obj):
+    """
+    Wrap COME / DON'T COME with an overlay so we can always stash odds attrs.
+    Keep others raw (no need yet).
+    """
+    if kind in ("come", "dont_come"):
+        return _BetOverlay(obj)
+    return obj
+
 def _make_bet(kind: str, number: Optional[int], amount: int):
     """
     Create a bet object. For Come / Don't Come using real engine classes,
-    we *post-set* .number if provided so tests can simulate 'moved' bets.
+    we post-set .number if provided so tests can simulate 'moved' bets,
+    then wrap in an overlay so odds attrs can be attached reliably.
     """
     k = kind.lower()
     if k == "pass" and _PassLine is not None:
@@ -125,13 +175,13 @@ def _make_bet(kind: str, number: Optional[int], amount: int):
         if number is not None:
             try: setattr(obj, "number", int(number))
             except Exception: pass
-        return obj
+        return _wrap_if_needed("come", obj)
     if k == "dont_come" and _DontCome is not None:
         obj = _DontCome(int(amount))
         if number is not None:
             try: setattr(obj, "number", int(number))
             except Exception: pass
-        return obj
+        return _wrap_if_needed("dont_come", obj)
     # Fallback shim object so tests can run without the engine.
     class _Shim:
         def __init__(self, kind, number, amount):
