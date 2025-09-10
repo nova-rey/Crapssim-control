@@ -94,16 +94,15 @@ def _force_sidecar_odds(obj, kind: str, odds: int):
 
 def _mirror_lay_and_amount(obj, odds: int):
     """
-    Ensure both lay_odds and odds_amount are set when possible (for DC).
+    Ensure both lay_odds AND odds_amount reflect the same value (for DC).
+    Unconditionally sets both attributes; safe even if they didn't exist.
     """
     try:
-        if hasattr(obj, "lay_odds"):
-            setattr(obj, "lay_odds", int(odds))
+        setattr(obj, "lay_odds", int(odds))
     except Exception:
         pass
     try:
-        if hasattr(obj, "odds_amount"):
-            setattr(obj, "odds_amount", int(odds))
+        setattr(obj, "odds_amount", int(odds))
     except Exception:
         pass
 
@@ -226,7 +225,6 @@ def _apply_meta_with_legalization(player, bet_obj, kind: str, meta: Dict[str, An
                 _force_sidecar_odds(bet_obj, "pass", legalized)
         elif kind == "dont_pass":
             legalized = legalize_lay_odds(point, int(meta["odds"]), base_flat, bubble=bubble, policy=policy)
-            # Try regular setters; then mirror both; else sidecar.
             if not _set_odds_known_attrs(bet_obj, legalized):
                 _force_sidecar_odds(bet_obj, "dont_pass", legalized)
             _mirror_lay_and_amount(bet_obj, legalized)
@@ -258,7 +256,6 @@ def _apply_odds_to_existing(player, kind: str, desired_odds: int, scope: str, od
                 _force_sidecar_odds(b, "come", legalized)
         elif kind == "dont_come":
             legalized = legalize_lay_odds(point, int(desired_odds), base_flat, bubble=bubble, policy=policy)
-            # Try regular setters; then mirror both; else sidecar.
             if not _set_odds_known_attrs(b, legalized):
                 _force_sidecar_odds(b, "dont_come", legalized)
             _mirror_lay_and_amount(b, legalized)
@@ -288,7 +285,6 @@ def apply_intents(player, intents: List[BetIntent], *, odds_policy: str | int | 
         if item[0] == "__apply_odds__":
             continue  # already handled
 
-        # Allow both 3-tuple (legacy) and 4-tuple (with meta)
         if len(item) == 3:
             kind, number, amount = item  # type: ignore
             meta: Dict[str, Any] = {}
