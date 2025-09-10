@@ -46,12 +46,13 @@ def _dp_result(prev: Optional[GameState], curr: GameState) -> Optional[str]:
 
 def derive_event(prev: Optional[GameState], curr: GameState) -> Dict[str, Any]:
     """
-    v0.2 event derivation priority:
+    v0.3 event derivation priority:
       1) bet_resolved (pass/dp) if a win/lose happened
       2) seven_out
-      3) point_established
-      4) comeout  (fires on every comeout roll)
-      5) roll     (always)
+      3) point_made
+      4) point_established
+      5) comeout  (fires on every comeout roll)
+      6) roll     (always)
     """
     # Bet resolutions first so rules can react immediately
     p = _pass_result(prev, curr)
@@ -64,6 +65,10 @@ def derive_event(prev: Optional[GameState], curr: GameState) -> Dict[str, Any]:
 
     if curr.just_seven_out:
         return {"event": "seven_out"}
+
+    # Explicit point_made (separate from bet_resolved)
+    if curr.just_made_point and prev is not None:
+        return {"event": "point_made", "number": prev.table.point_number}
 
     if curr.just_established_point:
         return {"event": "point_established", "number": curr.table.point_number}

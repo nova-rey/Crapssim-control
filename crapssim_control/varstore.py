@@ -16,6 +16,12 @@ class VarStore:
     _shooter_start_bankroll: Optional[int] = None
     _last_shooter_index: Optional[int] = None
 
+    # Internal tracking for rolls_since_point
+    _last_point_on: Optional[bool] = None
+    _last_point_number: Optional[int] = None
+    _last_roll_index: Optional[int] = None
+    _rolls_since_point: int = 0
+
     @staticmethod
     def from_spec(spec: dict) -> "VarStore":
         vs = VarStore()
@@ -24,7 +30,6 @@ class VarStore:
 
     def _maybe_init_session(self, gs: GameState):
         if self._session_start_bankroll is None:
-            # GameState already carries starting_bankroll from the engine
             self._session_start_bankroll = int(gs.player.starting_bankroll or gs.player.bankroll)
 
     def _maybe_update_shooter_anchor(self, gs: GameState):
@@ -32,14 +37,13 @@ class VarStore:
         Refresh the 'shooter start' bankroll anchor if:
           - first call (anchor None), or
           - we detect a new shooter via derived flag, or
-          - shooter index changed (defensive, in case flags differ per engine)
+          - shooter index changed (defensive)
         """
         if self._shooter_start_bankroll is None:
             self._shooter_start_bankroll = int(gs.player.bankroll)
             self._last_shooter_index = int(gs.table.shooter_index)
             return
 
-        # Detect shooter boundary
         new_shooter = bool(gs.is_new_shooter)
         index_changed = (self._last_shooter_index is not None and
                          int(gs.table.shooter_index) != int(self._last_shooter_index))
@@ -48,13 +52,56 @@ class VarStore:
             self._shooter_start_bankroll = int(gs.player.bankroll)
             self._last_shooter_index = int(gs.table.shooter_index)
 
+    def _update_rolls_since_point(self, gs: GameState):
+        """
+        Maintain a counter of rolls since the current point was established.
+        Resets to 0 on point establish; increments by 1 on each subsequent roll while point is ON.
+        Clears when point turns OFF (point made or seven out).
+        """
+        point_on = bool(gs.table.point_on)
+        point_num = gs.table.point_number
+        roll_idx = int(gs.table.roll_index)
+
+        # First tick: set anchors
+        if self._last_point_on is None:
+            self._last_point_on = point_on
+            self._last_point_number = point_num
+            self._last_roll_index = roll_idx
+            self._rolls_since_point = 0
+            return
+
+        # Transition: Off -> On (new point established) → reset counter to 0
+        if (self._last_point_on is False) and point_on:
+            self._rolls_since_point = 0
+            self._last_point_number = point_num
+
+        # While point stays ON, increment on each new roll index
+        elif point_on and self._last_point_on and roll_idx != self._last_roll_index:
+            # Only increment if we're still on the same point number
+            if point_num == self._last_point_number:
+                self._rolls_since_point += 1
+            else:
+                # Defensive: if number changed unexpectedly, reset
+                self._rolls_since_point = 0
+                self._last_point_number = point_num
+
+        # If point turned OFF, keep counter at previous value until next establish (rules may still read it)
+        if not point_on and self._last_point_on:
+            # no increment; next establish will reset to 0
+            pass
+
+        # Update anchors
+        self._last_point_on = point_on
+        self._last_roll_index = roll_idx
+
     def refresh_system(self, gs: GameState):
         """
         Update the read-only system vars based on the latest GameState,
-        including bankroll deltas for session and current shooter.
+        including bankroll deltas and rolls_since_point.
         """
         self._maybe_init_session(gs)
         self._maybe_update_shooter_anchor(gs)
+        self._update_rolls_since_point(gs)
 
         t = gs.table
         p = gs.player
@@ -74,6 +121,7 @@ class VarStore:
             "shooter_index": t.shooter_index,
             "roll_index": t.roll_index,
             "rolls_this_shooter": t.rolls_this_shooter,
+            "rolls_since_point": self._rolls_since_point,
 
             # derived flags
             "just_point_established": gs.just_established_point,
