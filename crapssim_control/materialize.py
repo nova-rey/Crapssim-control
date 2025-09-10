@@ -28,6 +28,23 @@ except Exception:
 
 BetIntent = Tuple[str, Optional[int], int, Dict[str, Any]]
 
+# -------------------------- Kind normalization helpers -----------------------
+
+_KIND_MAP = {
+    # engine/class names → canonical
+    "passline": "pass",
+    "dontpass": "dont_pass",
+    "dont_come": "dont_come",
+    "dontcome": "dont_come",
+    "come": "come",
+    "field": "field",
+    "place": "place",
+    "pass": "pass",
+    "dont_pass": "dont_pass",
+}
+
+def _norm(kind: str) -> str:
+    return _KIND_MAP.get(kind.lower(), kind.lower())
 
 # -------- Overlay wrapper to allow sidecar attributes (e.g., lay_odds) --------
 
@@ -57,8 +74,6 @@ class _BetOverlay:
             extra = object.__getattribute__(self, "_extra")
             extra[name] = value
 
-    # Some engines iterate / compare by class or have isinstance checks.
-    # Make wrapper behave like the underlying bet for type/name introspection.
     @property
     def __class__(self):
         return object.__getattribute__(self, "_obj").__class__
@@ -70,8 +85,10 @@ class _BetOverlay:
 # -----------------------------------------------------------------------------
 
 def _bet_kind(obj) -> str:
+    # prefer explicit kind if present
     k = getattr(obj, "kind", None)
-    return k.lower() if isinstance(k, str) else obj.__class__.__name__.lower()
+    raw = k.lower() if isinstance(k, str) else obj.__class__.__name__.lower()
+    return _norm(raw)
 
 def _bet_number(obj) -> Optional[int]:
     return getattr(obj, "number", None)
@@ -123,8 +140,9 @@ def _force_sidecar_odds(obj, kind: str, odds: int):
     As a last resort, dynamically attach attributes so tests & debug can read them.
     Overlay will always accept these. On plain objects, we try setattr and ignore errors.
     """
+    k = _norm(kind)
     try:
-        if kind in ("dont_pass", "dont_come"):
+        if k in ("dont_pass", "dont_come"):
             setattr(obj, "lay_odds", int(odds))
             setattr(obj, "odds_amount", int(odds))
         else:
@@ -151,7 +169,8 @@ def _wrap_if_needed(kind: str, obj):
     Wrap COME / DON'T COME with an overlay so we can always stash odds attrs.
     Keep others raw (no need yet).
     """
-    if kind in ("come", "dont_come"):
+    k = _norm(kind)
+    if k in ("come", "dont_come"):
         return _BetOverlay(obj)
     return obj
 
@@ -161,7 +180,7 @@ def _make_bet(kind: str, number: Optional[int], amount: int):
     we post-set .number if provided so tests can simulate 'moved' bets,
     then wrap in an overlay so odds attrs can be attached reliably.
     """
-    k = kind.lower()
+    k = _norm(kind)
     if k == "pass" and _PassLine is not None:
         return _PassLine(int(amount))
     if k == "dont_pass" and _DontPass is not None:
@@ -185,7 +204,7 @@ def _make_bet(kind: str, number: Optional[int], amount: int):
     # Fallback shim object so tests can run without the engine.
     class _Shim:
         def __init__(self, kind, number, amount):
-            self.kind = kind
+            self.kind = _norm(kind)
             self.number = number
             self.amount = int(amount)
             self.working = True
@@ -197,11 +216,11 @@ def _find_existing(player, kind: str, number: Optional[int]):
     bets = getattr(player, "bets", None)
     if not bets:
         return None
-    k = kind.lower()
+    target = _norm(kind)
     for b in list(bets):
-        if _bet_kind(b) != k:
+        if _bet_kind(b) != target:
             continue
-        if k == "place" and number is not None and _bet_number(b) != number:
+        if target == "place" and number is not None and _bet_number(b) != number:
             continue
         return b
     return None
@@ -210,8 +229,8 @@ def _iter_bets(player, kind: str):
     bets = getattr(player, "bets", None)
     if not bets:
         return []
-    k = kind.lower()
-    return [b for b in list(bets) if _bet_kind(b) == k]
+    target = _norm(kind)
+    return [b for b in list(bets) if _bet_kind(b) == target]
 
 def _add_bet(player, bet_obj) -> bool:
     for meth in ("add_bet", "place_bet", "add"):
@@ -269,11 +288,12 @@ def _apply_meta_with_legalization(player, bet_obj, kind: str, meta: Dict[str, An
         base_flat = int(getattr(bet_obj, "amount", 0))
         policy = odds_policy if odds_policy is not None else "3-4-5x"
 
-        if kind == "pass":
+        k = _norm(kind)
+        if k == "pass":
             legalized = legalize_odds(point, int(meta["odds"]), base_flat, bubble=bubble, policy=policy)
             if not _set_odds_known_attrs(bet_obj, legalized):
                 _force_sidecar_odds(bet_obj, "pass", legalized)
-        elif kind == "dont_pass":
+        elif k == "dont_pass":
             legalized = legalize_lay_odds(point, int(meta["odds"]), base_flat, bubble=bubble, policy=policy)
             if not _set_odds_known_attrs(bet_obj, legalized):
                 _force_sidecar_odds(bet_obj, "dont_pass", legalized)
@@ -300,11 +320,12 @@ def _apply_odds_to_existing(player, kind: str, desired_odds: int, scope: str, od
         if point not in (4, 5, 6, 8, 9, 10):  # no odds until moved
             continue
         base_flat = int(getattr(b, "amount", 0))
-        if kind == "come":
+        k = _norm(kind)
+        if k == "come":
             legalized = legalize_odds(point, int(desired_odds), base_flat, bubble=bubble, policy=policy)
             if not _set_odds_known_attrs(b, legalized):
                 _force_sidecar_odds(b, "come", legalized)
-        elif kind == "dont_come":
+        elif k == "dont_come":
             legalized = legalize_lay_odds(point, int(desired_odds), base_flat, bubble=bubble, policy=policy)
             if not _set_odds_known_attrs(b, legalized):
                 _force_sidecar_odds(b, "dont_come", legalized)
