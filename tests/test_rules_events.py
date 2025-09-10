@@ -1,6 +1,16 @@
 from crapssim_control.rules import run_rules_for_event
 from crapssim_control.varstore import VarStore
 
+def _kinds(intents):
+    ks = []
+    for it in intents:
+        if len(it) == 3:
+            k, n, a = it
+        else:
+            k, n, a, _ = it
+        ks.append((k, n))
+    return ks
+
 def test_rule_matching_all_keys():
     spec = {
         "variables": {"units": 10, "mode": "Aggressive"},
@@ -17,11 +27,12 @@ def test_rule_matching_all_keys():
 
     ev_lose = {"event":"bet_resolved","bet":"pass","result":"lose"}
     intents = run_rules_for_event(spec, vs, ev_lose)
-    # should apply pass with units=20 after increment
-    kinds = [(k, n) for (k, n, a) in intents]
+    kinds = _kinds(intents)
     assert ("pass", None) in kinds
+    assert vs.user["units"] >= 20  # increment happened
 
     ev_win = {"event":"bet_resolved","bet":"pass","result":"win"}
     intents2 = run_rules_for_event(spec, vs, ev_win)
-    kinds2 = [(k, n) for (k, n, a) in intents2]
+    kinds2 = _kinds(intents2)
     assert ("pass", None) in kinds2
+    assert vs.user["units"] == 10
