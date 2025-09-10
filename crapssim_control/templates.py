@@ -4,10 +4,10 @@ from .legalize import legalize_amount
 from .eval import safe_eval
 
 # BetIntent:
-#   kind: "pass" | "dont_pass" | "field" | "place"
+#   kind: "pass" | "dont_pass" | "field" | "place" | "come" | "dont_come"
 #   number: int | None
 #   amount: int   (base/flat amount)
-#   meta: dict    (optional fields: {"working": bool, "odds": int})
+#   meta: dict    (optional fields: {"working": bool})
 BetIntent = Tuple[str, Optional[int], int, Dict[str, Any]]
 
 def _ev(expr, names: Dict[str, Any]) -> int | float | bool:
@@ -24,8 +24,8 @@ def _legal_amount(number: Optional[int], raw_amount: int, bubble: bool, table_le
 def _parse_simple_or_obj(value: Any) -> Dict[str, Any]:
     """
     Accept either a scalar (amount) or an object with fields like:
-      {"amount": "...", "odds": "...", "working": false}
-    Returns a normalized dict.
+      {"amount": "...", "working": false}
+    Returns a normalized dict. (For v0, 'odds' is ignored on come/dont_come.)
     """
     if isinstance(value, dict):
         return dict(value)
@@ -39,12 +39,9 @@ def render_template(template: Dict[str, Any],
     Convert a template dict into a list of bet intents with legalized amounts and optional meta.
 
     Supported top-level keys:
-      - "pass", "dont_pass", "field": scalar or object with {"amount","odds","working"}
+      - "pass", "dont_pass", "field": scalar or {"amount","odds","working"}
       - "place": { "6": expr|{amount,working}, "8": ..., ... }
-
-    Notes (v0):
-      - Odds amounts are passed through as int(expr) (no legalization yet).
-      - "working" defaults to True unless explicitly set false on that bet.
+      - "come", "dont_come": scalar or {"amount","working"}  (v0: no odds yet)
     """
     out: List[BetIntent] = []
 
@@ -57,11 +54,21 @@ def render_template(template: Dict[str, Any],
             meta: Dict[str, Any] = {}
             if "working" in spec:
                 meta["working"] = bool(spec["working"])
-            if "odds" in spec:
-                # For now, odds are not "legalized" -- just int-evaluated.
-                # (In future we can add per-point odds steps/ratios if needed.)
+            # 'odds' supported for pass/dont_pass; ignored for field
+            if flat_key in ("pass", "dont_pass") and "odds" in spec:
                 meta["odds"] = _ev_i(spec["odds"], vars_map)
             out.append((flat_key, None, amt, meta))
+
+    # ---- Come / Don't Come (v0: no odds) ----
+    for ck in ("come", "dont_come"):
+        if ck in template:
+            spec = _parse_simple_or_obj(template[ck])
+            raw = _ev_i(spec.get("amount", 0), vars_map)
+            amt = _legal_amount(None, raw, bubble, table_level)
+            meta: Dict[str, Any] = {}
+            if "working" in spec:
+                meta["working"] = bool(spec["working"])
+            out.append((ck, None, amt, meta))
 
     # ---- Place bets ----
     if "place" in template:

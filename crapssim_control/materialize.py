@@ -6,6 +6,8 @@ Supported intents:
   ("pass", None, amt, meta),
   ("dont_pass", None, amt, meta),
   ("field", None, amt, meta),
+  ("come", None, amt, meta),
+  ("dont_come", None, amt, meta),
   ("place", number, amt, meta),
   ("__clear__", None, 0, {})
 """
@@ -16,8 +18,10 @@ from .legalize import legalize_odds, legalize_lay_odds
 # Try to import common bet classes. If not present, we fall back to names.
 try:
     from crapssim.bet import PassLine as _PassLine, DontPass as _DontPass, Field as _Field, Place as _Place  # type: ignore
+    from crapssim.bet import Come as _Come, DontCome as _DontCome  # type: ignore
 except Exception:  # editing without engine available
     _PassLine = _DontPass = _Field = _Place = None  # type: ignore
+    _Come = _DontCome = None  # type: ignore
 
 BetIntent = Tuple[str, Optional[int], int, Dict[str, Any]]
 
@@ -72,6 +76,10 @@ def _make_bet(kind: str, number: Optional[int], amount: int):
         return _Field(int(amount))
     if k == "place" and _Place is not None and number is not None:
         return _Place(int(number), int(amount))
+    if k == "come" and _Come is not None:
+        return _Come(int(amount))
+    if k == "dont_come" and _DontCome is not None:
+        return _DontCome(int(amount))
     # Fallback shim object so tests can run without the engine.
     class _Shim:
         def __init__(self, kind, number, amount):
@@ -79,8 +87,9 @@ def _make_bet(kind: str, number: Optional[int], amount: int):
             self.number = number
             self.amount = int(amount)
             self.working = True
-            self.odds_amount = 0   # for pass odds
-            self.lay_odds = 0      # for don't pass lay odds
+            # provide common attributes used elsewhere
+            self.odds_amount = 0    # pass/come odds
+            self.lay_odds = 0       # dp/dc lay odds
     return _Shim(k, number, amount)
 
 def _find_existing(player, kind: str, number: Optional[int]):
@@ -91,6 +100,7 @@ def _find_existing(player, kind: str, number: Optional[int]):
     for b in list(bets):
         if _bet_kind(b) != k:
             continue
+        # For place bets, number must match. For others, number is usually None.
         if k == "place" and number is not None and _bet_number(b) != number:
             continue
         return b
@@ -145,23 +155,31 @@ def _apply_meta_with_legalization(player, bet_obj, kind: str, meta: Dict[str, An
         return
     _set_working(bet_obj, meta.get("working"))
 
-    table = getattr(player, "table", None)
-    point = getattr(table, "point_number", None) if table else None
-    bubble = bool(getattr(table, "bubble", False)) if table else False
-    base_flat = int(getattr(bet_obj, "amount", 0))
-    policy = odds_policy if odds_policy is not None else "3-4-5x"
-
+    # PASS/DP odds already handled earlier; Come/DC odds are deferred for v0
+    # because they require per-bet point numbers after movement.
     if "odds" in meta:
         if kind == "pass":
+            table = getattr(player, "table", None)
+            point = getattr(table, "point_number", None) if table else None
+            bubble = bool(getattr(table, "bubble", False)) if table else False
+            base_flat = int(getattr(bet_obj, "amount", 0))
+            policy = odds_policy if odds_policy is not None else "3-4-5x"
             legalized = legalize_odds(point, int(meta["odds"]), base_flat, bubble=bubble, policy=policy)
             _set_odds(bet_obj, legalized)
         elif kind == "dont_pass":
+            table = getattr(player, "table", None)
+            point = getattr(table, "point_number", None) if table else None
+            bubble = bool(getattr(table, "bubble", False)) if table else False
+            base_flat = int(getattr(bet_obj, "amount", 0))
+            policy = odds_policy if odds_policy is not None else "3-4-5x"
             legalized = legalize_lay_odds(point, int(meta["odds"]), base_flat, bubble=bubble, policy=policy)
-            # engines differ on attribute name; we try lay-specific first
             if hasattr(bet_obj, "lay_odds"):
                 setattr(bet_obj, "lay_odds", int(legalized))
             else:
                 _set_odds(bet_obj, legalized)
+        else:
+            # come / dont_come: odds intentionally ignored in v0
+            pass
 
 def apply_intents(player, intents: List[BetIntent], *, odds_policy: str | int | None = None):
     """
