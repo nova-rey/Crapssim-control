@@ -1,111 +1,49 @@
-⸻
+# Crapssim-Control
 
-crapssim-control
+**Runtime for conditional craps strategies.**
 
-Runtime companion library for crapssim-compiler.
-Provides a controller layer on top of CrapsSim that executes rule-based strategy specs (JSON) with conditional logic, state tracking, and mode switching.
+Crapssim-Control is a small Python library that executes rule-based strategy specs (JSON) on top of [CrapsSim](https://github.com/skent259/crapssim). It enables conditional logic (martingale, regression, mode switching) that the static v1 exporter cannot express.
 
-⸻
+—
 
-✨ What it does
-	•	Consumes strategy specs exported by crapssim-compiler (Node-RED visual builder).
-	•	Tracks state (variables, counters, bankroll, roll history).
-	•	Evaluates rules on events (comeout, point_established, roll, seven_out, bet_resolved, shooter_change).
-	•	Executes actions: set/mutate variables, switch modes, regress/progress bet sizing, apply/clear bet templates.
-	•	Applies templates as real CrapsSim bets (BetPassLine, BetPlace, BetField, etc.), respecting table rules.
-	•	Supports bubble vs. live table increments (via built-in legalizer).
+## Features
 
-This makes it possible to author strategies like Martingale, regression, and conditional mode switches — things that static bet templates can’t handle.
+- Event-driven rule engine (comeout, point established, rolls, seven-out, bet resolved, shooter change).
+- Variable store with safe expression evaluation.
+- Mode + template system for declarative bet layouts.
+- Bet legalization consistent with real craps tables (bubble and standard).
+- Odds support (Pass, Don’t Pass, Come, Don’t Come).
+- Structured tests (pytest) and CI integration.
+- Compatible with JSON specs exported from **crapssim-compiler** (Node-RED builder).
 
-⸻
+—
 
-📦 Installation
+## Example
 
-pip install crapssim-control
+Strategy spec (JSON):
 
-Requires:
-	•	Python 3.9+
-	•	CrapsSim (pip install crapssim)
+```json
+{
+  “meta”: { “version”: 0, “name”: “RegressionDemo” },
+  “table”: { “bubble”: false, “level”: 10 },
 
-⸻
+  “variables”: { “units”: 5, “mode”: “Aggressive”, “rolls_since_point”: 0 },
 
-🚀 Quick Start
-
-import crapssim as craps
-from crapssim_control import ControlStrategy
-
-# Example: Pass Martingale (simplified spec)
-SPEC = {
-  "variables": { "base_units": 5, "units": 5, "mode": "PassOnly" },
-  "modes": {
-    "PassOnly": { "template": { "pass": "units" } }
+  “modes”: {
+    “Aggressive”: {
+      “template”: {
+        “pass”: “units”,
+        “place”: { “6”: “units*2”, “8”: “units*2” }
+      }
+    },
+    “Regressed”: {
+      “template”: { “pass”: “units”, “place”: { “6”: “units”, “8”: “units” } }
+    }
   },
-  "rules": [
-    { "on": { "event": "comeout" }, "do": ["apply_template('PassOnly')"] },
-    { "on": { "event": "bet_resolved", "bet_type": "pass" },
-      "if": "event.result == 'lose' and event.reason == 'seven_out'",
-      "do": ["units = min(units*2, base_units*8)"] },
-    { "on": { "event": "bet_resolved", "bet_type": "pass" },
-      "if": "event.result == 'win'",
-      "do": ["units = base_units"] },
-    { "on": { "event": "bet_resolved", "bet_type": "pass" }, "do": ["apply_template('PassOnly')"] }
-  ],
-  "table": { "bubble": false, "level": 10 }
+
+  “rules”: [
+    { “on”: { “event”: “point_established” }, “do”: [“rolls_since_point = 0”, “apply_template(‘Aggressive’)”] },
+    { “on”: { “event”: “roll” }, “do”: [“rolls_since_point += 1”] },
+    { “on”: { “event”: “roll” }, “if”: “rolls_since_point >= 3”, “do”: [“mode = ‘Regressed’”, “apply_template(mode)”] }
+  ]
 }
-
-if __name__ == "__main__":
-    table = craps.Table(seed=42)
-    strat = ControlStrategy(SPEC)
-    table.add_player(strategy=strat, bankroll=300, name="Martingale")
-    table.run(max_rolls=200, verbose=True)
-
-
-⸻
-
-📖 Spec Overview
-
-A strategy spec has four parts:
-	•	variables → initial state (units, mode, counters).
-	•	modes → named bet templates (expressions in variables).
-	•	rules → event triggers with optional conditions and actions.
-	•	table → table rules (bubble, level).
-
-See SPEC.md for the full contract.
-
-⸻
-
-🧪 Examples
-	•	Martingale on Pass
-	•	Regression after N rolls since point
-	•	Switch to conservative mode on drawdown
-
-See examples/ for ready-to-run specs.
-
-⸻
-
-🛠 Development
-
-Clone and install locally:
-
-git clone https://github.com/yourname/crapssim-control.git
-cd crapssim-control
-pip install -e .
-
-Run tests:
-
-pytest
-
-
-⸻
-
-🤝 Related Projects
-	•	CrapsSim — simulation engine.
-	•	crapssim-compiler — Node-RED strategy builder (exports specs consumed by this library).
-
-⸻
-
-📜 License
-
-MIT
-
-⸻
