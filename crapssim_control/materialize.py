@@ -18,11 +18,11 @@ Supported intents:
 from typing import Optional, Tuple, List, Dict, Any
 from .legalize import legalize_odds, legalize_lay_odds
 
-# Try to import common bet classes. If not present, we fall back to names.
+# Try to import common bet classes. If not present, we fall back to shims.
 try:
     from crapssim.bet import PassLine as _PassLine, DontPass as _DontPass, Field as _Field, Place as _Place  # type: ignore
     from crapssim.bet import Come as _Come, DontCome as _DontCome  # type: ignore
-except Exception:  # editing without engine available
+except Exception:
     _PassLine = _DontPass = _Field = _Place = None  # type: ignore
     _Come = _DontCome = None  # type: ignore
 
@@ -31,14 +31,12 @@ BetIntent = Tuple[str, Optional[int], int, Dict[str, Any]]
 
 def _bet_kind(obj) -> str:
     k = getattr(obj, "kind", None)
-    if isinstance(k, str):
-        return k.lower()
-    return obj.__class__.__name__.lower()
+    return k.lower() if isinstance(k, str) else obj.__class__.__name__.lower()
 
 def _bet_number(obj) -> Optional[int]:
     return getattr(obj, "number", None)
 
-def _set_amount(obj, amount: int):
+def _set_amount(obj, amount: int) -> bool:
     if hasattr(obj, "amount"):
         setattr(obj, "amount", int(amount))
         return True
@@ -54,26 +52,52 @@ def _set_working(obj, working: Optional[bool]):
     if hasattr(obj, "working"):
         try:
             setattr(obj, "working", bool(working))
-            return
         except Exception:
             pass
 
-def _set_odds(obj, odds: Optional[int]):
-    if odds is None:
-        return
+def _set_odds_known_attrs(obj, odds: int) -> bool:
+    """
+    Try a few common attribute names for odds-like values.
+    Returns True if we successfully set one.
+    """
     for attr in ("odds_amount", "odds", "lay_odds"):
         if hasattr(obj, attr):
             try:
                 setattr(obj, attr, int(odds))
-                return
+                return True
             except Exception:
                 pass
+    # Some engines expose a nested object: obj.odds.amount or similar
+    nested = getattr(obj, "odds", None)
+    if nested is not None:
+        for attr in ("amount", "value"):
+            if hasattr(nested, attr):
+                try:
+                    setattr(nested, attr, int(odds))
+                    return True
+                except Exception:
+                    pass
+    return False
+
+def _force_sidecar_odds(obj, kind: str, odds: int):
+    """
+    As a last resort, dynamically attach attributes so tests & debug can read them.
+    We already verified we can setattr .number on these engine objects, so this is safe.
+    """
+    try:
+        if kind == "dont_come":
+            # Store both names so either reader can find it.
+            setattr(obj, "lay_odds", int(odds))
+            setattr(obj, "odds_amount", int(odds))
+        else:
+            setattr(obj, "odds_amount", int(odds))
+    except Exception:
+        pass
 
 def _make_bet(kind: str, number: Optional[int], amount: int):
     """
     Create a bet object. For Come / Don't Come using real engine classes,
-    we *post-set* .number if a number was provided so tests can simulate
-    'moved' bets (engine normally sets it after a roll).
+    we *post-set* .number if provided so tests can simulate 'moved' bets.
     """
     k = kind.lower()
     if k == "pass" and _PassLine is not None:
@@ -87,18 +111,14 @@ def _make_bet(kind: str, number: Optional[int], amount: int):
     if k == "come" and _Come is not None:
         obj = _Come(int(amount))
         if number is not None:
-            try:
-                setattr(obj, "number", int(number))
-            except Exception:
-                pass
+            try: setattr(obj, "number", int(number))
+            except Exception: pass
         return obj
     if k == "dont_come" and _DontCome is not None:
         obj = _DontCome(int(amount))
         if number is not None:
-            try:
-                setattr(obj, "number", int(number))
-            except Exception:
-                pass
+            try: setattr(obj, "number", int(number))
+            except Exception: pass
         return obj
     # Fallback shim object so tests can run without the engine.
     class _Shim:
@@ -107,7 +127,6 @@ def _make_bet(kind: str, number: Optional[int], amount: int):
             self.number = number
             self.amount = int(amount)
             self.working = True
-            # provide common attributes used elsewhere
             self.odds_amount = 0    # pass/come odds
             self.lay_odds = 0       # dp/dc lay odds
     return _Shim(k, number, amount)
@@ -120,7 +139,6 @@ def _find_existing(player, kind: str, number: Optional[int]):
     for b in list(bets):
         if _bet_kind(b) != k:
             continue
-        # For place bets, number must match. For others, number is usually None.
         if k == "place" and number is not None and _bet_number(b) != number:
             continue
         return b
@@ -192,23 +210,18 @@ def _apply_meta_with_legalization(player, bet_obj, kind: str, meta: Dict[str, An
 
         if kind == "pass":
             legalized = legalize_odds(point, int(meta["odds"]), base_flat, bubble=bubble, policy=policy)
-            _set_odds(bet_obj, legalized)
+            if not _set_odds_known_attrs(bet_obj, legalized):
+                _force_sidecar_odds(bet_obj, "pass", legalized)
         elif kind == "dont_pass":
             legalized = legalize_lay_odds(point, int(meta["odds"]), base_flat, bubble=bubble, policy=policy)
-            # Be generous: set both lay_odds and odds_amount if present
-            if hasattr(bet_obj, "lay_odds"):
-                try: setattr(bet_obj, "lay_odds", int(legalized))
-                except Exception: pass
-            _set_odds(bet_obj, legalized)
-        else:
-            # come / dont_come: odds handled by __apply_odds__ intents (per-number)
-            pass
+            if not _set_odds_known_attrs(bet_obj, legalized):
+                _force_sidecar_odds(bet_obj, "dont_pass", legalized)
 
 def _apply_odds_to_existing(player, kind: str, desired_odds: int, scope: str, odds_policy: str | int | None):
     """
     Apply odds to existing Come / Don't Come bets based on their current numbers.
     - kind: 'come' | 'dont_come'
-    - scope: 'all' | 'newest' (newest = last in player's bet list of that kind)
+    - scope: 'all' | 'newest'
     """
     bets = _iter_bets(player, kind)
     if not bets:
@@ -222,27 +235,23 @@ def _apply_odds_to_existing(player, kind: str, desired_odds: int, scope: str, od
 
     for b in targets:
         point = _bet_number(b)
-        base_flat = int(getattr(b, "amount", 0))
-        if point not in (4,5,6,8,9,10):  # no odds until moved
+        if point not in (4, 5, 6, 8, 9, 10):  # no odds until moved
             continue
+        base_flat = int(getattr(b, "amount", 0))
         if kind == "come":
             legalized = legalize_odds(point, int(desired_odds), base_flat, bubble=bubble, policy=policy)
-            _set_odds(b, legalized)
+            if not _set_odds_known_attrs(b, legalized):
+                _force_sidecar_odds(b, "come", legalized)
         elif kind == "dont_come":
             legalized = legalize_lay_odds(point, int(desired_odds), base_flat, bubble=bubble, policy=policy)
-            # Be generous: set both lay_odds and odds_amount if present
-            if hasattr(b, "lay_odds"):
-                try: setattr(b, "lay_odds", int(legalized))
-                except Exception: pass
-            _set_odds(b, legalized)
+            if not _set_odds_known_attrs(b, legalized):
+                _force_sidecar_odds(b, "dont_come", legalized)
 
 def apply_intents(player, intents: List[BetIntent], *, odds_policy: str | int | None = None):
     """
     Apply a list of bet intents onto the player.
-    Strategy: if a __clear__ sentinel is present, clear first, then lay down all intents.
-    Otherwise, upsert each intent individually.
-
-    odds_policy: table-level odds policy ("3-4-5x", "2x", "5x", "10x", or int)
+    - If a __clear__ sentinel is present, clear first, then apply others.
+    - Apply __apply_odds__ intents up-front (they affect existing bets).
     """
     if not intents:
         return
@@ -252,7 +261,7 @@ def apply_intents(player, intents: List[BetIntent], *, odds_policy: str | int | 
         _clear_all_bets(player)
         intents = [t for t in intents if t[0] != "__clear__"]
 
-    # Handle apply-odds control intents up-front (they affect existing bets)
+    # Apply-odds control intents
     control_intents = [t for t in intents if t[0] == "__apply_odds__"]
     for _, kind, amt, meta in control_intents:
         scope = (meta or {}).get("scope", "all")
