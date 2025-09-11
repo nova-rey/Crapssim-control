@@ -1,3 +1,4 @@
+# crapssim_control/cli.py
 from __future__ import annotations
 
 import argparse, json, sys
@@ -5,7 +6,7 @@ from typing import Any
 
 try:
     import craps  # CrapsSim engine (pip install crapssim)
-except Exception as e:
+except Exception:
     craps = None
 
 from .controller import ControlStrategy
@@ -55,26 +56,37 @@ def main(argv: list[str] | None = None) -> int:
 
         # Telemetry (optional)
         tele = Telemetry(ns.telemetry) if ns.telemetry else None
+        final_bankroll = None
+
         try:
             strat = ControlStrategy(spec, telemetry=tele, odds_policy=odds_policy)
 
             # Build table
             level = int(table_cfg.get("level", 10))
             bubble = bool(table_cfg.get("bubble", False))
-            table = getattr(craps, "Table", None)
-            if table is None:
+            table_cls = getattr(craps, "Table", None)
+            if table_cls is None:
                 print("Error: craps.Table not found in engine.", file=sys.stderr)
                 return 2
 
-            t = table(level=level, bubble=bubble)
+            t = table_cls(level=level, bubble=bubble)
             t.add_player(strat)
 
             # Run
             t.run(shooters=int(ns.shooters))
 
+            # Best-effort: grab bankroll for summary (may be None if engine doesn’t set it)
+            final_bankroll = strat.state.get("bankroll")
+
         finally:
             if tele is not None:
                 tele.close()
+
+        # Always print a "Bankroll …" line for smoke tests
+        if final_bankroll is None:
+            print("Bankroll: N/A")
+        else:
+            print(f"Bankroll: {final_bankroll}")
 
         return 0
 
