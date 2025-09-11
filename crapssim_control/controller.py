@@ -110,6 +110,21 @@ class ControlStrategy:
         """
         self.on_event(event)
 
+    def after_roll(self, d1: int, d2: int) -> None:
+        """
+        Back-compat hook: some engines call after_roll(d1, d2) each toss.
+        Record dice + roll index, then emit a 'roll' event for the rule engine.
+        """
+        try:
+            d1i, d2i = int(d1), int(d2)
+        except Exception:
+            d1i = d1
+            d2i = d2
+        # record dice & advance roll count
+        self.note_roll(d1i, d2i)
+        # forward a 'roll' event
+        self.on_event({"event": "roll", "dice": (d1i, d2i), "total": d1i + d2i})
+
     def tick(self, table_snapshot_before: Dict[str, Any], table_snapshot_after: Dict[str, Any]) -> None:
         """
         Alternate entrypoint: derive the event from two table snapshots.
@@ -165,8 +180,6 @@ class ControlStrategy:
             self.state["shooter_id"] = int(self.state.get("shooter_id", 0)) + 1
             self.state["hand_id"] = int(self.state.get("hand_id", 0)) + 1
             self.state["roll_index"] = 0
-
-        # bank deltas might be set externally; if not, keep last delta as-is
 
         # Keep system params synced from table if available
         if self.table is not None:
