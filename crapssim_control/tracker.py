@@ -26,6 +26,7 @@ class Tracker:
       - snapshot() -> dict including:
             ["roll"]["last_roll"]
             ["roll"]["rolls_since_point"]
+            ["roll"]["shooter_rolls"]
             ["point"]["point"]
       - observe(prev, curr, event) exists (used internally)
 
@@ -87,11 +88,16 @@ class Tracker:
         self.observe(self._curr_snapshot, curr, {"event": "point_established"})
 
     def snapshot(self) -> Dict[str, Any]:
-        # Provide both the nested shape expected by tests and flat counters for convenience
+        shooter_rolls = 0
+        if self.current_point is not None:
+            # Count the establishing roll as 1; subsequent rolls increment rolls_since_point.
+            shooter_rolls = 1 + (self.rolls_since_point or 0)
+
         return {
             "roll": {
                 "last_roll": self.last_total,
                 "rolls_since_point": self.rolls_since_point if self.rolls_since_point is not None else 0,
+                "shooter_rolls": shooter_rolls,
             },
             "point": {"point": self.current_point, "current": self.current_point},
             "totals": dict(self.hits_by_total),

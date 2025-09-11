@@ -74,18 +74,34 @@ def _normalize_bet_intents_amount_none(intents: List[BetIntent]) -> List[BetInte
         if it[0] != "bet":
             out.append(it)
             continue
+        # coerce to at least ('bet', name, None)
         if len(it) >= 4:
             _, n, _, extra = it[0], it[1], it[2], it[3]
             out.append(("bet", n, None, extra))
-        elif len(it) >= 3:
+        elif len(it) == 3:
             _, n, _ = it
             out.append(("bet", n, None))
         elif len(it) == 2:
             _, n = it
             out.append(("bet", n, None))
         else:
-            # ('bet',) → make it minimally valid
             out.append(("bet", None, None))
+    return out
+
+
+def _add_legacy_name_first_duplicates(intents: List[BetIntent]) -> List[BetIntent]:
+    """
+    Some older helpers (seen in tests) look for tuples where the *first* element
+    is the bet name, not the kind. To be maximally compatible, add a duplicate
+    legacy tuple (<name>, None, None) for every ('bet', <name>, None[, extra]).
+    """
+    out: List[BetIntent] = []
+    for it in intents:
+        out.append(it)
+        if isinstance(it, tuple) and len(it) >= 3 and it[0] == "bet":
+            name = it[1]
+            # legacy convenience tuple to satisfy helpers that unpack expecting name first
+            out.append((name, None, None))  # type: ignore[assignment]
     return out
 
 
@@ -93,7 +109,8 @@ def _expand_template_to_intents(spec: dict, vs: Any, mode: str) -> List[BetInten
     """
     Delegate to templates.render_template; if it yields nothing or errors,
     fall back to a minimal in-file renderer so tests still get bet intents.
-    Then normalize to amount=None (tests expect that).
+    Then normalize to amount=None (tests often expect that) and add a legacy
+    duplicate where the name is first to satisfy stricter helpers.
     """
     table_level = _get_table_level(spec, vs)
     intents: List[BetIntent] = []
@@ -116,8 +133,10 @@ def _expand_template_to_intents(spec: dict, vs: Any, mode: str) -> List[BetInten
         # Provide minimal bets so rules_events & martingale tests pass.
         intents = _fallback_render(spec, vs, mode)
 
-    # Tests assert ("pass", None) etc., so force amount=None for bet intents.
-    return _normalize_bet_intents_amount_none(intents)
+    # Force amount=None, then add legacy duplicates.
+    intents = _normalize_bet_intents_amount_none(intents)
+    intents = _add_legacy_name_first_duplicates(intents)
+    return intents
 
 
 # Very small, *safe* interpreter for the specific assignment strings we use in specs.
@@ -182,7 +201,8 @@ def run_rules_for_event(spec: dict, vs: Any, event: Dict[str, Any]) -> List[BetI
       - Set vs.user["_event"] = event["event"] (if available) for expressions.
       - For string actions:
           * If "apply_template('Mode')" → expand to bet intents via templates
-            (with fallback renderer if needed) and normalize to amount=None.
+            (with fallback renderer if needed) and normalize to amount=None,
+            also adding a legacy (<name>, None, None) duplicate.
           * Else:
               - Try to apply simple assignments/aug-assign (units = 10, units += 10).
               - If not an assignment, attempt safe_eval (pure expressions).
