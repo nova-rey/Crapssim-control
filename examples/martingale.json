@@ -1,7 +1,7 @@
 {
   "meta": { "version": 0, "name": "Martingale Pass" },
   "table": { "bubble": false, "level": 10, "odds_policy": "3-4-5x" },
-  "variables": { "base_units": 10, "units": 10, "cap_mult": 8, "mode": "Main" },
+  "variables": { "base_units": 10, "units": 10, "cap_mult": 4, "mode": "Main" },
   "modes": {
     "Main": {
       "template": { "pass": "units" }

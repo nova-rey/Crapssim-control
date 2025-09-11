@@ -1,184 +1,125 @@
 # crapssim_control/spec.py
 from __future__ import annotations
-from typing import Any, Dict, List, Tuple, Optional
 
-ALLOWED_EVENTS = {
+from typing import Any, Dict, Iterable
+
+REQUIRED_TOP_LEVEL_KEYS: tuple[str, ...] = ("meta", "table", "variables", "modes", "rules")
+ALLOWED_EVENTS: set[str] = {
     "comeout",
     "point_established",
     "roll",
     "seven_out",
-    "point_made",
     "bet_resolved",
     "shooter_change",
 }
 
-# Known top-level keys (others are ignored but kept forward-compatible)
-TOP_KEYS = {"meta", "table", "variables", "modes", "rules"}
+def _require_keys(d: Dict[str, Any], keys: Iterable[str], where: str) -> None:
+    for k in keys:
+        if k not in d:
+            raise ValueError(f"Missing key '{k}' in {where}")
 
-# Template keys we recognize in v0 (extra keys are allowed for forward-compat)
-TEMPLATE_SCALARS = {
-    "pass", "dont_pass", "field", "come", "dont_come",
-    # odds (flat forms; engine-specific actions will interpret these)
-    "odds", "dont_odds", "come_odds", "dont_come_odds",
-}
-TEMPLATE_NUMBERED = {
-    "place",      # {"6": "expr", "8": "expr", ...}
-    "place_dc",   # {"6": "expr", ...} -- future-proof
-}
+def _validate_meta(meta: Dict[str, Any]) -> None:
+    _require_keys(meta, ("version", "name"), "meta")
+    if not isinstance(meta["version"], int):
+        raise ValueError("meta.version must be int")
+    if not isinstance(meta["name"], str) or not meta["name"].strip():
+        raise ValueError("meta.name must be non-empty string")
 
-def _err(errors: List[str], msg: str) -> None:
-    errors.append(msg)
+def _validate_table(table: Dict[str, Any]) -> None:
+    _require_keys(table, ("bubble", "level"), "table")
+    if not isinstance(table["bubble"], bool):
+        raise ValueError("table.bubble must be bool")
+    if not isinstance(table["level"], int) or table["level"] <= 0:
+        raise ValueError("table.level must be positive int")
+    # optional
+    if "odds_policy" in table:
+        if table["odds_policy"] not in (None, "none", "2x", "5x", "3-4-5x"):
+            raise ValueError("table.odds_policy must be one of: none, 2x, 5x, 3-4-5x")
 
-def _is_intlike(x: Any) -> bool:
-    try:
-        int(x)
-        return True
-    except Exception:
-        return False
-
-def _validate_table(tbl: Any, errors: List[str], path: str = "table") -> None:
-    if tbl is None:
-        return
-    if not isinstance(tbl, dict):
-        _err(errors, f"{path} must be an object")
-        return
-    if "bubble" in tbl and not isinstance(tbl["bubble"], bool):
-        _err(errors, f"{path}.bubble must be boolean")
-    if "level" in tbl and not isinstance(tbl["level"], int):
-        _err(errors, f"{path}.level must be integer")
-    if "odds_policy" in tbl and not (isinstance(tbl["odds_policy"], (int, str))):
-        _err(errors, f"{path}.odds_policy must be int or string (e.g. '3-4-5x')")
-
-def _validate_variables(vars_: Any, errors: List[str], path: str = "variables") -> None:
-    if vars_ is None:
-        return
-    if not isinstance(vars_, dict):
-        _err(errors, f"{path} must be an object")
-        return
-    # values must be JSON-serializable; we only lightly check types
-    for k, v in vars_.items():
+def _validate_variables(vars: Dict[str, Any]) -> None:
+    if not isinstance(vars, dict):
+        raise ValueError("variables must be an object")
+    # No strict schema for v0 -- but ensure names are strings
+    for k in vars.keys():
         if not isinstance(k, str):
-            _err(errors, f"{path} keys must be strings: got {k!r}")
-        if not isinstance(v, (int, float, str, bool, type(None))):
-            _err(errors, f"{path}.{k} has unsupported type {type(v).__name__}")
+            raise ValueError("variables keys must be strings")
 
-def _validate_template_dict(tpl: Any, errors: List[str], path: str) -> None:
+def _validate_template(tpl: Dict[str, Any]) -> None:
+    # flat keys (e.g. "pass": "expr", "field": "expr") and nested maps like "place": {"6":"expr", ...}
     if not isinstance(tpl, dict):
-        _err(errors, f"{path} must be an object")
-        return
-
+        raise ValueError("mode.template must be an object")
     for k, v in tpl.items():
-        if k in TEMPLATE_SCALARS:
-            if not isinstance(v, (int, float, str)):
-                _err(errors, f"{path}.{k} must be number or expression string")
-        elif k in TEMPLATE_NUMBERED:
+        if k in ("place", "buy", "lay", "come", "dont_come"):
             if not isinstance(v, dict):
-                _err(errors, f"{path}.{k} must be an object mapping numbers to expressions")
-            else:
-                for nk, nv in v.items():
-                    if not (isinstance(nk, str) and _is_intlike(nk)):
-                        _err(errors, f"{path}.{k} key {nk!r} must be a number (as string)")
-                    if not isinstance(nv, (int, float, str)):
-                        _err(errors, f"{path}.{k}.{nk} must be number or expression string")
+                raise ValueError(f"template.{k} must be an object of number->expr")
+            for num, expr in v.items():
+                # keys may be strings of ints ("4","5","6","8","9","10")
+                if not isinstance(num, str):
+                    raise ValueError(f"template.{k} keys must be strings (box numbers), got {type(num).__name__}")
+                if not isinstance(expr, (str, int, float)):
+                    raise ValueError(f"template.{k}['{num}'] must be string/number expression")
         else:
-            # Forward-compatible: allow unknown keys but require values be simple
-            if not isinstance(v, (int, float, str, dict)):
-                _err(errors, f"{path}.{k} has unsupported type {type(v).__name__}")
+            if not isinstance(v, (str, int, float)):
+                raise ValueError(f"template.{k} must be string/number expression")
 
-def _validate_modes(modes: Any, errors: List[str], path: str = "modes") -> None:
-    if modes is None:
-        return
-    if not isinstance(modes, dict):
-        _err(errors, f"{path} must be an object")
-        return
-    for name, obj in modes.items():
-        if not isinstance(name, str):
-            _err(errors, f"{path} keys must be strings (mode names)")
-        if not isinstance(obj, dict):
-            _err(errors, f"{path}.{name} must be an object")
-            continue
-        tpl = obj.get("template")
-        if tpl is None:
-            _err(errors, f"{path}.{name}.template is required")
-        else:
-            _validate_template_dict(tpl, errors, f"{path}.{name}.template")
+def _validate_modes(modes: Dict[str, Any]) -> None:
+    if not isinstance(modes, dict) or not modes:
+        raise ValueError("modes must be a non-empty object")
+    for name, body in modes.items():
+        if not isinstance(name, str) or not name:
+            raise ValueError("mode names must be non-empty strings")
+        if not isinstance(body, dict):
+            raise ValueError(f"mode '{name}' must be an object")
+        _require_keys(body, ("template",), f"modes['{name}']")
+        _validate_template(body["template"])
 
-def _validate_rule(rule: Any, errors: List[str], idx: int) -> None:
-    base = f"rules[{idx}]"
-    if not isinstance(rule, dict):
-        _err(errors, f"{base} must be an object")
-        return
-    # on
-    on = rule.get("on")
-    if not isinstance(on, dict):
-        _err(errors, f"{base}.on must be an object")
-    else:
-        ev = on.get("event")
-        if ev not in ALLOWED_EVENTS:
-            _err(errors, f"{base}.on.event must be one of {sorted(ALLOWED_EVENTS)}, got {ev!r}")
-        # allow extra qualifiers like bet/result/number
-        for k, v in on.items():
-            if k == "event":
-                continue
-            # Light type checks
-            if k in {"bet", "result"} and not isinstance(v, str):
-                _err(errors, f"{base}.on.{k} must be a string")
-            if k in {"point", "number"} and not isinstance(v, int):
-                _err(errors, f"{base}.on.{k} must be an integer")
+def _validate_rule(rule: Dict[str, Any]) -> None:
+    _require_keys(rule, ("on", "do"), "rule")
+    if not isinstance(rule["on"], dict):
+        raise ValueError("rule.on must be an object")
+    ev = rule["on"].get("event")
+    if ev not in ALLOWED_EVENTS:
+        raise ValueError(f"rule.on.event must be one of {sorted(ALLOWED_EVENTS)}")
+    # if bet_resolved, allow further keys
+    if ev == "bet_resolved":
+        # optional filters: bet, result, reason
+        pass
+    # optional "if": expression string
+    if "if" in rule and not isinstance(rule["if"], str):
+        raise ValueError("rule.if must be a string expression")
+    # "do": list of action strings
+    if not isinstance(rule["do"], list) or not rule["do"]:
+        raise ValueError("rule.do must be a non-empty array of action strings")
+    for a in rule["do"]:
+        if not isinstance(a, str):
+            raise ValueError("rule.do[] must be strings")
 
-    # if (expression string)
-    if_cond = rule.get("if")
-    if if_cond is not None and not isinstance(if_cond, str):
-        _err(errors, f"{base}.if must be a string expression if present")
-
-    # do (list of action strings)
-    do = rule.get("do")
-    if not isinstance(do, list) or not all(isinstance(x, str) for x in do):
-        _err(errors, f"{base}.do must be a list of strings")
-
-def _validate_rules(rules: Any, errors: List[str], path: str = "rules") -> None:
-    if rules is None:
-        return
+def _validate_rules(rules: Any) -> None:
     if not isinstance(rules, list):
-        _err(errors, f"{path} must be an array")
-        return
-    for i, r in enumerate(rules):
-        _validate_rule(r, errors, i)
+        raise ValueError("rules must be an array")
+    for r in rules:
+        if not isinstance(r, dict):
+            raise ValueError("each rule must be an object")
+        _validate_rule(r)
 
-def validate_spec(spec: Dict[str, Any], *, raise_on_error: bool = False) -> Tuple[bool, List[str]]:
+def validate_spec(spec: Dict[str, Any]) -> None:
     """
-    Lightweight structural validation for v0 specs.
-    Returns (ok, errors). If raise_on_error=True, raises ValueError on errors.
-    """
-    errors: List[str] = []
+    Validate a v0 Control spec.
 
+    IMPORTANT: This function raises ValueError on invalid specs
+    (the CLI depends on the exception to return a non-zero exit code).
+    """
     if not isinstance(spec, dict):
-        _err(errors, "Spec must be a JSON object")
-        ok = False
-        if raise_on_error:
-            raise ValueError("; ".join(errors))
-        return False, errors
+        raise ValueError("spec must be a JSON object")
 
-    # Top-level keys (we don't forbid extras)
-    for k in spec.keys():
-        if not isinstance(k, str):
-            _err(errors, f"Top-level key {k!r} must be a string")
+    _require_keys(spec, REQUIRED_TOP_LEVEL_KEYS, "spec")
 
-    # Sections
-    _validate_table(spec.get("table"), errors, "table")
-    _validate_variables(spec.get("variables"), errors, "variables")
-    _validate_modes(spec.get("modes"), errors, "modes")
-    _validate_rules(spec.get("rules"), errors, "rules")
+    _validate_meta(spec["meta"])
+    _validate_table(spec["table"])
+    _validate_variables(spec["variables"])
+    _validate_modes(spec["modes"])
+    _validate_rules(spec["rules"])
 
-    # Minimal expectations
-    if "variables" not in spec:
-        _err(errors, "variables section is required")
-    if "modes" not in spec:
-        _err(errors, "modes section is required (with at least one mode + template)")
-    if "rules" not in spec:
-        _err(errors, "rules section is required (can be empty list)")
-
-    ok = len(errors) == 0
-    if (not ok) and raise_on_error:
-        raise ValueError("; ".join(errors))
-    return ok, errors
+    # Optional blocks
+    if "telemetry" in spec and not isinstance(spec["telemetry"], dict):
+        raise ValueError("telemetry must be an object if provided")

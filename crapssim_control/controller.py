@@ -1,114 +1,71 @@
 # crapssim_control/controller.py
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
-# Local imports
-from .eval import safe_eval  # noqa: F401
-from .templates import render_template  # noqa: F401
-from .materialize import apply_intents
-from .rules import VarStore, run_rules_for_event
-from .events import derive_event
-from .tracker import Tracker
+from .eval import safe_eval
+from .rules import run_rules_for_event, VarStore
+from .templates import render_template, apply_intents
+from .events import derive_event, capture_table_state
+from .telemetry import Telemetry
 
 
 class ControlStrategy:
     """
-    Glue between a JSON strategy spec and the CrapsSim engine's player interface.
+    Glue between a JSON spec and the CrapsSim engine.
+
+    The engine is expected to call:
+      - update_bets(table) before or after each roll to let us apply rule-driven intents
+      - after_roll(table) after outcomes settle (for telemetry, etc.)
     """
 
-    def __init__(self, spec: Dict[str, Any], telemetry: Any = None, odds_policy: Optional[str] = None):
-        self.spec = spec
-        self.telemetry = telemetry
-        self.odds_policy = odds_policy
-
-        # Var store
-        self.vs = VarStore.from_spec(spec)
-        table_cfg = spec.get("table", {})
-        self.vs.system = {
-            "bubble": bool(table_cfg.get("bubble", False)),
-            "table_level": int(table_cfg.get("level", 10)),
-        }
-
-        # Tracker
-        tracking_cfg = (table_cfg.get("tracking") or {})
-        self.tracker = Tracker(tracking_cfg)
-        self._publish_tracker()
-
-        # Internal bookkeeping
-        self._last_bankroll = 0.0
-        self._point_before_roll = 0
-
-    def _publish_tracker(self):
-        self.vs.system["tracker"] = self.tracker.snapshot()
-
-    def update_bets(self, table: Any) -> None:
-        event = derive_event(table)
-
-        if event and event.get("event") == "roll":
-            total = int(event.get("total", 0) or 0)
-            if total:
-                self.tracker.on_roll(total)
-
-        if event and event.get("event") == "point_established":
-            p = int(event.get("point", 0) or 0)
-            if p:
-                self.tracker.on_point_established(p)
-
-        if event and event.get("event") == "seven_out":
-            self.tracker.on_seven_out()
-
-        if event and event.get("event") == "shooter_change":
-            self.tracker.on_new_shooter()
-
-        if event and event.get("event") == "point_made":
-            self.tracker.on_point_made()
-
-        intents = run_rules_for_event(self.spec, self.vs, event or {"event": "roll"})
-        apply_intents(
-            table.current_player if hasattr(table, "current_player") else self,
-            intents,
-            odds_policy=self.odds_policy,
-        )
-        self._publish_tracker()
-
-    def after_roll(self, table: Any) -> None:
-        delta = 0.0
-        pl = getattr(table, "current_player", None)
-        if pl is not None and hasattr(pl, "bankroll_delta"):
-            try:
-                delta = float(getattr(pl, "bankroll_delta") or 0.0)
-            except Exception:
-                delta = 0.0
-
-        if delta:
-            self.tracker.on_bankroll_delta(delta)
-
-        self._publish_tracker()
-
-    def on_bet_resolved(
+    def __init__(
         self,
-        bet_kind: str,                # e.g., "pass", "dont_pass", "come", "dont_come", "place", "buy", "lay", "field", "hardway", "horn", "any_craps", "any_seven", "prop"
-        result: str,                  # "win" | "lose" | "push"
-        reason: str = "",             # optional descriptive reason from engine
-        number: Optional[int] = None, # box number if applicable (4/5/6/8/9/10) or hardway number (4/6/8/10)
-        flat_delta: Optional[float] = None,  # net paid on flat component (>=0 win, <=0 loss)
-        odds_delta: Optional[float] = None,  # net paid on odds/lay odds component
-        stake_flat: Optional[float] = None,  # amount at risk on flat (optional; for ROI)
-        stake_odds: Optional[float] = None,  # amount at risk on odds/lay (optional)
-        extra: Optional[Dict[str, Any]] = None,
-    ):
-        """Engine wrapper can call this per resolved bet to feed aggregates."""
-        # Normalize inputs and record
-        self.tracker.record_resolution(
-            family=bet_kind,
-            result=result,
-            number=number,
-            flat_delta=float(flat_delta or 0.0),
-            odds_delta=float(odds_delta or 0.0),
-            stake_flat=float(stake_flat or 0.0),
-            stake_odds=float(stake_odds or 0.0),
-            extra=extra or {"reason": reason} if reason else extra,
-        )
-        # Keep tracker visible to rules right away
-        self._publish_tracker()
+        spec: Dict[str, Any],
+        telemetry: Optional[Telemetry] = None,
+        odds_policy: Optional[str] = None,
+    ) -> None:
+        self.spec = spec
+        self.telemetry = telemetry or Telemetry(enabled=False)
+        self.vs = VarStore.from_spec(spec)
+        # system (table config) will be populated on first update_bets from spec.table
+        self.vs.system = {
+            "bubble": bool(spec.get("table", {}).get("bubble", False)),
+            "table_level": int(spec.get("table", {}).get("level", 5)),
+        }
+        self.odds_policy = odds_policy or spec.get("table", {}).get("odds_policy")
+
+        # Event derivation snapshots
+        self._last_state: Optional[Dict[str, Any]] = None
+
+        # initial mode (optional)
+        if "variables" in spec and isinstance(spec["variables"], dict):
+            if "mode" in spec["variables"]:
+                self.vs.user["mode"] = spec["variables"]["mode"]
+
+    # CrapsSim hook: called around each roll to (re)apply bets per rules
+    def update_bets(self, table: Any) -> None:
+        curr = capture_table_state(table)
+        prev = self._last_state
+        event = derive_event(prev, curr)
+        self._last_state = curr
+
+        # Feed rules
+        intents = run_rules_for_event(self.spec, self.vs, event)
+
+        # Materialize intents on the engine/player
+        player = getattr(table, "current_player", None)
+        if player is None:
+            return  # engine not ready yet (or fake table); no-op
+        apply_intents(player, intents, odds_policy=self.odds_policy)
+
+        # Telemetry tracking (lightweight)
+        if self.telemetry.enabled:
+            self.telemetry.track(event=event, table=table, player=player, vs=self.vs)
+
+    # CrapsSim hook: optional after-settlement callback for additional telemetry
+    def after_roll(self, table: Any) -> None:
+        if not self.telemetry.enabled:
+            return
+        player = getattr(table, "current_player", None)
+        self.telemetry.track_after_roll(table=table, player=player, vs=self.vs)
