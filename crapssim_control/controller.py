@@ -1,12 +1,11 @@
 # crapssim_control/controller.py
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Optional
 
-from .eval import safe_eval
 from .rules import run_rules_for_event, VarStore
-from .templates import render_template, apply_intents
 from .events import derive_event, capture_table_state
+from .materialize import apply_intents
 from .telemetry import Telemetry
 
 
