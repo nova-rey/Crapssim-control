@@ -1,21 +1,28 @@
 # crapssim_control/controller.py
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
-from .rules import run_rules_for_event, VarStore
-from .events import derive_event, capture_table_state
-from .materialize import apply_intents
 from .telemetry import Telemetry
+from .varstore import VarStore
+from .rules import run_rules_for_event
+from .events import derive_event, capture_table_state
+from .templates import render_template  # kept for future use (not required by tests)
+from .materialize import apply_intents  # exported API (tests import from materialize directly)
 
 
 class ControlStrategy:
     """
-    Glue between a JSON spec and the CrapsSim engine.
+    Thin wrapper that:
+      - holds the JSON spec and a VarStore
+      - derives events from the engine's table snapshots
+      - runs the rules engine to produce "intents"
+      - (optionally) records telemetry
 
-    The engine is expected to call:
-      - update_bets(table) before or after each roll to let us apply rule-driven intents
-      - after_roll(table) after outcomes settle (for telemetry, etc.)
+    The EngineAdapter may call:
+      - update_bets(table): compute intents for the current tick (safe no-op if none)
+      - after_roll(table): hook after a roll resolves (safe no-op)
+      - after_shooter_change(table): hook when shooter rotates (safe no-op)
     """
 
     def __init__(
@@ -25,46 +32,69 @@ class ControlStrategy:
         odds_policy: Optional[str] = None,
     ) -> None:
         self.spec = spec
-        self.telemetry = telemetry or Telemetry(enabled=False)
-        self.vs = VarStore.from_spec(spec)
-        # system (table config) will be populated on first update_bets from spec.table
+        self.telemetry = telemetry or Telemetry()
+        # be tolerant if Telemetry exposes an 'enabled' switch
+        if hasattr(self.telemetry, "enabled"):
+            setattr(self.telemetry, "enabled", False)
+
+        self.odds_policy = odds_policy or self.spec.get("table", {}).get("odds_policy")
+        self.vs = VarStore.from_spec(self.spec)
+
+        # seed system vars used by legalization/template math
+        table = self.spec.get("table", {})
         self.vs.system = {
-            "bubble": bool(spec.get("table", {}).get("bubble", False)),
-            "table_level": int(spec.get("table", {}).get("level", 5)),
+            "bubble": bool(table.get("bubble", False)),
+            "table_level": int(table.get("level", 10)),
         }
-        self.odds_policy = odds_policy or spec.get("table", {}).get("odds_policy")
 
-        # Event derivation snapshots
-        self._last_state: Optional[Dict[str, Any]] = None
+        self._prev_snapshot: Optional[Dict[str, Any]] = None
+        self.latest_event: Optional[Dict[str, Any]] = None
+        self.latest_intents: List[Tuple[str, Optional[int], float, Dict[str, Any]]] = []
 
-        # initial mode (optional)
-        if "variables" in spec and isinstance(spec["variables"], dict):
-            if "mode" in spec["variables"]:
-                self.vs.user["mode"] = spec["variables"]["mode"]
+    # ---------- public hooks expected by adapter/tests -----------
 
-    # CrapsSim hook: called around each roll to (re)apply bets per rules
     def update_bets(self, table: Any) -> None:
+        """
+        Observe table, derive a high-level event, run rules, and cache intents.
+        EngineAdapter decides when/how to materialize these against a player.
+        """
         curr = capture_table_state(table)
-        prev = self._last_state
-        event = derive_event(prev, curr)
-        self._last_state = curr
+        ev = derive_event(self._prev_snapshot, curr)
+        self.latest_event = ev
 
-        # Feed rules
-        intents = run_rules_for_event(self.spec, self.vs, event)
+        # run rules → intents (list of (kind, number|None, amount, extras))
+        intents = run_rules_for_event(self.spec, self.vs, ev)
+        self.latest_intents = intents
 
-        # Materialize intents on the engine/player
-        player = getattr(table, "current_player", None)
-        if player is None:
-            return  # engine not ready yet (or fake table); no-op
-        apply_intents(player, intents, odds_policy=self.odds_policy)
+        # record lightweight telemetry if enabled
+        if getattr(self.telemetry, "enabled", False) and hasattr(self.telemetry, "log_tick"):
+            try:
+                self.telemetry.log_tick(event=ev, intents=intents, vars=self.vs.snapshot())
+            except Exception:
+                # Never allow telemetry to crash gameplay
+                pass
 
-        # Telemetry tracking (lightweight)
-        if self.telemetry.enabled:
-            self.telemetry.track(event=event, table=table, player=player, vs=self.vs)
+        # advance snapshot
+        self._prev_snapshot = curr
 
-    # CrapsSim hook: optional after-settlement callback for additional telemetry
     def after_roll(self, table: Any) -> None:
-        if not self.telemetry.enabled:
-            return
-        player = getattr(table, "current_player", None)
-        self.telemetry.track_after_roll(table=table, player=player, vs=self.vs)
+        """
+        Optional hook after a roll resolves. Safe no-op; we just ensure the
+        previous snapshot is current so next call can compute transitions.
+        """
+        self._prev_snapshot = capture_table_state(table)
+
+    def after_shooter_change(self, table: Any) -> None:
+        """
+        Optional hook on shooter rotation. Safe no-op for now.
+        Strategies may choose to reset shooter-scoped variables here later.
+        """
+        # Intentionally minimal; keep snapshot fresh.
+        self._prev_snapshot = capture_table_state(table)
+
+    # ---------- convenience getters (not required, handy for adapters) -----------
+
+    def pop_latest_intents(self) -> List[Tuple[str, Optional[int], float, Dict[str, Any]]]:
+        out = self.latest_intents
+        self.latest_intents = []
+        return out

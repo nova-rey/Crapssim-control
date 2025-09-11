@@ -1,59 +1,87 @@
 # crapssim_control/events.py
 from __future__ import annotations
-
 from typing import Any, Dict, Optional, Tuple
 
 __all__ = ["capture_table_state", "derive_event"]
 
 
+def _from(obj: Any, *names: str) -> Any:
+    """Best-effort getter that works for both dict-like and attribute objects.
+    Tries top-level first, then looks under `.table` for each name.
+    """
+    for name in names:
+        # direct
+        if isinstance(obj, dict):
+            if name in obj:
+                return obj.get(name)
+        else:
+            if hasattr(obj, name):
+                return getattr(obj, name)
+
+        # under .table
+        tbl = obj.get("table") if isinstance(obj, dict) else getattr(obj, "table", None)
+        if tbl is not None:
+            if isinstance(tbl, dict):
+                if name in tbl:
+                    return tbl.get(name)
+            else:
+                if hasattr(tbl, name):
+                    return getattr(tbl, name)
+    return None
+
+
 def capture_table_state(table: Any) -> Dict[str, Any]:
-    """
-    Take a lightweight snapshot of the engine/table needed to derive high-level events.
-
-    We intentionally keep this minimal so it works with both the real CrapsSim
-    engine and the fake/shim tables used in tests.
-
-    Expected attributes if present:
-      - table.point: int | None (None/0 means no point established)
-      - table.last_roll: tuple[int, int] | None (e.g., (3,4))
-    """
+    """Lightweight snapshot usable by derive_event(prev, curr)."""
     point = getattr(table, "point", None)
     if point in (0, False):
         point = None
 
-    last_roll: Optional[Tuple[int, int]] = getattr(table, "last_roll", None)
-    # Some engines store total only; accept that too.
+    last_roll = getattr(table, "last_roll", None)
     if isinstance(last_roll, int):
-        last_roll = (last_roll, 0)  # sentinel second die
+        last_roll = (last_roll, 0)  # tolerate engines that store only total
 
-    state: Dict[str, Any] = {
+    return {
         "point": point,
         "comeout": point is None,
         "last_roll": last_roll,
     }
-    return state
 
 
-def derive_event(prev: Optional[Dict[str, Any]], curr: Dict[str, Any]) -> Dict[str, Any]:
+def derive_event(prev: Optional[Any], curr: Any) -> Dict[str, Any]:
+    """Translate raw state → high-level event for rules.
+
+    Priority (highest first):
+      1) seven_out
+      2) point_made
+      3) point_established
+      4) comeout (transition into comeout)
+      5) roll (neutral)
+    Works with either our GameState objects or plain dict snapshots.
     """
-    Turn raw table snapshots into a simple event dict consumed by the rules engine.
+    # Current flags
+    just_seven_out = bool(_from(curr, "just_seven_out"))
+    just_made_point = bool(_from(curr, "just_made_point"))
+    just_est_point = bool(_from(curr, "just_established_point"))
 
-    Contract:
-      - Must at least emit {"event": "comeout"} when transitioning to come-out
-      - Otherwise emit a neutral tick event: {"event": "tick"}
+    # Comeout flags
+    curr_comeout = bool(_from(curr, "comeout"))
+    prev_comeout = bool(_from(prev, "comeout")) if prev is not None else None
 
-    We keep this conservative--specific bet resolution events are raised elsewhere
-    by the engine/adapter and fed into the rules runner directly.
-    """
+    # Point number (various engines use point_number or point)
+    curr_point_num = _from(curr, "point_number", "point")
+
+    if just_seven_out:
+        return {"event": "seven_out"}
+    if just_made_point:
+        return {"event": "point_made"}
+    if just_est_point:
+        return {"event": "point_established", "point": curr_point_num}
+
     if prev is None:
-        # First observation: if we're on comeout, signal it so strategies can stage.
-        return {"event": "comeout"} if curr.get("comeout") else {"event": "tick"}
+        # first observation
+        return {"event": "comeout"} if curr_comeout else {"event": "roll"}
 
-    was_comeout = bool(prev.get("comeout"))
-    is_comeout = bool(curr.get("comeout"))
-
-    if not was_comeout and is_comeout:
+    if prev_comeout is False and curr_comeout is True:
         return {"event": "comeout"}
 
-    # Fallback neutral event
-    return {"event": "tick"}
+    return {"event": "roll"}
