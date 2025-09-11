@@ -21,9 +21,9 @@ class ControlStrategy:
         odds_policy: Optional[str] = None,
     ) -> None:
         self.spec = spec
-        # Telemetry: allow None by default; create a disabled Telemetry that writes nowhere.
-        # Our Telemetry class requires csv_path; pass None and keep it disabled.
-        self.telemetry = telemetry or Telemetry(csv_path=None, enabled=False)
+        # Telemetry: allow None by default; create a disabled Telemetry (csv_path=None).
+        # Telemetry infers enabled from csv_path; no 'enabled' kwarg here.
+        self.telemetry = telemetry or Telemetry(csv_path=None)
         self.odds_policy = odds_policy
         self.varstore = VarStore.from_spec(spec)
 
@@ -40,8 +40,8 @@ class ControlStrategy:
         if intents:
             render_template(self.varstore, intents, table, odds_policy=self.odds_policy)
 
-        # Telemetry capture (if enabled)
-        if self.telemetry.enabled:
+        # Telemetry capture (only if Telemetry exposes enabled=True)
+        if getattr(self.telemetry, "enabled", False):
             self.telemetry.record_tick(event=event, varstore=self.varstore, table_snapshot=curr_snapshot)
 
         # Advance previous snapshot
@@ -49,9 +49,8 @@ class ControlStrategy:
 
     # Optional post-resolution hook (adapter can call this when a bet resolves)
     def after_roll(self, event: Dict[str, Any], table: Any) -> None:
-        # Give rules a chance to react to explicit resolution events (e.g., bet_resolved)
         intents = run_rules_for_event(self.spec, self.varstore, event)
         if intents:
             render_template(self.varstore, intents, table, odds_policy=self.odds_policy)
-        if self.telemetry.enabled:
+        if getattr(self.telemetry, "enabled", False):
             self.telemetry.record_tick(event=event, varstore=self.varstore, table_snapshot=capture_table_state(table))

@@ -25,6 +25,14 @@ class GameState:
     is_new_shooter: bool
 
 
+def _bet_as_dict(b: Any) -> Dict[str, Any]:
+    return {
+        "kind": getattr(b, "kind", getattr(b, "name", "unknown")),
+        "number": getattr(b, "number", None),
+        "amount": float(getattr(b, "amount", 0.0)),
+    }
+
+
 def _extract(table: Any) -> GameState:
     # Adapter or tests provide attributes with these names; keep this tolerant.
     tv = TableView(
@@ -46,16 +54,13 @@ def _extract(table: Any) -> GameState:
     )
 
 
-def _bet_as_dict(b: Any) -> Dict[str, Any]:
-    return {
-        "kind": getattr(b, "kind", getattr(b, "name", "unknown")),
-        "number": getattr(b, "number", None),
-        "amount": float(getattr(b, "amount", 0.0)),
-    }
-
-
 def capture_table_state(table: Any) -> Dict[str, Any]:
+    """Snapshot the table/player into a plain dict (what the rules engine expects)."""
     gs = _extract(table)
+    return _gamestate_to_snapshot(gs)
+
+
+def _gamestate_to_snapshot(gs: GameState) -> Dict[str, Any]:
     tv = gs.table
     return {
         "point_on": tv.point_on,
@@ -73,7 +78,23 @@ def capture_table_state(table: Any) -> Dict[str, Any]:
     }
 
 
-def derive_event(prev: Optional[Dict[str, Any]], curr: Dict[str, Any]) -> Dict[str, Any]:
+def _to_snapshot(x: Optional[Dict[str, Any] | GameState]) -> Optional[Dict[str, Any]]:
+    """Accept either our GameState or a dict snapshot and normalize to dict."""
+    if x is None:
+        return None
+    if isinstance(x, dict):
+        return x
+    if isinstance(x, GameState):
+        return _gamestate_to_snapshot(x)
+    # Last resort: try attribute access similar to capture_table_state
+    # if a foreign object shaped like GameState sneaks in.
+    try:
+        return _gamestate_to_snapshot(x)  # type: ignore[arg-type]
+    except Exception:
+        return None
+
+
+def derive_event(prev: Optional[Dict[str, Any] | GameState], curr: Dict[str, Any] | GameState) -> Dict[str, Any]:
     """
     Turn raw table snapshots into a simple event dict consumed by the rules engine.
 
@@ -82,19 +103,22 @@ def derive_event(prev: Optional[Dict[str, Any]], curr: Dict[str, Any]) -> Dict[s
       2) Else if transitioning into comeout (or first snapshot on comeout) -> {"event": "comeout"}
       3) Otherwise -> {"event": "roll"}
     """
+    prev_sn = _to_snapshot(prev)
+    curr_sn = _to_snapshot(curr) or {}
+
     # Initial observation
-    if prev is None:
-        if curr.get("just_established_point"):
-            return {"event": "point_established", "point": curr.get("point_number")}
-        return {"event": "comeout"} if curr.get("comeout") else {"event": "roll"}
+    if prev_sn is None:
+        if curr_sn.get("just_established_point"):
+            return {"event": "point_established", "point": curr_sn.get("point_number")}
+        return {"event": "comeout"} if curr_sn.get("comeout") else {"event": "roll"}
 
     # Point establishment takes priority if flagged
-    if curr.get("just_established_point"):
-        return {"event": "point_established", "point": curr.get("point_number")}
+    if curr_sn.get("just_established_point"):
+        return {"event": "point_established", "point": curr_sn.get("point_number")}
 
     # Transition into comeout (new shooter or point off)
-    was_comeout = bool(prev.get("comeout"))
-    is_comeout = bool(curr.get("comeout"))
+    was_comeout = bool(prev_sn.get("comeout"))
+    is_comeout = bool(curr_sn.get("comeout"))
     if is_comeout and not was_comeout:
         return {"event": "comeout"}
 
