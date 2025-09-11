@@ -1,24 +1,18 @@
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List
 
 from .events import derive_event
-from .templates import render_template
-from .materialize import apply_intents
-from .rules import run_rules_for_event
-from .varstore import VarStore
+from .rules import run_rules_for_event, render_template
+from .materialize import apply_intents, BetIntent
 from .telemetry import Telemetry
+from .varstore import VarStore
 
 
 class ControlStrategy:
     """
-    Orchestrates:
-      - VarStore state
-      - per-roll table snapshot
-      - event derivation
-      - rule evaluation -> intents
-      - template rendering -> concrete bet intents
-      - applying intents to the player
+    Orchestrates: snapshot → event → rules → intents → materialization.
+    Holds a VarStore for variables, system state, and lightweight tracking.
     """
 
     def __init__(
@@ -28,84 +22,98 @@ class ControlStrategy:
         odds_policy: Optional[str] = None,
     ) -> None:
         self.spec = spec
-        # Provide a benign Telemetry; empty path keeps tests happy (mkdirs on ".")
-        self.telemetry = telemetry or Telemetry(csv_path="")
+        self.telemetry = telemetry or Telemetry(csv_path=None)
+        self.odds_policy = odds_policy or (spec.get("table", {}) or {}).get("odds_policy")
 
+        # Variables and system/tracking store
         self.vs = VarStore.from_spec(spec)
 
-        tbl = spec.get("table", {}) if isinstance(spec, dict) else {}
-        self.table_level: int = int(tbl.get("level", 10))
-        self.odds_policy = odds_policy if odds_policy is not None else tbl.get("odds_policy")
-
+        # Cache the last lightweight snapshot for event derivation
         self._prev_snapshot: Optional[Dict[str, Any]] = None
 
-    # --- lifecycle hooks expected by tests ---
-
+    # -----------------------------
+    # Public hooks used by the engine adapter
+    # -----------------------------
     def update_bets(self, table: Any) -> None:
         """
-        Called by the engine adapter each roll.
+        Called by the engine adapter each roll. We:
+          1) Take a light snapshot from the table
+          2) Derive a high-level event
+          3) Update VarStore/system counters based on event
+          4) Run rules to get intents
+          5) Render/apply intents (materialize bets)
         """
         curr_snapshot = self._snapshot_from_table(table)
         prev_snapshot = self._prev_snapshot
 
+        # Update system side from raw snapshot first (keeps prior test behavior)
+        self.vs.refresh_system(curr_snapshot)
+
+        # 2) Event
         event = derive_event(prev_snapshot, curr_snapshot)
 
-        # rules -> high-level intents
+        # 3) Tracking side-effects (safe, optional)
+        self.vs.apply_event_side_effects(event, curr_snapshot)
+
+        # 4) Run rules engine
         intents = run_rules_for_event(self.spec, self.vs, event)
 
-        # template rendering -> concrete bet intents
-        rendered = render_template(self.spec, self.vs, intents, table_level=self.table_level)
+        # 5) Render a mode template if asked by rules (e.g., apply_template('Main'))
+        table_level = (self.spec.get("table") or {}).get("level")
+        rendered = render_template(self.spec, self.vs, intents, table_level)
 
-        # Apply to the first/only player on the table.
-        player = self._first_player(table)
-        if player is not None:
-            apply_intents(player, rendered, odds_policy=self.odds_policy)
+        # 6) Materialize
+        apply_intents(table, rendered, odds_policy=self.odds_policy)
 
-        # Bookkeeping for next roll and optional hook
+        # 7) Telemetry (optional; only if enabled)
+        if getattr(self.telemetry, "enabled", False) and hasattr(self.telemetry, "log_roll"):
+            self.telemetry.log_roll(curr_snapshot, event, self.vs)
+
+        # 8) Cache snapshot for next roll
         self._prev_snapshot = curr_snapshot
-        # Call with both args; EngineAdapter may call with only table (handled by default below).
-        self.after_roll(table, event)
 
-    def after_roll(self, table: Any, event: Optional[Dict[str, Any]] = None) -> None:
-        """No-op hook (event is optional so EngineAdapter(table) call works)."""
-        return None
-
-    # --- helpers ---
-
-    def _first_player(self, table: Any):
+    def after_roll(self, table: Any) -> None:
         """
-        Return the first player object registered on the table, if any.
-        Works with the test fakes that expose `add_player()` and `players`.
+        Hook after the engine has rolled and settled. Currently a no-op.
+        Kept for compatibility and future telemetry/tracking if needed.
         """
-        players = getattr(table, "players", None)
-        if players is None and isinstance(table, dict):
-            players = table.get("players")
-        if players and len(players) > 0:
-            return players[0]
-        single = getattr(table, "player", None)
-        if single is None and isinstance(table, dict):
-            single = table.get("player")
-        return single
+        return
 
+    # -----------------------------
+    # Snapshot helper (kept simple)
+    # -----------------------------
     def _snapshot_from_table(self, table: Any) -> Dict[str, Any]:
         """
-        Take a light snapshot compatible with derive_event().
+        Extract a lightweight, engine-agnostic snapshot from the table.
+        Must include fields used by tests and event derivation.
         """
-        def g(obj, name, default=None):
-            if isinstance(obj, dict):
-                return obj.get(name, default)
-            return getattr(obj, name, default)
+        tv = getattr(table, "view", None) or getattr(table, "table", None) or table
 
-        table_view = getattr(table, "view", table)
+        # Pull dice as (d1, d2, total) if possible
+        dice = getattr(tv, "dice", None)
+        if isinstance(dice, (tuple, list)) and len(dice) >= 2:
+            if len(dice) == 2:
+                d1, d2 = dice
+                total = (int(d1) + int(d2)) if all(isinstance(x, int) for x in (d1, d2)) else None
+                dice_tuple = (d1, d2, total)
+            else:
+                dice_tuple = tuple(dice[:3])
+        else:
+            dice_tuple = None
 
-        comeout = g(table_view, "comeout", False)
-
-        snapshot = {
-            "comeout": bool(comeout),
-            "table": {"comeout": bool(comeout)},
-            "point_number": g(table_view, "point_number", None),
-            "just_established_point": g(table_view, "just_established_point", False),
-            "just_made_point": g(table_view, "just_made_point", False),
-            "roll_index": g(table_view, "roll_index", None),
+        # Build a plain dict view
+        snap = {
+            "comeout": bool(getattr(tv, "comeout", True)),
+            "point_on": bool(getattr(tv, "point_on", False)),
+            "point_number": getattr(tv, "point_number", None),
+            "dice": dice_tuple,
+            "shooter_index": getattr(tv, "shooter_index", 0),
+            "roll_index": getattr(tv, "roll_index", 0),
         }
-        return snapshot
+
+        # If player/bankroll exists on table, include it for delta telemetry
+        player = getattr(table, "player", None) or getattr(tv, "player", None)
+        if player is not None:
+            snap["bankroll"] = getattr(player, "bankroll", None)
+
+        return snap
