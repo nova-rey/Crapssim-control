@@ -1,110 +1,107 @@
-"""
-rules.py -- rule matcher + exported render_template passthrough.
-
-- run_rules_for_event: evaluates spec["rules"] against an event and returns
-  "intents" that the materializer later applies.
-- render_template: re-exported thin wrapper around templates.render_template
-  so modules importing it from rules keep working (e.g., controller.py).
-"""
-
 from __future__ import annotations
 
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
-# Expose render_template here to satisfy imports like:
-#   from .rules import run_rules_for_event, render_template
-from .templates import render_template as _tpl_render_template
-
-# Public type alias used conceptually by tests/materializer
-BetIntent = Tuple[str, Any, Any]
-
-__all__ = ["run_rules_for_event", "render_template"]
+# We re-export render_template because other modules import it from here.
+from .templates import render_template  # type: ignore
+from .eval import safe_eval  # expression evaluator used by specs
 
 
-def render_template(spec: dict, vs: Any, intents: List[BetIntent], table_level: int | None = None):
+BetIntent = Tuple[str, Any, Any] | Tuple[str, Any, Any, Any]
+
+
+def _parse_apply_template(expr: str) -> Optional[str]:
     """
-    Pass-through to the real templates.render_template implementation.
-    Kept here for backward-compat/expected import path.
+    Parse strings like:
+        "apply_template('Main')"
+        "apply_template(\"Aggressive\")"
+    Return the mode name, or None if it doesn't match.
     """
-    return _tpl_render_template(spec, vs, intents, table_level=table_level)
-
-
-# ---------- Rule matching ----------
-
-def match_rule(event: Dict[str, Any], cond: Dict[str, Any]) -> bool:
-    """
-    Return True if all keys in `cond` match the same keys in `event`.
-    Shallow 'AND' match; keys absent in `event` -> mismatch.
-    """
-    if not cond:
-        return False
-    for k, v in cond.items():
-        if event.get(k, object()) != v:
-            return False
-    return True
-
-
-def _parse_apply_template(act: str) -> str | None:
-    """
-    Extract the mode name from "apply_template('Mode')" or "apply_template(\"Mode\")".
-    Returns the mode string or None if the pattern doesn't match.
-    """
-    s = act.strip().replace(" ", "")
+    s = expr.strip().replace(" ", "")
     if not s.startswith("apply_template(") or not s.endswith(")"):
         return None
-    inside = s[len("apply_template("):-1]
-    if len(inside) >= 2 and inside[0] in ("'", '"') and inside[-1] == inside[0]:
-        return inside[1:-1]
-    return None
+    inner = s[len("apply_template(") : -1]
+    # Strip quotes if present
+    if (inner.startswith("'") and inner.endswith("'")) or (
+        inner.startswith('"') and inner.endswith('"')
+    ):
+        inner = inner[1:-1]
+    return inner or None
 
 
 def _expand_template_to_intents(spec: dict, vs: Any, mode: str) -> List[BetIntent]:
     """
-    Expand spec["modes"][mode]["template"] into concrete bet intents of shape:
-        (bet_kind, number_or_None, amount_expr)
-    e.g. {"pass": "units", "field":"units"} -> [("pass", None, "units"), ("field", None, "units")]
+    Delegate to templates.render_template, which returns a list of bet intents.
     """
-    modes = spec.get("modes", {})
-    m = modes.get(mode, {})
-    tpl = m.get("template", {})
-    intents: List[BetIntent] = []
-    for bet_kind, amount_expr in tpl.items():
-        # craps line/field bets have no number; place/lay/come/DC may include numbers in other flows
-        intents.append((bet_kind, None, amount_expr))
-    return intents
+    try:
+        intents = render_template(spec, vs, mode)
+    except Exception as e:
+        raise ValueError(f"Failed to render template for mode '{mode}': {e}") from e
+    return intents or []
+
+
+def match_rule(event: Dict[str, Any], cond: Dict[str, Any]) -> bool:
+    """
+    Return True if all key/value pairs in `cond` match those in `event`.
+
+    Examples:
+      cond={"event":"bet_resolved","bet":"pass","result":"lose"}
+      will only match when event has at least those keys with exactly those values.
+    """
+    for k, v in (cond or {}).items():
+        if event.get(k) != v:
+            return False
+    return True
 
 
 def run_rules_for_event(spec: dict, vs: Any, event: Dict[str, Any]) -> List[BetIntent]:
     """
-    Evaluate spec["rules"] against the given event and produce a list of "intents".
-    Intents are tuples consumed by materialize.apply_intents later.
+    Given a strategy spec, a VarStore-like `vs`, and an event dict,
+    return a list of bet intents to apply.
 
-    Supported action encodings:
-      - "units += 10"              -> ("__expr__", <str>, None)
-      - {"pass": "units"}          -> ("__dict__", <dict>, None)
-      - "apply_template('Main')"   -> expands immediately to bet tuples, e.g. ("pass", None, "units")
+    Behavior:
+      - Ensures `vs.user` exists and points at `vs.variables`.
+      - Sets vs.user["_event"] = event["event"] (if available) for expressions.
+      - For string actions:
+          * If "apply_template('Mode')" → expand to bet intents via templates.
+          * Otherwise evaluate the expression immediately with safe_eval (so tests
+            that read vs.user right after this call can see the new values).
+      - For dict actions:
+          * Return them as ("__dict__", action, None) so the materializer can handle.
 
-    We expand templates *here* because the tests expect run_rules_for_event to
-    already contain concrete bet intents (they inspect kinds without calling
-    templates.render_template).
+    We ALSO include a record of expressions as ("__expr__", <code>, None)
+    just for observability; they do not drive bets by themselves.
     """
     intents: List[BetIntent] = []
     rules: List[dict] = spec.get("rules", [])
 
+    # Ensure vs.user exists (tests read & mutate vs.user["..."])
+    if not hasattr(vs, "user") or vs.user is None:
+        try:
+            vs.user = vs.variables  # alias to variables for convenience
+        except Exception:
+            vs.user = {}
+
+    # Record the current event name for expressions to read.
+    if isinstance(vs.user, dict):
+        vs.user["_event"] = event.get("event")
+
     for rule in rules:
         cond = rule.get("on", {})
         if match_rule(event, cond):
-            actions = rule.get("do", [])
-            for act in actions:
+            for act in rule.get("do", []):
                 if isinstance(act, str):
                     mode = _parse_apply_template(act)
                     if mode is not None:
+                        # Expand template to concrete bet intents
                         intents.extend(_expand_template_to_intents(spec, vs, mode))
                     else:
+                        # Apply side-effect expression immediately
+                        safe_eval(act, vs)
                         intents.append(("__expr__", act, None))
                 elif isinstance(act, dict):
                     intents.append(("__dict__", act, None))
                 else:
-                    raise ValueError(f"Unsupported action type: {act!r}")
+                    raise ValueError(f"Unsupported action type in rule: {act!r}")
 
     return intents
