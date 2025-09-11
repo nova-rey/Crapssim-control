@@ -29,10 +29,11 @@ class Tracker:
             ["roll"]["rolls_since_point"]
             ["roll"]["shooter_rolls"]
             ["point"]["point"]
-            ["hits"][total]  (frequency by total)
-            ["bankroll"]["bankroll"]        (cumulative delta)
-            ["bankroll"]["bankroll_peak"]   (max cumulative delta seen)
-            ["bankroll"]["drawdown"]        (peak - current cum delta)
+            ["hits"][total]                  (frequency by total)
+            ["bankroll"]["bankroll"]         (cumulative delta)
+            ["bankroll"]["bankroll_peak"]    (max cumulative delta seen)
+            ["bankroll"]["drawdown"]         (peak - current cum delta)
+            ["bankroll"]["pnl_since_point"]  (cum delta since point was set)
     """
 
     def __init__(self, config: Dict[str, Any] | None = None) -> None:
@@ -54,6 +55,7 @@ class Tracker:
         self.last_bankroll_delta: float = 0.0
         self.cum_bankroll_delta: float = 0.0
         self.bankroll_peak: float = 0.0
+        self.point_bankroll_anchor: float = 0.0  # cum delta at point establishment
 
         # snapshots
         self._prev_snapshot: Optional[Dict[str, Any]] = None
@@ -80,6 +82,9 @@ class Tracker:
         self.points_established += 1
         # reset rolls-since-point at the moment the point is established
         self.rolls_since_point = 0
+        # anchor bankroll for pnl_since_point
+        self.point_bankroll_anchor = self.cum_bankroll_delta
+
         curr = {
             "table": {
                 "dice": (0, 0, int(point)),
@@ -111,6 +116,11 @@ class Tracker:
 
         drawdown = max(0.0, self.bankroll_peak - self.cum_bankroll_delta)
 
+        if self.current_point is not None:
+            pnl_since_point = self.cum_bankroll_delta - self.point_bankroll_anchor
+        else:
+            pnl_since_point = 0.0
+
         return {
             "roll": {
                 "last_roll": self.last_total,
@@ -136,6 +146,7 @@ class Tracker:
                 "bankroll": self.cum_bankroll_delta,
                 "bankroll_peak": self.bankroll_peak,
                 "drawdown": drawdown,
+                "pnl_since_point": pnl_since_point,
             },
         }
 
