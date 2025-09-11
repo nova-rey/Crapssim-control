@@ -23,13 +23,14 @@ class Tracker:
     Lightweight tracker used by tests:
       - on_roll(total)
       - on_point_established(point)
-      - on_bankroll_delta(delta)  # added to satisfy test call
+      - on_bankroll_delta(delta)
       - snapshot() -> dict including:
             ["roll"]["last_roll"]
             ["roll"]["rolls_since_point"]
             ["roll"]["shooter_rolls"]
             ["point"]["point"]
             ["hits"][total]  (frequency by total)
+            ["bankroll"]["bankroll"] (cumulative delta)
     """
 
     def __init__(self, config: Dict[str, Any] | None = None) -> None:
@@ -88,7 +89,7 @@ class Tracker:
         self.observe(self._curr_snapshot, curr, {"event": "point_established"})
 
     def on_bankroll_delta(self, delta: float) -> None:
-        """Record a bankroll delta (some tests call this; no assertions on values)."""
+        """Record a bankroll delta (some tests call this; used in snapshot)."""
         try:
             d = float(delta)
         except Exception:
@@ -109,7 +110,7 @@ class Tracker:
                 "shooter_rolls": shooter_rolls,
             },
             "point": {"point": self.current_point, "current": self.current_point},
-            "hits": dict(self.hits_by_total),          # <- for tests: snap["hits"][8]
+            "hits": dict(self.hits_by_total),          # snap["hits"][8]
             "totals": dict(self.hits_by_total),        # keep prior key too
             "total_rolls": self.total_rolls,
             "comeout_rolls": self.comeout_rolls,
@@ -123,6 +124,8 @@ class Tracker:
             "bankroll": {
                 "last_delta": self.last_bankroll_delta,
                 "cum_delta": self.cum_bankroll_delta,
+                # tests read this exact key:
+                "bankroll": self.cum_bankroll_delta,
             },
         }
 
