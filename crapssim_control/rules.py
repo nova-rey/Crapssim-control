@@ -31,12 +31,6 @@ def render_template(spec: dict, vs: Any, intents: List[BetIntent], table_level: 
 
 # ---------- Rule matching ----------
 
-def _get(d: Any, key: str, default: Any = None) -> Any:
-    if isinstance(d, dict):
-        return d.get(key, default)
-    return getattr(d, key, default)
-
-
 def match_rule(event: Dict[str, Any], cond: Dict[str, Any]) -> bool:
     """
     Return True if all keys in `cond` match the same keys in `event`.
@@ -50,16 +44,49 @@ def match_rule(event: Dict[str, Any], cond: Dict[str, Any]) -> bool:
     return True
 
 
+def _parse_apply_template(act: str) -> str | None:
+    """
+    Extract the mode name from "apply_template('Mode')" or "apply_template(\"Mode\")".
+    Returns the mode string or None if the pattern doesn't match.
+    """
+    s = act.strip().replace(" ", "")
+    if not s.startswith("apply_template(") or not s.endswith(")"):
+        return None
+    inside = s[len("apply_template("):-1]
+    if len(inside) >= 2 and inside[0] in ("'", '"') and inside[-1] == inside[0]:
+        return inside[1:-1]
+    return None
+
+
+def _expand_template_to_intents(spec: dict, vs: Any, mode: str) -> List[BetIntent]:
+    """
+    Expand spec["modes"][mode]["template"] into concrete bet intents of shape:
+        (bet_kind, number_or_None, amount_expr)
+    e.g. {"pass": "units", "field":"units"} -> [("pass", None, "units"), ("field", None, "units")]
+    """
+    modes = spec.get("modes", {})
+    m = modes.get(mode, {})
+    tpl = m.get("template", {})
+    intents: List[BetIntent] = []
+    for bet_kind, amount_expr in tpl.items():
+        # craps line/field bets have no number; place/lay/come/DC may include numbers in other flows
+        intents.append((bet_kind, None, amount_expr))
+    return intents
+
+
 def run_rules_for_event(spec: dict, vs: Any, event: Dict[str, Any]) -> List[BetIntent]:
     """
     Evaluate spec["rules"] against the given event and produce a list of "intents".
     Intents are tuples consumed by materialize.apply_intents later.
 
-    Expected intent encodings:
-      - Action is a string like "units += 10"
-          -> ("__expr__", <str>, None)
-      - Action is a dict like {"pass": "units"}
-          -> ("__dict__", <dict>, None)
+    Supported action encodings:
+      - "units += 10"              -> ("__expr__", <str>, None)
+      - {"pass": "units"}          -> ("__dict__", <dict>, None)
+      - "apply_template('Main')"   -> expands immediately to bet tuples, e.g. ("pass", None, "units")
+
+    We expand templates *here* because the tests expect run_rules_for_event to
+    already contain concrete bet intents (they inspect kinds without calling
+    templates.render_template).
     """
     intents: List[BetIntent] = []
     rules: List[dict] = spec.get("rules", [])
@@ -70,7 +97,11 @@ def run_rules_for_event(spec: dict, vs: Any, event: Dict[str, Any]) -> List[BetI
             actions = rule.get("do", [])
             for act in actions:
                 if isinstance(act, str):
-                    intents.append(("__expr__", act, None))
+                    mode = _parse_apply_template(act)
+                    if mode is not None:
+                        intents.extend(_expand_template_to_intents(spec, vs, mode))
+                    else:
+                        intents.append(("__expr__", act, None))
                 elif isinstance(act, dict):
                     intents.append(("__dict__", act, None))
                 else:
