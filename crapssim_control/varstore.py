@@ -4,8 +4,29 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
 
 
-def _get(d: Dict[str, Any], key: str, default: Any = None) -> Any:
-    return (d or {}).get(key, default)
+def _get_dictlike(obj: Any, key: str, default: Any = None) -> Any:
+    """
+    Read attribute or dict key with the same name.
+    - If `obj` has attribute `key`, return it.
+    - Else if `obj` is a dict, return obj.get(key, default).
+    - Else default.
+    """
+    if obj is None:
+        return default
+    if hasattr(obj, key):
+        return getattr(obj, key)
+    if isinstance(obj, dict):
+        return obj.get(key, default)
+    return default
+
+
+def _coerce_float(x: Any) -> Optional[float]:
+    if x is None:
+        return None
+    try:
+        return float(x)
+    except Exception:
+        return None
 
 
 @dataclass
@@ -44,44 +65,33 @@ class VarStore:
 
     # --- public api -----------------------------------------------------------
 
-    def refresh_system(self, snapshot: Dict[str, Any]) -> None:
+    def refresh_system(self, snapshot: Any) -> None:
         """
         Update derived system state from a table/player snapshot.
 
-        Expected snapshot shape (tests' helper `_gs` creates something like):
-          {
-            "table": {
-              "dice": (die1, die2, total),
-              "comeout": bool,
-              "point_on": bool,
-              "point_number": int|None,
-              "roll_index": int|None,  # 1-based after point set in tests
-            },
-            "player": {
-              "bankroll": float|int|None,
-              "starting": float|int|None,       # session starting bankroll
-              "shooter_index": int|None,
-              "is_new_shooter": bool|None
-            }
-          }
+        Supports both dict-shaped snapshots and the tests' dataclasses:
+          GameState(table=TableView(...), player=PlayerView(...), is_new_shooter=bool, ...)
         """
-        tbl = snapshot.get("table", {}) or {}
-        ply = snapshot.get("player", {}) or {}
+        # table/player sections (accept dict-like or attribute-style)
+        tbl = _get_dictlike(snapshot, "table", {}) or {}
+        ply = _get_dictlike(snapshot, "player", {}) or {}
 
         # --- Basic table state
-        comeout = bool(_get(tbl, "comeout", False))
-        point_on = bool(_get(tbl, "point_on", False))
-        point_number = _get(tbl, "point_number", None)
-        roll_index = _get(tbl, "roll_index", None)
+        comeout = bool(_get_dictlike(tbl, "comeout", False))
+        point_on = bool(_get_dictlike(tbl, "point_on", False))
+        point_number = _get_dictlike(tbl, "point_number", None)
+        roll_index = _get_dictlike(tbl, "roll_index", None)
 
-        # Persist these to system for convenience
+        # Persist to system for convenience
         self.system["comeout"] = comeout
         self.system["point_number"] = point_number if point_on else None
 
-        # --- Player bankrolls / baselines
-        bankroll = _coerce_float(_get(ply, "bankroll", None))
-        starting = _coerce_float(_get(ply, "starting", None))
-        is_new_shooter = bool(_get(ply, "is_new_shooter", False))
+        # --- Player bankrolls / baselines (look in player subsection first)
+        bankroll = _coerce_float(_get_dictlike(ply, "bankroll", None))
+        starting = _coerce_float(_get_dictlike(ply, "starting", None))
+
+        # Shooter / session flags may live at the GameState root
+        is_new_shooter = bool(_get_dictlike(snapshot, "is_new_shooter", False))
 
         # Session baseline: prefer explicit "starting"; otherwise first bankroll seen.
         if "session_start_bankroll" not in self.system:
@@ -117,21 +127,9 @@ class VarStore:
         if bankroll is not None:
             self._last_bankroll = bankroll
 
-    def apply_event_side_effects(self, event: Dict[str, Any], snapshot: Dict[str, Any]) -> None:
+    def apply_event_side_effects(self, event: Dict[str, Any], snapshot: Any) -> None:
         """
         Placeholder for optional event-driven counters.
-        We keep it a no-op in Option A so we don't disturb test expectations.
+        (No-Op for now to keep tests stable.)
         """
         return
-
-
-# --- helpers -----------------------------------------------------------------
-
-
-def _coerce_float(x: Any) -> Optional[float]:
-    if x is None:
-        return None
-    try:
-        return float(x)
-    except Exception:
-        return None
