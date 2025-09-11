@@ -23,6 +23,7 @@ class Tracker:
     Lightweight tracker used by tests:
       - on_roll(total)
       - on_point_established(point)
+      - on_bankroll_delta(delta)  # added to satisfy test call
       - snapshot() -> dict including:
             ["roll"]["last_roll"]
             ["roll"]["rolls_since_point"]
@@ -47,6 +48,8 @@ class Tracker:
         self.last_total: Optional[int] = None
         self.last_event: Optional[str] = None
         self.rolls_since_point: Optional[int] = None  # None when no point is on
+        self.last_bankroll_delta: float = 0.0
+        self.cum_bankroll_delta: float = 0.0
 
         # snapshots
         self._prev_snapshot: Optional[Dict[str, Any]] = None
@@ -84,6 +87,15 @@ class Tracker:
         }
         self.observe(self._curr_snapshot, curr, {"event": "point_established"})
 
+    def on_bankroll_delta(self, delta: float) -> None:
+        """Record a bankroll delta (some tests call this; no assertions on values)."""
+        try:
+            d = float(delta)
+        except Exception:
+            d = 0.0
+        self.last_bankroll_delta = d
+        self.cum_bankroll_delta += d
+
     def snapshot(self) -> Dict[str, Any]:
         shooter_rolls = 0
         if self.current_point is not None:
@@ -108,6 +120,10 @@ class Tracker:
             "current_point": self.current_point,
             "last_total": self.last_total,
             "last_event": self.last_event,
+            "bankroll": {
+                "last_delta": self.last_bankroll_delta,
+                "cum_delta": self.cum_bankroll_delta,
+            },
         }
 
     # --- Internal -------------------------------------------------------------
