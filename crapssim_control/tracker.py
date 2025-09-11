@@ -140,11 +140,13 @@ class Tracker:
             shooter_rolls = 1 + (self.rolls_since_point or 0)
 
         drawdown = max(0.0, self.bankroll_peak - self.cum_bankroll_delta)
-
         if self.current_point is not None:
             pnl_since_point = self.cum_bankroll_delta - self.point_bankroll_anchor
         else:
             pnl_since_point = 0.0
+
+        # Tests expect 0 when the point is off (not None)
+        point_value = self.current_point if self.current_point is not None else 0
 
         return {
             "roll": {
@@ -152,7 +154,7 @@ class Tracker:
                 "rolls_since_point": self.rolls_since_point if self.rolls_since_point is not None else 0,
                 "shooter_rolls": shooter_rolls,
             },
-            "point": {"point": self.current_point, "current": self.current_point},
+            "point": {"point": point_value, "current": point_value},
             "hits": dict(self.hits_by_total),          # snap["hits"][8]
             "totals": dict(self.hits_by_total),        # keep prior key too
             "total_rolls": self.total_rolls,
@@ -161,7 +163,7 @@ class Tracker:
             "points_established": self.points_established,
             "points_made": self.points_made,
             "seven_outs": self.seven_outs,
-            "current_point": self.current_point,
+            "current_point": point_value,
             "last_total": self.last_total,
             "last_event": self.last_event,
             "bankroll": {
