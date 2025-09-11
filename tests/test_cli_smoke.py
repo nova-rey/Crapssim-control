@@ -4,7 +4,18 @@ import sys
 import os
 import tempfile
 import json
+import importlib
 
+import pytest
+
+def _engine_available() -> bool:
+    try:
+        importlib.import_module("craps")  # the CrapsSim engine (pip install crapssim)
+        return True
+    except Exception:
+        return False
+
+@pytest.mark.skipif(not _engine_available(), reason="crapssim engine not installed in CI")
 def test_cli_runs_and_exits_zero():
     # Minimal strategy spec
     spec = {
