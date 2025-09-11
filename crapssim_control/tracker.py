@@ -28,9 +28,7 @@ class Tracker:
             ["roll"]["rolls_since_point"]
             ["roll"]["shooter_rolls"]
             ["point"]["point"]
-      - observe(prev, curr, event) exists (used internally)
-
-    We intentionally keep behavior minimal to satisfy current tests.
+            ["hits"][total]  (frequency by total)
     """
 
     def __init__(self, config: Dict[str, Any] | None = None) -> None:
@@ -64,7 +62,6 @@ class Tracker:
                 "comeout": comeout,
                 "point_on": (self.current_point is not None),
                 "point_number": self.current_point,
-                # roll_index isn't required for this test; omit or set 1
                 "roll_index": 1 if self.current_point is not None else 0,
             }
         }
@@ -100,7 +97,8 @@ class Tracker:
                 "shooter_rolls": shooter_rolls,
             },
             "point": {"point": self.current_point, "current": self.current_point},
-            "totals": dict(self.hits_by_total),
+            "hits": dict(self.hits_by_total),          # <- for tests: snap["hits"][8]
+            "totals": dict(self.hits_by_total),        # keep prior key too
             "total_rolls": self.total_rolls,
             "comeout_rolls": self.comeout_rolls,
             "point_phase_rolls": self.point_phase_rolls,

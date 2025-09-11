@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 # Re-export so legacy imports from rules work.
 from .templates import render_template  # type: ignore
-from .eval import safe_eval  # we will still use this for pure expressions
+from .eval import safe_eval  # still used for pure expressions
 
 
 BetIntent = Tuple[str, Any, Any] | Tuple[str, Any, Any, Any]
@@ -139,10 +139,11 @@ def _expand_template_to_intents(spec: dict, vs: Any, mode: str) -> List[BetInten
     return intents
 
 
-# Very small, *safe* interpreter for the specific assignment strings we use in specs.
-# Supports:  "<name> = <number>"  and  "<name> += <number>"
+# --- assignment / aug-assign mini-interpreter -------------------------------
+
+# Supports:  "name = 3", "name += 2", "name -= 2", "name *= 2", "name /= 2", "name //= 2"
 _ASSIGN_RE = re.compile(
-    r"""^\s*([A-Za-z_][A-Za-z0-9_]*)\s*(=|\+=)\s*([-+]?\d+(?:\.\d+)?)\s*$"""
+    r"""^\s*([A-Za-z_][A-Za-z0-9_]*)\s*(=|\+=|-=|\*=|/=|//=)\s*([-+]?\d+(?:\.\d+)?)\s*$"""
 )
 
 
@@ -155,33 +156,57 @@ def _apply_assignment_or_augassign(expr: str, vs: Any) -> bool:
     if not m:
         return False
     name, op, raw_val = m.groups()
-    # store numbers as int when possible to mimic tests' behavior
-    val = float(raw_val)
-    val = int(val) if val.is_integer() else val
 
-    # Ensure vs.user is available
-    target = None
-    if hasattr(vs, "user") and isinstance(vs.user, dict):
-        target = vs.user
-    elif hasattr(vs, "variables") and isinstance(vs.variables, dict):
-        target = vs.variables
-    if target is None:
-        return False
+    # numeric value as int where possible
+    val_f = float(raw_val)
+    val = int(val_f) if val_f.is_integer() else val_f
 
-    if op == "=":
-        target[name] = val
-    else:  # "+="
-        cur = target.get(name, 0)
-        try:
+    # Ensure vs.user is available and points to variables if present
+    if not hasattr(vs, "user") or vs.user is None:
+        if hasattr(vs, "variables") and isinstance(vs.variables, dict):
+            vs.user = vs.variables
+        else:
+            vs.user = {}
+
+    target: Dict[str, Any] = vs.user  # type: ignore[assignment]
+    cur = target.get(name, 0)
+
+    try:
+        if op == "=":
+            target[name] = val
+        elif op == "+=":
             target[name] = cur + val
-        except Exception:
-            # best effort: if cur not numeric, coerce
-            try:
-                target[name] = float(cur) + float(val)
-            except Exception:
+        elif op == "-=":
+            target[name] = cur - val
+        elif op == "*=":
+            target[name] = cur * val
+        elif op == "/=":
+            target[name] = cur / val
+        elif op == "//=":
+            target[name] = cur // val
+    except Exception:
+        # Last-resort coercion
+        try:
+            c = float(cur)
+            v = float(val)
+            if op == "+=":
+                target[name] = c + v
+            elif op == "-=":
+                target[name] = c - v
+            elif op == "*=":
+                target[name] = c * v
+            elif op == "/=":
+                target[name] = c / v
+            elif op == "//=":
+                target[name] = int(c) // int(v)
+            else:  # "="
                 target[name] = val
+        except Exception:
+            target[name] = val
     return True
 
+
+# --- rule engine ------------------------------------------------------------
 
 def match_rule(event: Dict[str, Any], cond: Dict[str, Any]) -> bool:
     """All key/value pairs in cond must match those in event."""
@@ -204,8 +229,8 @@ def run_rules_for_event(spec: dict, vs: Any, event: Dict[str, Any]) -> List[BetI
             (with fallback renderer if needed) and normalize to amount=None,
             also adding a legacy (<name>, None, None) duplicate.
           * Else:
-              - Try to apply simple assignments/aug-assign (units = 10, units += 10).
-              - If not an assignment, attempt safe_eval (pure expressions).
+              - Try to apply simple assignments/aug-assign (units = 10, units += 10, units *= 2, ...).
+              - If not an assignment, attempt safe_eval (pure expressions only).
         We also append ("__expr__", <code>, None) entries for observability.
       - For dict actions: return as ("__dict__", action, None) for the materializer.
     """
@@ -242,7 +267,7 @@ def run_rules_for_event(spec: dict, vs: Any, event: Dict[str, Any]) -> List[BetI
                     try:
                         safe_eval(act, vs)
                     except SyntaxError:
-                        # Don't blow up tests on unsupported syntax; just record.
+                        # Ignore unsupported syntax; just record intent
                         pass
                     intents.append(("__expr__", act, None))
 
