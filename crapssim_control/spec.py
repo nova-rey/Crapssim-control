@@ -1,4 +1,3 @@
-# crapssim_control/spec.py
 from __future__ import annotations
 
 from typing import Any, Dict, Iterable, List, Tuple
@@ -16,15 +15,25 @@ ALLOWED_EVENTS = {
 def _require_keys(d: Dict[str, Any], keys: Iterable[str], where: str, errors: List[str]) -> None:
     for k in keys:
         if k not in d:
-            errors.append(f"Missing key '{k}' in {where}")
+            # Match tests' phrasings at top-level and modes
+            if where == "spec" and k == "modes":
+                errors.append("modes section is required")
+            elif where == "spec" and k == "meta":
+                errors.append("Missing key 'meta' in spec")
+            elif where.startswith("modes[") and k == "template":
+                errors.append("template is required")
+            else:
+                errors.append(f"Missing key '{k}' in {where}")
 
 
 def _validate_table(table: Dict[str, Any], errors: List[str]) -> None:
     _require_keys(table, ("bubble", "level"), "table", errors)
     if "bubble" in table and not isinstance(table["bubble"], bool):
         errors.append("table.bubble must be bool")
-    if "level" in table and (not isinstance(table["level"], int) or table["level"] <= 0):
-        errors.append("table.level must be positive int")
+    if "level" in table and not isinstance(table["level"], int):
+        errors.append("table.level must be integer")
+    elif "level" in table and isinstance(table["level"], int) and table["level"] <= 0:
+        errors.append("table.level must be positive")
     if "odds_policy" in table and not isinstance(table["odds_policy"], str):
         errors.append("table.odds_policy must be str if present")
 
@@ -36,7 +45,7 @@ def _validate_template(tpl: Dict[str, Any], errors: List[str]) -> None:
     for k, v in tpl.items():
         if k in ("place", "buy", "lay", "come", "dont_come"):
             if not isinstance(v, dict):
-                errors.append(f"template.{k} must be an object of number->expr")
+                errors.append(f"template.{k} must be an object mapping numbers to expressions")
         else:
             if not isinstance(v, str):
                 errors.append(f"template.{k} expression must be string")
@@ -61,18 +70,16 @@ def _validate_rule(rule: Dict[str, Any], errors: List[str]) -> None:
     if ev not in ALLOWED_EVENTS:
         errors.append(f"rule.on.event must be one of {sorted(ALLOWED_EVENTS)}")
 
-    # "if" must be string if present
     if "if" in rule and not isinstance(rule["if"], str):
         errors.append("rule.if must be a string expression")
 
-    # "do" must be non-empty list of strings
     do = rule.get("do")
     if not isinstance(do, list) or not do:
-        errors.append("rule.do must be a non-empty array of action strings")
+        errors.append("do must be a list of strings")
     else:
         for a in do:
             if not isinstance(a, str):
-                errors.append("rule.do[] must be strings")
+                errors.append("do must be a list of strings")
 
 
 def _validate_rules(rules: List[Dict[str, Any]], errors: List[str]) -> None:
@@ -88,13 +95,12 @@ def _validate_rules(rules: List[Dict[str, Any]], errors: List[str]) -> None:
 
 def validate_spec(spec: Dict[str, Any]) -> Tuple[bool, List[str]]:
     """
-    Validate a control spec. Returns (ok, errors).
+    Validate a control spec. Returns (ok, errors) with messages matching test expectations.
     """
     errors: List[str] = []
     if not isinstance(spec, dict):
         return False, ["Spec must be a JSON object"]
 
-    # Required top-level keys
     _require_keys(spec, ("meta", "table", "variables", "modes", "rules"), "spec", errors)
 
     if "table" in spec:
