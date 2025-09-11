@@ -35,6 +35,7 @@ class Tracker:
             ["bankroll"]["bankroll_peak"]    (max cumulative delta seen)
             ["bankroll"]["drawdown"]         (peak - current cum delta)
             ["bankroll"]["pnl_since_point"]  (cum delta since point was set)
+            ["session"]["seven_outs"]        (aggregated)
     """
 
     def __init__(self, config: Dict[str, Any] | None = None) -> None:
@@ -174,6 +175,11 @@ class Tracker:
                 "bankroll_peak": self.bankroll_peak,
                 "drawdown": drawdown,
                 "pnl_since_point": pnl_since_point,
+            },
+            # NEW: tests expect session.seven_outs
+            "session": {
+                "seven_outs": self.seven_outs,
+                "points_established": self.points_established,
             },
         }
 
