@@ -24,6 +24,7 @@ class Tracker:
       - on_roll(total)
       - on_point_established(point)
       - on_bankroll_delta(delta)
+      - on_seven_out()
       - snapshot() -> dict including:
             ["roll"]["last_roll"]
             ["roll"]["rolls_since_point"]
@@ -107,6 +108,30 @@ class Tracker:
         # track peak for tests
         if self.cum_bankroll_delta > self.bankroll_peak:
             self.bankroll_peak = self.cum_bankroll_delta
+
+    def on_seven_out(self) -> None:
+        """
+        End of hand via seven-out:
+          - increment seven_outs
+          - clear current point and reset rolls_since_point
+          - reset pnl anchor to current cum delta (next point starts fresh)
+          - emit an observation with comeout=True, point_off
+        """
+        self.seven_outs += 1
+        self.current_point = None
+        self.rolls_since_point = 0
+        self.point_bankroll_anchor = self.cum_bankroll_delta
+
+        curr = {
+            "table": {
+                "dice": (0, 0, 7),
+                "comeout": True,
+                "point_on": False,
+                "point_number": None,
+                "roll_index": 0,
+            }
+        }
+        self.observe(self._curr_snapshot, curr, {"event": "seven_out"})
 
     def snapshot(self) -> Dict[str, Any]:
         shooter_rolls = 0
