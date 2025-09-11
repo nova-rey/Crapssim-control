@@ -5,8 +5,8 @@ from typing import Any, Dict, Optional
 from .events import derive_event
 from .templates import render_template
 from .materialize import apply_intents
-from .rules import run_rules_for_event           # <-- correct module
-from .varstore import VarStore                   # <-- correct module
+from .rules import run_rules_for_event
+from .varstore import VarStore
 from .telemetry import Telemetry
 
 
@@ -63,10 +63,11 @@ class ControlStrategy:
 
         # Bookkeeping for next roll and optional hook
         self._prev_snapshot = curr_snapshot
+        # Call with both args; EngineAdapter may call with only table (handled by default below).
         self.after_roll(table, event)
 
-    def after_roll(self, table: Any, event: Dict[str, Any]) -> None:
-        """No-op hook required by tests."""
+    def after_roll(self, table: Any, event: Optional[Dict[str, Any]] = None) -> None:
+        """No-op hook (event is optional so EngineAdapter(table) call works)."""
         return None
 
     # --- helpers ---
@@ -76,13 +77,11 @@ class ControlStrategy:
         Return the first player object registered on the table, if any.
         Works with the test fakes that expose `add_player()` and `players`.
         """
-        # attribute- or dict-style
         players = getattr(table, "players", None)
         if players is None and isinstance(table, dict):
             players = table.get("players")
         if players and len(players) > 0:
             return players[0]
-        # Some engines might expose a single 'player' attribute
         single = getattr(table, "player", None)
         if single is None and isinstance(table, dict):
             single = table.get("player")
