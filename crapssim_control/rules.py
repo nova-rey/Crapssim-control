@@ -1,22 +1,35 @@
 """
-rules.py -- minimal rule runner that the tests expect.
+rules.py -- rule matcher + exported render_template passthrough.
 
-- Produces "intents" based on spec["rules"] when an event dictionary arrives.
-- Does NOT execute expressions here; it returns "__expr__" / "__dict__" intents
-  that are later applied by the materializer layer.
-- Imports render_template only for type hints / parity with controller imports.
+- run_rules_for_event: evaluates spec["rules"] against an event and returns
+  "intents" that the materializer later applies.
+- render_template: re-exported thin wrapper around templates.render_template
+  so modules importing it from rules keep working (e.g., controller.py).
 """
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Tuple, Optional
+from typing import Any, Dict, List, Tuple
 
-# Controller imports this symbol from here, so keep the name stable:
-from .templates import render_template as _render_template  # noqa: F401  (imported for parity)
+# Expose render_template here to satisfy imports like:
+#   from .rules import run_rules_for_event, render_template
+from .templates import render_template as _tpl_render_template
 
-# Type alias the tests use conceptually
+# Public type alias used conceptually by tests/materializer
 BetIntent = Tuple[str, Any, Any]
 
+__all__ = ["run_rules_for_event", "render_template"]
+
+
+def render_template(spec: dict, vs: Any, intents: List[BetIntent], table_level: int | None = None):
+    """
+    Pass-through to the real templates.render_template implementation.
+    Kept here for backward-compat/expected import path.
+    """
+    return _tpl_render_template(spec, vs, intents, table_level=table_level)
+
+
+# ---------- Rule matching ----------
 
 def _get(d: Any, key: str, default: Any = None) -> Any:
     if isinstance(d, dict):
@@ -42,10 +55,11 @@ def run_rules_for_event(spec: dict, vs: Any, event: Dict[str, Any]) -> List[BetI
     Evaluate spec["rules"] against the given event and produce a list of "intents".
     Intents are tuples consumed by materialize.apply_intents later.
 
-    Test expectations:
-      - If an action is a string like "units += 10" → ("__expr__", <str>, None)
-      - If an action is a dict like {"pass": "units"} → ("__dict__", <dict>, None)
-      - We never emit bare 2-tuples; always length 3 (or 4 elsewhere in stack).
+    Expected intent encodings:
+      - Action is a string like "units += 10"
+          -> ("__expr__", <str>, None)
+      - Action is a dict like {"pass": "units"}
+          -> ("__dict__", <dict>, None)
     """
     intents: List[BetIntent] = []
     rules: List[dict] = spec.get("rules", [])
