@@ -31,6 +31,7 @@ class Tracker:
             ["point"]["point"]
             ["hits"][total]  (frequency by total)
             ["bankroll"]["bankroll"] (cumulative delta)
+            ["bankroll"]["bankroll_peak"] (max cumulative delta seen)
     """
 
     def __init__(self, config: Dict[str, Any] | None = None) -> None:
@@ -51,6 +52,7 @@ class Tracker:
         self.rolls_since_point: Optional[int] = None  # None when no point is on
         self.last_bankroll_delta: float = 0.0
         self.cum_bankroll_delta: float = 0.0
+        self.bankroll_peak: float = 0.0
 
         # snapshots
         self._prev_snapshot: Optional[Dict[str, Any]] = None
@@ -96,6 +98,9 @@ class Tracker:
             d = 0.0
         self.last_bankroll_delta = d
         self.cum_bankroll_delta += d
+        # track peak for tests
+        if self.cum_bankroll_delta > self.bankroll_peak:
+            self.bankroll_peak = self.cum_bankroll_delta
 
     def snapshot(self) -> Dict[str, Any]:
         shooter_rolls = 0
@@ -124,8 +129,9 @@ class Tracker:
             "bankroll": {
                 "last_delta": self.last_bankroll_delta,
                 "cum_delta": self.cum_bankroll_delta,
-                # tests read this exact key:
+                # tests read these exact keys:
                 "bankroll": self.cum_bankroll_delta,
+                "bankroll_peak": self.bankroll_peak,
             },
         }
 
