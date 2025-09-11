@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, Optional, Tuple, List
+from typing import Any, Dict, Optional
 
 from .templates import render_template
 from .events import derive_event
@@ -14,6 +14,7 @@ class ControlStrategy:
     """
     Wraps a strategy spec and exposes a small API the engine adapter can call:
       - update_bets(table): derive event -> run rules -> render/apply intents
+      - after_roll(table): alias expected by tests/adapters
     """
 
     def __init__(
@@ -24,15 +25,10 @@ class ControlStrategy:
     ) -> None:
         self.spec = spec
         # Default to a disabled telemetry that performs no I/O.
-        # Passing csv_path=None guarantees disabled mode (see Telemetry).
         self.telemetry = telemetry or Telemetry(csv_path=None)
         self.vs = VarStore.from_spec(spec)
         # odds_policy can be carried in table section; allow override
         self.odds_policy = odds_policy or spec.get("table", {}).get("odds_policy")
-
-        # capture whether we’re on a comeout cycle from outside, if provided
-        # (engine adapter will set vs.system fields as it learns table state)
-        # nothing to do here yet.
 
         # Pre-resolved previous snapshot for event derivation
         self._prev_snapshot: Optional[Dict[str, Any]] = None
@@ -44,8 +40,6 @@ class ControlStrategy:
         """
         snap: Dict[str, Any] = {}
 
-        # Heuristics for our test fakes (EngineAdapter tests pass _FakeTable and GameState)
-        # Prefer attribute access, fallback to dict.
         def _get(obj, *attrs, default=None):
             cur = obj
             for a in attrs:
@@ -57,7 +51,6 @@ class ControlStrategy:
                     cur = getattr(cur, a, None)
             return cur if cur is not None else default
 
-        # If table already looks like a GameState-ish object, surface those fields.
         # comeout flag
         comeout = _get(table, "comeout")
         if comeout is None:
@@ -99,7 +92,8 @@ class ControlStrategy:
         intents = run_rules_for_event(self.spec, self.vs, event)
 
         # Render a mode template if asked by rules (e.g., apply_template('Main'))
-        rendered = render_template(self.spec, self.vs, intents)
+        table_level = self.spec.get("table", {}).get("level")
+        rendered = render_template(self.spec, self.vs, intents, table_level)
 
         # Materialize to the table/player objects
         apply_intents(rendered, table, odds_policy=self.odds_policy)
@@ -109,3 +103,7 @@ class ControlStrategy:
 
         # Stash snapshot for next roll
         self._prev_snapshot = curr_snapshot
+
+    # Some tests/adapters expect this name; make it a thin alias.
+    def after_roll(self, table: Any) -> None:
+        self.update_bets(table)
