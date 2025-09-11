@@ -23,7 +23,10 @@ class Tracker:
     Lightweight tracker used by tests:
       - on_roll(total)
       - on_point_established(point)
-      - snapshot() -> dict including ["roll"]["last_roll"] and ["point"]["point"]
+      - snapshot() -> dict including:
+            ["roll"]["last_roll"]
+            ["roll"]["rolls_since_point"]
+            ["point"]["point"]
       - observe(prev, curr, event) exists (used internally)
 
     We intentionally keep behavior minimal to satisfy current tests.
@@ -44,6 +47,7 @@ class Tracker:
         self.current_point: Optional[int] = None
         self.last_total: Optional[int] = None
         self.last_event: Optional[str] = None
+        self.rolls_since_point: Optional[int] = None  # None when no point is on
 
         # snapshots
         self._prev_snapshot: Optional[Dict[str, Any]] = None
@@ -69,6 +73,8 @@ class Tracker:
         # Transition to point-on phase
         self.current_point = int(point)
         self.points_established += 1
+        # reset rolls-since-point at the moment the point is established
+        self.rolls_since_point = 0
         curr = {
             "table": {
                 "dice": (0, 0, int(point)),
@@ -83,7 +89,10 @@ class Tracker:
     def snapshot(self) -> Dict[str, Any]:
         # Provide both the nested shape expected by tests and flat counters for convenience
         return {
-            "roll": {"last_roll": self.last_total},
+            "roll": {
+                "last_roll": self.last_total,
+                "rolls_since_point": self.rolls_since_point if self.rolls_since_point is not None else 0,
+            },
             "point": {"point": self.current_point, "current": self.current_point},
             "totals": dict(self.hits_by_total),
             "total_rolls": self.total_rolls,
@@ -114,7 +123,25 @@ class Tracker:
         self.total_rolls += 1
 
         tbl = (curr or {}).get("table", {}) or {}
-        if tbl.get("comeout"):
+        point_on = bool(tbl.get("point_on"))
+        comeout = bool(tbl.get("comeout"))
+
+        if comeout:
             self.comeout_rolls += 1
         else:
             self.point_phase_rolls += 1
+
+        # Maintain rolls_since_point
+        if point_on:
+            if ev_name == "point_established":
+                # already reset in on_point_established; ensure consistency here too
+                self.rolls_since_point = 0
+            elif ev_name == "roll":
+                # Only increment for rolls during point-on phase
+                if self.rolls_since_point is None:
+                    self.rolls_since_point = 0
+                else:
+                    self.rolls_since_point += 1
+        else:
+            # no point is on; keep it as 0 for snapshot purposes
+            self.rolls_since_point = 0
