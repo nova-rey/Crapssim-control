@@ -62,9 +62,6 @@ class ControlStrategy:
         self.table = None  # set by engine when added
         self.telemetry = telemetry
 
-        # When no rules/modes specified, behave like static: v1 parity
-        # (handled naturally by run_rules_for_event + apply_template actions)
-
     # ---- CrapsSim integration helpers ----
 
     def set_table_context(self, table: Any) -> None:
@@ -105,6 +102,13 @@ class ControlStrategy:
         apply_intents(self, intents, odds_policy=self.odds_policy)
 
         # 5) Nothing to return; the table/engine will continue rolling
+
+    def update_bets(self, event: Dict[str, Any]) -> None:
+        """
+        Back-compat alias expected by some host code/tests.
+        Simply forwards to on_event(...).
+        """
+        self.on_event(event)
 
     def tick(self, table_snapshot_before: Dict[str, Any], table_snapshot_after: Dict[str, Any]) -> None:
         """
