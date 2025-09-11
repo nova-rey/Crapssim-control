@@ -23,7 +23,7 @@ class Tracker:
     Lightweight tracker used by tests:
       - on_roll(total)
       - on_point_established(point)
-      - snapshot() -> dict including ["roll"]["last_roll"]
+      - snapshot() -> dict including ["roll"]["last_roll"] and ["point"]["point"]
       - observe(prev, curr, event) exists (used internally)
 
     We intentionally keep behavior minimal to satisfy current tests.
@@ -84,7 +84,7 @@ class Tracker:
         # Provide both the nested shape expected by tests and flat counters for convenience
         return {
             "roll": {"last_roll": self.last_total},
-            "point": {"current": self.current_point},
+            "point": {"point": self.current_point, "current": self.current_point},
             "totals": dict(self.hits_by_total),
             "total_rolls": self.total_rolls,
             "comeout_rolls": self.comeout_rolls,
