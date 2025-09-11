@@ -1,11 +1,12 @@
 # crapssim_control/controller.py
 from __future__ import annotations
 
-from typing import Any, Dict, List, Tuple, Optional
+from typing import Any, Dict, Optional
 
 # Local imports
-from .eval import safe_eval
-from .templates import render_template, apply_intents
+from .eval import safe_eval  # noqa: F401 (used by rules via VarStore)
+from .templates import render_template  # noqa: F401 (kept for completeness / future use)
+from .materialize import apply_intents
 from .rules import VarStore, run_rules_for_event
 from .events import derive_event
 from .tracker import Tracker
@@ -58,7 +59,6 @@ class ControlStrategy:
         event = derive_event(table)
 
         # Update tracker pre-rule if roll known
-        # Note: derive_event may include {'event': 'roll', 'total': n} or similar.
         if event and event.get("event") == "roll":
             total = int(event.get("total", 0) or 0)
             if total:
@@ -84,7 +84,11 @@ class ControlStrategy:
         intents = run_rules_for_event(self.spec, self.vs, event or {"event": "roll"})
 
         # Apply intents to engine
-        apply_intents(table.current_player if hasattr(table, "current_player") else self, intents, odds_policy=self.odds_policy)
+        apply_intents(
+            table.current_player if hasattr(table, "current_player") else self,
+            intents,
+            odds_policy=self.odds_policy,
+        )
 
         # Publish tracker for rule visibility
         self._publish_tracker()
@@ -103,8 +107,6 @@ class ControlStrategy:
             except Exception:
                 delta = 0.0
 
-        # Fallback: sometimes table exposes last_payout assigned to player; keep delta 0 if unknown.
-
         if delta:
             self.tracker.on_bankroll_delta(delta)
 
@@ -112,7 +114,14 @@ class ControlStrategy:
         self._publish_tracker()
 
     # Compatibility: some engines call this on each bet resolution
-    def on_bet_resolved(self, bet_kind: str, result: str, reason: str = "", number: Optional[int] = None, amount: Optional[float] = None):
-        """Optional callback from engine strategy wrapper; not required for Phase A."""
+    def on_bet_resolved(
+        self,
+        bet_kind: str,
+        result: str,
+        reason: str = "",
+        number: Optional[int] = None,
+        amount: Optional[float] = None,
+    ):
+        """Optional callback from engine strategy wrapper; reserved for Phase B/C aggregation."""
         # Phase A uses bankroll deltas at roll boundary; Phase B will consume this more deeply.
         pass
