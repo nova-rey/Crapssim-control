@@ -1,97 +1,125 @@
-# crapssim_control/tracker.py
+"""
+tracker.py -- simple, test-friendly tracking of roll & point stats.
+
+Exposed API used by tests:
+- Tracker(config).on_roll(total) → simulates receiving a roll result
+- Tracker.observe(prev, curr, event) → consumes snapshots like engine/controller
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, Optional, Tuple, Mapping, List
+from typing import Any, Dict, Optional
 from collections import defaultdict
-
-__all__ = ["Tracker"]
-
-
-def _get(obj: Any, key: str, default: Any = None) -> Any:
-    if obj is None:
-        return default
-    if "." in key:
-        head, tail = key.split(".", 1)
-        return _get(_get(obj, head), tail, default)
-    if isinstance(obj, Mapping):
-        return obj.get(key, default)
-    if hasattr(obj, key):
-        return getattr(obj, key)
-    if hasattr(obj, "table") and key in ("point_on", "point_number", "comeout", "dice", "roll_index"):
-        tbl = getattr(obj, "table")
-        if tbl is not None and hasattr(tbl, key):
-            return getattr(tbl, key)
-    return default
 
 
 def _dice_total(snapshot: Any) -> Optional[int]:
-    dice = _get(snapshot, "table.dice")
+    """
+    Extract total from a snapshot shaped like:
+      {"table": {"dice": (d1, d2, total), ...}}
+    or return None if not present.
+    """
+    table = None
+    if isinstance(snapshot, dict):
+        table = snapshot.get("table")
+    else:
+        table = getattr(snapshot, "table", None)
+
+    dice = None
+    if isinstance(table, dict):
+        dice = table.get("dice")
+    else:
+        dice = getattr(table, "dice", None)
+
     if isinstance(dice, (tuple, list)) and len(dice) >= 3:
-        try:
-            return int(dice[2])
-        except Exception:
-            pass
-    return _get(snapshot, "total") or _get(snapshot, "table.total")
-
-
-def _is_comeout(s: Any) -> bool:
-    return bool(_get(s, "table.comeout", _get(s, "comeout", False)))
-
-
-def _point_on(s: Any) -> bool:
-    return bool(_get(s, "table.point_on", _get(s, "point_on", False)))
-
-
-def _point_num(s: Any) -> Optional[int]:
-    pn = _get(s, "table.point_number", _get(s, "point_number"))
-    try:
-        return int(pn) if pn is not None else None
-    except Exception:
-        return None
-
-
-@dataclass
-class _PointStats:
-    established: int = 0
-    made: int = 0
+        return int(dice[2])
+    return None
 
 
 @dataclass
 class Tracker:
-    """Option-A tracker (backward-compatible)."""
+    config: Dict[str, Any] = field(default_factory=dict)
 
-    # roll counters
     total_rolls: int = 0
     comeout_rolls: int = 0
     point_phase_rolls: int = 0
     hits_by_total: Dict[int, int] = field(default_factory=lambda: defaultdict(int))
 
-    # point lifecycle
-    point_stats: Dict[int, _PointStats] = field(default_factory=lambda: defaultdict(_PointStats))
-    current_point: Optional[int] = None
-
-    # shooter stats
-    current_shooter_rolls: int = 0
-    longest_shooter_hand: int = 0
-    hands_played: int = 0
-
-    # streaks
-    current_point_run: int = 0
-    max_point_run: int = 0
-
-    # last
-    last_event: Optional[str] = None
-    last_total: Optional[int] = None
-    last_bankroll: Optional[float] = None
-    last_bankroll_delta: Optional[float] = None
+    points_established: int = 0
+    points_made: int = 0
+    seven_outs: int = 0
 
     _prev_snapshot: Any = None
     _curr_snapshot: Any = None
+    last_event: Optional[str] = None
+    last_total: Optional[int] = None
+    last_point: Optional[int] = None
+    point_on: bool = False
 
-    # ---------------- core API ----------------
+    def __init__(self, config: Optional[Dict[str, Any]] = None) -> None:
+        # Keep config separate from counters
+        object.__setattr__(self, "config", dict(config or {}))
+
+        # Initialize counters explicitly as ints / dicts
+        object.__setattr__(self, "total_rolls", 0)
+        object.__setattr__(self, "comeout_rolls", 0)
+        object.__setattr__(self, "point_phase_rolls", 0)
+        object.__setattr__(self, "hits_by_total", defaultdict(int))
+        object.__setattr__(self, "points_established", 0)
+        object.__setattr__(self, "points_made", 0)
+        object.__setattr__(self, "seven_outs", 0)
+
+        # Rolling state
+        object.__setattr__(self, "_prev_snapshot", None)
+        object.__setattr__(self, "_curr_snapshot", None)
+        object.__setattr__(self, "last_event", None)
+        object.__setattr__(self, "last_total", None)
+        object.__setattr__(self, "last_point", None)
+        object.__setattr__(self, "point_on", False)
+
+    # ---------- Public helpers used by tests ----------
+
+    def on_roll(self, total: int) -> None:
+        """
+        Convenience used by tests: emulate a single roll without a full engine.
+        We synthesize minimal snapshots and call observe().
+        """
+        # prev snapshot is whatever we observed last
+        dummy_prev = self._curr_snapshot
+
+        # curr snapshot: replicate the small table dict the engine uses
+        curr = {
+            "table": {
+                "dice": (0, 0, int(total)),
+                "comeout": not self.point_on,
+                "point_on": self.point_on,
+                "point_number": self.last_point if self.point_on else None,
+                "roll_index": 0,  # not essential for tests
+            }
+        }
+
+        # If we're on comeout and roll establishes a point, mark it
+        if curr["table"]["comeout"] and total in (4, 5, 6, 8, 9, 10):
+            curr["table"]["point_on"] = True
+            curr["table"]["point_number"] = total
+
+        # If we're in point phase and hit the point, next state is comeout
+        if self.point_on and self.last_point and total == self.last_point:
+            # hitting the point ends the point; next roll will be comeout
+            pass
+
+        # Feed as a plain "roll" event (the tests call us like this)
+        self.observe(dummy_prev, curr, {"event": "roll"})
+
+        # After observing a hit of the point, switch back to comeout for next time
+        if self.point_on and self.last_point and total == self.last_point:
+            self.point_on = False
+            self.last_point = None
 
     def observe(self, prev: Any, curr: Any, event: Optional[Dict[str, Any]] = None) -> None:
+        """
+        Main tracking entry: record what's needed from a before/after roll snapshot.
+        """
         self._prev_snapshot = prev
         self._curr_snapshot = curr
 
@@ -104,117 +132,37 @@ class Tracker:
             if 2 <= total <= 12:
                 self.hits_by_total[total] += 1
 
+        # Update total roll counters
         self.total_rolls += 1
-        self.current_shooter_rolls += 1
 
-        if _is_comeout(curr):
+        # Extract phase flags from snapshot
+        table = curr.get("table", {}) if isinstance(curr, dict) else getattr(curr, "table", {})  # type: ignore
+        comeout = table.get("comeout", False)
+        point_on = table.get("point_on", False)
+        point_number = table.get("point_number")
+
+        # Count phase rolls
+        if comeout:
             self.comeout_rolls += 1
-            self.current_point_run = 0
-        else:
+        elif point_on:
             self.point_phase_rolls += 1
 
-        if ev_name == "point_established":
-            p = _point_num(curr)
-            self.current_point = p
-            if p in (4, 5, 6, 8, 9, 10):
-                self.point_stats[p].established += 1
-            self.current_point_run = 0
-
-        elif ev_name == "point_made":
-            p = _point_num(prev) or self.current_point
-            if p in (4, 5, 6, 8, 9, 10):
-                self.point_stats[p].made += 1
-            self.current_point = None
-            self.current_point_run = 0
-
-        elif ev_name == "seven_out":
-            self.max_point_run = max(self.max_point_run, self.current_point_run)
-            self.current_point_run = 0
-            self.current_point = None
-
-        else:
-            if _point_on(curr) and (total != 7):
-                self.current_point_run += 1
-                self.max_point_run = max(self.max_point_run, self.current_point_run)
-
-        if ev_name == "shooter_change":
-            self._reset_shooter()
-
-    def record_bankroll(self, bankroll: Optional[float]) -> None:
-        if bankroll is None:
-            return
-        if self.last_bankroll is not None:
-            self.last_bankroll_delta = bankroll - self.last_bankroll
-        self.last_bankroll = bankroll
-
-    def snapshot(self) -> Dict[str, Any]:
-        out: Dict[str, Any] = {
-            "total_rolls": self.total_rolls,
-            "comeout_rolls": self.comeout_rolls,
-            "point_phase_rolls": self.point_phase_rolls,
-            "comeout_pct": round(self.comeout_rolls / self.total_rolls, 4) if self.total_rolls else 0.0,
-            "point_phase_pct": round(self.point_phase_rolls / self.total_rolls, 4) if self.total_rolls else 0.0,
-            "current_point": self.current_point,
-            "current_point_run": self.current_point_run,
-            "max_point_run": self.max_point_run,
-            "current_shooter_rolls": self.current_shooter_rolls,
-            "longest_shooter_hand": self.longest_shooter_hand,
-            "hands_played": self.hands_played,
-            "last_event": self.last_event,
-            "last_total": self.last_total,
-            "last_bankroll": self.last_bankroll,
-            "last_bankroll_delta": self.last_bankroll_delta,
-        }
-        for n in range(2, 13):
-            out[f"hits_{n}"] = int(self.hits_by_total.get(n, 0))
-        for n in (4, 5, 6, 8, 9, 10):
-            ps = self.point_stats.get(n)
-            est = ps.established if ps else 0
-            made = ps.made if ps else 0
-            rate = (made / est) if est else 0.0
-            out[f"point_{n}_established"] = est
-            out[f"point_{n}_made"] = made
-            out[f"point_{n}_make_rate"] = round(rate, 4)
-        return out
-
-    # ---------------- legacy shim (for tests expecting old API) ----------------
-
-    def on_roll(self, total: int) -> None:
-        """Legacy: treat as a generic roll during point-phase if a point is on, else comeout roll."""
-        dummy_prev = self._curr_snapshot
-        # synthesize a minimal curr snapshot dict
-        curr = {
-            "table": {
-                "dice": (0, 0, int(total)),
-                "comeout": not bool(self.current_point),
-                "point_on": bool(self.current_point),
-                "point_number": self.current_point,
-                "roll_index": 0,
-            }
-        }
-        self.observe(dummy_prev, curr, {"event": "roll"})
-
-    def on_point_established(self, number: int) -> None:
-        prev = self._curr_snapshot
-        curr = {"table": {"comeout": False, "point_on": True, "point_number": int(number), "dice": (0, 0, int(number))}}
-        self.observe(prev, curr, {"event": "point_established"})
-
-    def on_point_made(self, number: int) -> None:
-        prev = self._curr_snapshot
-        curr = {"table": {"comeout": True, "point_on": False, "point_number": None, "dice": (0, 0, int(number))}}
-        self.observe(prev, curr, {"event": "point_made"})
-
-    def on_seven_out(self) -> None:
-        prev = self._curr_snapshot
-        curr = {"table": {"comeout": True, "point_on": False, "point_number": None, "dice": (0, 0, 7)}}
-        self.observe(prev, curr, {"event": "seven_out"})
-
-    def on_shooter_change(self) -> None:
-        self._reset_shooter()
-
-    # ---------------- internals ----------------
-
-    def _reset_shooter(self) -> None:
-        self.longest_shooter_hand = max(self.longest_shooter_hand, self.current_shooter_rolls)
-        self.hands_played += 1
-        self.current_shooter_rolls = 0
+        # Track point lifecycle
+        if comeout and point_on and point_number:
+            # edge case: synthetic snapshot sets both (establishing point)
+            self.points_established += 1
+            self.point_on = True
+            self.last_point = int(point_number)
+        elif comeout and total in (4, 5, 6, 8, 9, 10):
+            # establish
+            self.points_established += 1
+            self.point_on = True
+            self.last_point = int(total)
+        elif point_on and self.last_point and total == self.last_point:
+            # point made
+            self.points_made += 1
+        elif total == 7 and point_on:
+            # seven-out during point
+            self.seven_outs += 1
+            self.point_on = False
+            self.last_point = None
