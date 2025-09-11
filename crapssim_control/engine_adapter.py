@@ -42,18 +42,25 @@ class EngineAdapter:
 
     # ----------------- public driver -----------------
 
-    def play(self, *, shooters: int = 1) -> None:
+    def play(self, *, shooters: int = 1, max_rolls_per_shooter: int = 200) -> None:
         """
         Run until the requested number of shooters have completed.
-        For tests, just exercising a couple of rolls is enough.
+
+        To avoid hangs with minimal fakes that never emit seven_out/shooter_change,
+        we enforce a hard cap of `max_rolls_per_shooter`. If the cap is reached,
+        we advance to the next shooter anyway.
         """
         shooters_remaining = shooters
         while shooters_remaining > 0:
-            event = self._roll_once()
-            # Consider a "seven_out" or "shooter_change" as end-of-shooter hints
-            ev = (event or {}).get("event")
-            if ev in ("seven_out", "shooter_change"):
-                shooters_remaining -= 1
+            ended_by_event = False
+            for _ in range(max_rolls_per_shooter):
+                event = self._roll_once()
+                ev = (event or {}).get("event")
+                if ev in ("seven_out", "shooter_change"):
+                    ended_by_event = True
+                    break
+            # If we never saw an end-of-shooter event, still advance so we don't loop forever.
+            shooters_remaining -= 1
 
     # ----------------- core step -----------------
 
@@ -71,17 +78,15 @@ class EngineAdapter:
         # 1) Give strategy a chance to place/update bets before the roll
         self.strategy.update_bets(self.table)
 
-        # 2) Snapshot bets before roll (for diffing later)
-        before = _list_bet_sigs(self._get_player_bets())
+        # 2) Snapshot bets before roll (for diffing later if desired)
+        _ = _list_bet_sigs(self._get_player_bets())
 
-        # 3) Ask the table/engine to roll one time
-        #    We don't know the exact CrapsSim API; try common spellings.
+        # 3) Ask the table/engine to roll one time (try common spellings)
         if hasattr(self.table, "roll_once"):
             self.table.roll_once()
         elif hasattr(self.table, "roll"):
             self.table.roll()
         else:
-            # If the exporter uses a loop with table.step(), try that:
             step = getattr(self.table, "step", None)
             if callable(step):
                 step()
@@ -95,16 +100,11 @@ class EngineAdapter:
         event = derive_event(prev_snapshot, curr_snapshot) or {"event": "roll"}
 
         # 6) Let strategy do any after-roll bookkeeping with the event
-        #    (Controller.after_roll accepts optional event.)
         try:
             self.strategy.after_roll(self.table, event)
         except TypeError:
-            # Back-compat if a user's strategy still expects only (table)
+            # Back-compat: some strategies may accept only (table)
             self.strategy.after_roll(self.table)  # type: ignore[misc]
-
-        # 7) Optionally diff bets (kept for completeness / debugging)
-        _ = _list_bet_sigs(self._get_player_bets())  # 'after' snapshot
-        # diffs = [s for s in after if s not in before]  # not used in tests
 
         return event
 
