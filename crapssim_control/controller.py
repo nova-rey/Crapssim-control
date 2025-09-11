@@ -1,230 +1,118 @@
 # crapssim_control/controller.py
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Tuple, Optional
 
+# Local imports
+from .eval import safe_eval
+from .templates import render_template, apply_intents
 from .rules import VarStore, run_rules_for_event
-from .materialize import apply_intents
-from .events import derive_event  # kept available for engines that call tick() with raw table deltas
+from .events import derive_event
+from .tracker import Tracker
 
 
 class ControlStrategy:
     """
-    CrapsSim-compatible strategy that interprets a JSON spec.
-
-    - Consumes spec: variables, modes, templates, rules, table config
-    - Derives + runs rules on events (either provided by engine or via derive_event)
-    - Emits bet intents and materializes them on this player using CrapsSim bet objects
-    - Optionally logs per-event telemetry to CSV via Telemetry
+    Glue between a JSON strategy spec and the CrapsSim engine's player interface.
+    Responsibilities:
+      - Hold variables/state (VarStore)
+      - Evaluate rules on events to produce intents
+      - Legalize & apply intents to engine bet objects
+      - Maintain tracker counters (roll/point/bankroll/etc.)
+      - Optional telemetry (handled elsewhere)
     """
 
-    # ---- minimal CrapsSim player surface ----
-    bets: List[Any]  # list of bet objects (duck-typed)
+    def __init__(self, spec: Dict[str, Any], telemetry: Any = None, odds_policy: Optional[str] = None):
+        self.spec = spec
+        self.telemetry = telemetry
+        self.odds_policy = odds_policy
 
-    def __init__(
-        self,
-        spec: Dict[str, Any],
-        *,
-        telemetry: Any | None = None,
-        odds_policy: str | int | None = None,
-    ):
-        self.spec = spec or {}
-        self.vars = VarStore.from_spec(self.spec)
-        self.bets = []
-
-        # odds policy: prefer explicit arg, else spec.table.odds_policy, else default 3-4-5x
-        table_cfg = (self.spec.get("table") or {})
-        self.odds_policy = (
-            odds_policy
-            if odds_policy is not None
-            else table_cfg.get("odds_policy", "3-4-5x")
-        )
-
-        # system fields (mirrors what tests & helpers expect)
-        self.state: Dict[str, Any] = {
-            "hand_id": 0,
-            "shooter_id": 0,
-            "roll_index": 0,
-            "is_comeout": True,
-            "point_number": None,
-            "last_dice": None,          # (d1, d2)
-            "bankroll": 0.0,
-            "bankroll_delta": 0.0,
-        }
-
-        # set system table params for legalization etc.
-        # (these may be updated again when table attaches)
-        self.vars.system = {
+        # Var store
+        self.vs = VarStore.from_spec(spec)
+        table_cfg = spec.get("table", {})
+        # System defaults needed by legalizer/templates
+        self.vs.system = {
             "bubble": bool(table_cfg.get("bubble", False)),
             "table_level": int(table_cfg.get("level", 10)),
         }
 
-        self.table = None  # set by engine when added
-        self.telemetry = telemetry
+        # Tracker (Phase A)
+        tracking_cfg = (table_cfg.get("tracking") or {})
+        self.tracker = Tracker(tracking_cfg)
+        # Publish initial snapshot so rules can read tracker immediately
+        self._publish_tracker()
 
-    # ---- CrapsSim integration helpers ----
+        # Internal bookkeeping
+        self._last_bankroll = 0.0  # baseline; engine may not expose bankroll--this is deltas only
+        self._point_before_roll = 0
 
-    def set_table_context(self, table: Any) -> None:
-        """
-        Called by engine when the player is added to the table (or you can call manually).
-        We read bubble + table min for consistent legalization.
-        """
-        self.table = table
-        try:
-            bubble = bool(getattr(table, "bubble", self.vars.system["bubble"]))
-            level = int(getattr(table, "level", self.vars.system["table_level"]))
-            self.vars.system["bubble"] = bubble
-            self.vars.system["table_level"] = level
-        except Exception:
-            pass
+    # ---- Helper to expose tracker into VarStore.system ----
+    def _publish_tracker(self):
+        self.vs.system["tracker"] = self.tracker.snapshot()
 
-    # Some engines call player.attach(table) or similar; alias to our setter.
-    attach = set_table_context
+    # ---- Engine-facing hooks (names may vary across CrapsSim versions) ----
 
-    # ---- Event/roll entrypoints ----
+    def update_bets(self, table: Any) -> None:
+        """Called by engine each cycle/roll to (re)apply bets based on rules."""
+        # Derive event from table state
+        event = derive_event(table)
 
-    def on_event(self, event: Dict[str, Any]) -> None:
-        """
-        Primary entrypoint: feed an already-derived event dict, run rules, apply bets.
-        Event example: {"event":"comeout"} or {"event":"bet_resolved","bet":"pass","result":"lose"}
-        """
-        # 1) Maintain light state for telemetry and simple rules that inspect current table-ish values
-        self._ingest_event_for_state(event)
+        # Update tracker pre-rule if roll known
+        # Note: derive_event may include {'event': 'roll', 'total': n} or similar.
+        if event and event.get("event") == "roll":
+            total = int(event.get("total", 0) or 0)
+            if total:
+                self.tracker.on_roll(total)
 
-        # 2) Execute rules → intents
-        intents = run_rules_for_event(self.spec, self.vars, event)
+        # Point changes
+        if event and event.get("event") == "point_established":
+            p = int(event.get("point", 0) or 0)
+            if p:
+                self.tracker.on_point_established(p)
 
-        # 3) (optional) Telemetry BEFORE materialize (what we intend to do)
-        if self.telemetry:
-            self._emit_telemetry(event, intents)
+        if event and event.get("event") == "seven_out":
+            self.tracker.on_seven_out()
 
-        # 4) Materialize intents to our bets list / underlying engine
-        apply_intents(self, intents, odds_policy=self.odds_policy)
+        if event and event.get("event") == "shooter_change":
+            self.tracker.on_new_shooter()
 
-        # 5) Nothing to return; the table/engine will continue rolling
+        if event and event.get("event") == "point_made":
+            # Optional explicit event if engine exposes it
+            self.tracker.on_point_made()
 
-    def update_bets(self, event: Dict[str, Any]) -> None:
-        """
-        Back-compat alias expected by some host code/tests.
-        Simply forwards to on_event(...).
-        """
-        self.on_event(event)
+        # Run rules → intents
+        intents = run_rules_for_event(self.spec, self.vs, event or {"event": "roll"})
 
-    def after_roll(self, d1: int, d2: int) -> None:
-        """
-        Back-compat hook: some engines call after_roll(d1, d2) each toss.
-        Record dice + roll index, then emit a 'roll' event for the rule engine.
-        """
-        try:
-            d1i, d2i = int(d1), int(d2)
-        except Exception:
-            d1i = d1
-            d2i = d2
-        # record dice & advance roll count
-        self.note_roll(d1i, d2i)
-        # forward a 'roll' event
-        self.on_event({"event": "roll", "dice": (d1i, d2i), "total": d1i + d2i})
+        # Apply intents to engine
+        apply_intents(table.current_player if hasattr(table, "current_player") else self, intents, odds_policy=self.odds_policy)
 
-    def tick(self, table_snapshot_before: Dict[str, Any], table_snapshot_after: Dict[str, Any]) -> None:
-        """
-        Alternate entrypoint: derive the event from two table snapshots.
-        Useful if the engine cannot or does not emit semantic events.
-        """
-        ev = derive_event(table_snapshot_before, table_snapshot_after)
-        self.on_event(ev)
+        # Publish tracker for rule visibility
+        self._publish_tracker()
 
-    # ---- Public helpers used by tests and higher layers ----
+    # Some engines call after_roll / afterResolve; keep both if available
 
-    def set_bankroll(self, bankroll: float) -> None:
-        """Update absolute bankroll; delta is computed from last known value."""
-        prev = float(self.state.get("bankroll", 0.0))
-        self.state["bankroll"] = float(bankroll)
-        self.state["bankroll_delta"] = float(bankroll) - prev
-
-    def note_roll(self, d1: int, d2: int) -> None:
-        """Optionally called by host engine to record dice for telemetry/rules that care."""
-        self.state["last_dice"] = (int(d1), int(d2))
-        self.state["roll_index"] = int(self.state.get("roll_index", 0)) + 1
-
-    def set_point(self, point_number: Optional[int]) -> None:
-        """Optionally called by host engine when point changes."""
-        self.state["point_number"] = int(point_number) if point_number else None
-        self.state["is_comeout"] = point_number is None
-
-    # ---- Internal state/telemetry helpers ----
-
-    def _ingest_event_for_state(self, event: Dict[str, Any]) -> None:
-        etype = event.get("event")
-        if etype == "comeout":
-            self.state["is_comeout"] = True
-            self.state["roll_index"] = 0
-        elif etype == "point_established":
-            # event may include {"point": 6}
-            p = event.get("point")
-            self.state["point_number"] = p
-            self.state["is_comeout"] = False
-            self.state["roll_index"] = 0
-        elif etype == "point_made":
-            self.state["point_number"] = None
-            self.state["is_comeout"] = True
-        elif etype == "seven_out":
-            self.state["point_number"] = None
-            self.state["is_comeout"] = True
-        elif etype == "roll":
-            # optional dice info
-            d = event.get("dice")
-            if isinstance(d, (list, tuple)) and len(d) == 2:
-                self.state["last_dice"] = (int(d[0]), int(d[1]))
-            self.state["roll_index"] = int(self.state.get("roll_index", 0)) + 1
-        elif etype == "shooter_change":
-            self.state["shooter_id"] = int(self.state.get("shooter_id", 0)) + 1
-            self.state["hand_id"] = int(self.state.get("hand_id", 0)) + 1
-            self.state["roll_index"] = 0
-
-        # Keep system params synced from table if available
-        if self.table is not None:
+    def after_roll(self, table: Any) -> None:
+        """Called after dice are resolved; compute bankroll deltas and refresh tracker snapshot."""
+        # If the engine exposes bankroll delta for the player, capture it.
+        delta = 0.0
+        # Try common patterns:
+        pl = getattr(table, "current_player", None)
+        if pl is not None and hasattr(pl, "bankroll_delta"):
             try:
-                self.vars.system["bubble"] = bool(getattr(self.table, "bubble", self.vars.system["bubble"]))
-                # prefer "level" attr if present (CrapsSim), fall back to table_min/table_level
-                lvl = getattr(self.table, "level", None)
-                if lvl is None:
-                    lvl = getattr(self.table, "table_min", None)
-                if lvl is None:
-                    lvl = self.vars.system["table_level"]
-                self.vars.system["table_level"] = int(lvl)
+                delta = float(getattr(pl, "bankroll_delta") or 0.0)
             except Exception:
-                pass
+                delta = 0.0
 
-    def _emit_telemetry(self, event: Dict[str, Any], intents: List[Any]) -> None:
-        # build a shallow snapshot for logger
-        table_state = {
-            "hand_id": self.state.get("hand_id"),
-            "shooter_id": self.state.get("shooter_id"),
-            "roll_index": self.state.get("roll_index"),
-            "phase": "comeout" if self.state.get("is_comeout") else "point",
-            "point": self.state.get("point_number"),
-            "dice": self.state.get("last_dice"),
-        }
-        bankroll = self.state.get("bankroll")
-        bankroll_delta = self.state.get("bankroll_delta")
-        mode = None
-        vars_snapshot = {}
-        try:
-            mode = self.vars.user.get("mode")
-            vars_snapshot = dict(self.vars.user)
-        except Exception:
-            pass
+        # Fallback: sometimes table exposes last_payout assigned to player; keep delta 0 if unknown.
 
-        try:
-            self.telemetry.log_tick(
-                event=event,
-                table_state=table_state,
-                bankroll=bankroll,
-                bankroll_delta=bankroll_delta,
-                mode=mode,
-                vars_snapshot=vars_snapshot,
-                intents=intents,
-            )
-        except Exception:
-            # Never let logging break the sim
-            pass
+        if delta:
+            self.tracker.on_bankroll_delta(delta)
+
+        # Publish tracker after updates
+        self._publish_tracker()
+
+    # Compatibility: some engines call this on each bet resolution
+    def on_bet_resolved(self, bet_kind: str, result: str, reason: str = "", number: Optional[int] = None, amount: Optional[float] = None):
+        """Optional callback from engine strategy wrapper; not required for Phase A."""
+        # Phase A uses bankroll deltas at roll boundary; Phase B will consume this more deeply.
+        pass
