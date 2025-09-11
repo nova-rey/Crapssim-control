@@ -5,20 +5,20 @@ from typing import Any, Dict, Optional
 from .events import derive_event
 from .templates import render_template
 from .materialize import apply_intents
-from .runner import run_rules_for_event
-from .vars import VarStore
+from .rules import run_rules_for_event           # <-- correct module
+from .varstore import VarStore                   # <-- correct module
 from .telemetry import Telemetry
 
 
 class ControlStrategy:
     """
-    Thin orchestrator that:
-      - keeps a VarStore
-      - snapshots the table each roll
-      - derives a coarse event
-      - runs rules to produce intents
-      - renders a mode template into concrete bet intents
-      - applies intents to the table/player
+    Orchestrates:
+      - VarStore state
+      - per-roll table snapshot
+      - event derivation
+      - rule evaluation -> intents
+      - template rendering -> concrete bet intents
+      - applying intents to the player
     """
 
     def __init__(
@@ -28,17 +28,15 @@ class ControlStrategy:
         odds_policy: Optional[str] = None,
     ) -> None:
         self.spec = spec
-        # Telemetry default: provide a benign instance that won’t write anywhere.
-        # Telemetry(csv_path="") is safe (dirname("") -> ".", mkdirs ok; tests don’t write).
+        # Provide a benign Telemetry; empty path keeps tests happy (mkdirs on ".")
         self.telemetry = telemetry or Telemetry(csv_path="")
+
         self.vs = VarStore.from_spec(spec)
 
-        # Cache a table-level for template rendering; fall back to 10 if absent.
         tbl = spec.get("table", {}) if isinstance(spec, dict) else {}
         self.table_level: int = int(tbl.get("level", 10))
         self.odds_policy = odds_policy if odds_policy is not None else tbl.get("odds_policy")
 
-        # Remember previous light snapshot for derive_event
         self._prev_snapshot: Optional[Dict[str, Any]] = None
 
     # --- lifecycle hooks expected by tests ---
@@ -52,42 +50,55 @@ class ControlStrategy:
 
         event = derive_event(prev_snapshot, curr_snapshot)
 
-        # Rules -> high-level intents
+        # rules -> high-level intents
         intents = run_rules_for_event(self.spec, self.vs, event)
 
-        # Render any referenced mode templates into concrete bet intents
+        # template rendering -> concrete bet intents
         rendered = render_template(self.spec, self.vs, intents, table_level=self.table_level)
 
-        # APPLY: (player first, intents second). We passed these reversed earlier.
-        apply_intents(table, rendered, odds_policy=self.odds_policy)
+        # Apply to the first/only player on the table.
+        player = self._first_player(table)
+        if player is not None:
+            apply_intents(player, rendered, odds_policy=self.odds_policy)
 
-        # Bookkeeping for next roll + telemetry hook
+        # Bookkeeping for next roll and optional hook
         self._prev_snapshot = curr_snapshot
         self.after_roll(table, event)
 
     def after_roll(self, table: Any, event: Dict[str, Any]) -> None:
-        """
-        Existence required by tests; keep as a no-op hook for now.
-        Strategies could persist telemetry, adjust vars, etc.
-        """
+        """No-op hook required by tests."""
         return None
 
     # --- helpers ---
 
+    def _first_player(self, table: Any):
+        """
+        Return the first player object registered on the table, if any.
+        Works with the test fakes that expose `add_player()` and `players`.
+        """
+        # attribute- or dict-style
+        players = getattr(table, "players", None)
+        if players is None and isinstance(table, dict):
+            players = table.get("players")
+        if players and len(players) > 0:
+            return players[0]
+        # Some engines might expose a single 'player' attribute
+        single = getattr(table, "player", None)
+        if single is None and isinstance(table, dict):
+            single = table.get("player")
+        return single
+
     def _snapshot_from_table(self, table: Any) -> Dict[str, Any]:
         """
         Take a light snapshot compatible with derive_event().
-        We only read what the tests and derive_event need: comeout, point flags/numbers, and roll index.
         """
-        # Try to be tolerant to both attribute- and dict-style tables.
         def g(obj, name, default=None):
             if isinstance(obj, dict):
                 return obj.get(name, default)
             return getattr(obj, name, default)
 
-        table_view = getattr(table, "view", table)  # some fakes may expose fields directly
+        table_view = getattr(table, "view", table)
 
-        # comeout can be top-level or nested; record both shapes that our derive_event accepts.
         comeout = g(table_view, "comeout", False)
 
         snapshot = {
