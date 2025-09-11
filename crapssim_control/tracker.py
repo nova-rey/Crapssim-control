@@ -30,8 +30,9 @@ class Tracker:
             ["roll"]["shooter_rolls"]
             ["point"]["point"]
             ["hits"][total]  (frequency by total)
-            ["bankroll"]["bankroll"] (cumulative delta)
-            ["bankroll"]["bankroll_peak"] (max cumulative delta seen)
+            ["bankroll"]["bankroll"]        (cumulative delta)
+            ["bankroll"]["bankroll_peak"]   (max cumulative delta seen)
+            ["bankroll"]["drawdown"]        (peak - current cum delta)
     """
 
     def __init__(self, config: Dict[str, Any] | None = None) -> None:
@@ -108,6 +109,8 @@ class Tracker:
             # Count the establishing roll as 1; subsequent rolls increment rolls_since_point.
             shooter_rolls = 1 + (self.rolls_since_point or 0)
 
+        drawdown = max(0.0, self.bankroll_peak - self.cum_bankroll_delta)
+
         return {
             "roll": {
                 "last_roll": self.last_total,
@@ -132,6 +135,7 @@ class Tracker:
                 # tests read these exact keys:
                 "bankroll": self.cum_bankroll_delta,
                 "bankroll_peak": self.bankroll_peak,
+                "drawdown": drawdown,
             },
         }
 
