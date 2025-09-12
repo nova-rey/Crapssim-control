@@ -8,12 +8,13 @@ class Tracker:
     """
     Lightweight, engine-agnostic state tracker used by tests and (optionally)
     by higher-level adapters. It records:
-      - Last roll, rolls since point, shooter roll count
+      - Last roll, rolls since point, shooter roll count, comeout roll count
       - Point life-cycle (established / seven-out)
       - Per-number hit counts (2..12)
       - Bankroll deltas, peak, drawdown, PnL since current point
       - Session-level seven-out count
       - Inside/outside hit counts since point (inside: 5,6,8,9; outside: 4,10)
+      - Per-number hits since point (since_point.hits)
 
     All methods are safe no-ops when disabled via config {"enabled": False}.
     """
@@ -26,6 +27,7 @@ class Tracker:
         self._last_roll: Optional[int] = None
         self._shooter_rolls: int = 0
         self._rolls_since_point: int = 0
+        self._comeout_rolls: int = 0  # rolls taken while no point is on
 
         # Point-related
         self._point: Optional[int] = None  # None before first point; 0 after seven-out reset
@@ -34,6 +36,7 @@ class Tracker:
         self._hits: Dict[int, int] = {n: 0 for n in range(2, 13)}
         self._inside_hits_since_point: int = 0  # 5,6,8,9 while point is on
         self._outside_hits_since_point: int = 0  # 4,10 while point is on
+        self._hits_since_point: Dict[int, int] = {}  # per-number hits while point is on
 
         # Bankroll-related
         self._bankroll: float = 0.0
@@ -60,16 +63,22 @@ class Tracker:
         self._shooter_rolls += 1
         self._hits[total] = self._hits.get(total, 0) + 1
 
-        # If a point is currently ON (point is a positive integer),
+        # If no point is on (None or 0), this is a comeout roll.
+        if not self._point:
+            self._comeout_rolls += 1
+            return  # no since-point accounting while point is off
+
+        # If a point is currently ON (positive integer),
         # count rolls since point and classify inside/outside hits.
-        if self._point:
-            # Do not increment on a raw 7 here; tests call on_seven_out() explicitly.
-            if total != 7:
-                self._rolls_since_point += 1
-                if total in (5, 6, 8, 9):
-                    self._inside_hits_since_point += 1
-                elif total in (4, 10):
-                    self._outside_hits_since_point += 1
+        if total != 7:
+            self._rolls_since_point += 1
+            # per-number hits since point
+            self._hits_since_point[total] = self._hits_since_point.get(total, 0) + 1
+
+            if total in (5, 6, 8, 9):
+                self._inside_hits_since_point += 1
+            elif total in (4, 10):
+                self._outside_hits_since_point += 1
 
     def on_point_established(self, point: int) -> None:
         """Called when a point is established (e.g., 4/5/6/8/9/10)."""
@@ -81,6 +90,7 @@ class Tracker:
         self._pnl_since_point = 0.0
         self._inside_hits_since_point = 0
         self._outside_hits_since_point = 0
+        self._hits_since_point = {}
 
     def on_bankroll_delta(self, delta: float) -> None:
         """Apply a bankroll delta and update peak/drawdown and PnL since point."""
@@ -109,6 +119,7 @@ class Tracker:
         self._pnl_since_point = 0.0
         self._inside_hits_since_point = 0
         self._outside_hits_since_point = 0
+        self._hits_since_point = {}
 
     # ---------------------------
     # Snapshot
@@ -122,7 +133,8 @@ class Tracker:
           "roll": {
             "last_roll": int|None,
             "shooter_rolls": int,
-            "rolls_since_point": int
+            "rolls_since_point": int,
+            "comeout_rolls": int
           },
           "point": {
             "point": int|None|0
@@ -139,7 +151,8 @@ class Tracker:
           },
           "since_point": {
             "inside_hits": int,
-            "outside_hits": int
+            "outside_hits": int,
+            "hits": { int: int }
           }
         }
         """
@@ -150,6 +163,7 @@ class Tracker:
                     "last_roll": None,
                     "shooter_rolls": 0,
                     "rolls_since_point": 0,
+                    "comeout_rolls": 0,
                 },
                 "point": {
                     "point": None,
@@ -167,6 +181,7 @@ class Tracker:
                 "since_point": {
                     "inside_hits": 0,
                     "outside_hits": 0,
+                    "hits": {},
                 },
             }
 
@@ -175,6 +190,7 @@ class Tracker:
                 "last_roll": self._last_roll,
                 "shooter_rolls": self._shooter_rolls,
                 "rolls_since_point": self._rolls_since_point,
+                "comeout_rolls": self._comeout_rolls,
             },
             "point": {
                 "point": self._point,
@@ -192,5 +208,6 @@ class Tracker:
             "since_point": {
                 "inside_hits": self._inside_hits_since_point,
                 "outside_hits": self._outside_hits_since_point,
+                "hits": dict(self._hits_since_point),
             },
         }
