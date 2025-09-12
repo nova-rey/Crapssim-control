@@ -1,159 +1,210 @@
+# crapssim_control/tracker.py
+
 from __future__ import annotations
-from typing import Dict, Any, Optional, DefaultDict
-from collections import defaultdict
+from typing import Dict, Any, Optional
 
 
 class Tracker:
     """
-    Lightweight, engine-agnostic bookkeeping for a craps session.
+    Lightweight, engine-agnostic tracker for table/shooter/session metrics.
 
-    Public signals you can feed:
-      - on_roll(total)
-      - on_point_established(point)
-      - on_point_made()            # optional, nice-to-have
+    Public callbacks you can invoke from an adapter or tests:
+      - on_roll(total: int, *, is_hard: bool = False)
+      - on_point_established(point: int)
+      - on_bankroll_delta(delta: float)
       - on_seven_out()
-      - on_bankroll_delta(amount)
 
-    Call snapshot() anytime to fetch a stable, dict-shaped view.
+    Snapshot shape returned by `snapshot()` (keys all present when enabled):
 
-    Batch 1 (point-cycle extras):
-      - Tracks and resets per-point-cycle metrics cleanly:
-          * rolls_since_point
-          * pnl_since_point
-          * hits_since_point (per number)
-          * inside_hits_since_point / outside_hits_since_point
-      - Ensures resets happen on establish / make / seven-out.
+      {
+        "roll": {
+          "last_roll": int|None,
+          "shooter_rolls": int,
+          "rolls_since_point": int,
+          "comeout_rolls": int,
+          "comeout_naturals": int,
+          "comeout_craps": int,
+          "comeout_hardways": int,
+        },
+        "point": {
+          "point": int,   # 0 means OFF
+        },
+        "hits": {2..12: int},
+        "bankroll": {
+          "bankroll": float,
+          "bankroll_peak": float,
+          "drawdown": float,
+          "pnl_since_point": float,
+        },
+        "session": {
+          "hands": int,        # increments on seven-out
+          "seven_outs": int,
+          "pso": int,          # point-seven-out count
+          "comeouts": int,     # number of comeout rolls observed
+        }
+      }
     """
-
-    _INSIDE = {5, 6, 8, 9}
-    _OUTSIDE = {4, 10}
 
     def __init__(self, config: Optional[Dict[str, Any]] = None) -> None:
         cfg = config or {}
         self.enabled: bool = bool(cfg.get("enabled", True))
 
-        # --- Roll state
+        # --- Roll-centric counters ---
         self._last_roll: Optional[int] = None
         self._shooter_rolls: int = 0
         self._rolls_since_point: int = 0
 
-        # --- Point state
-        # Convention: None = no info yet; 0 = explicitly off / cleared.
-        self._point: Optional[int] = 0
+        # Comeout-specific tallies
+        self._comeout_rolls: int = 0
+        self._comeout_naturals: int = 0
+        self._comeout_craps: int = 0
+        self._comeout_hardways: int = 0
 
-        # --- Hits (global)
-        self._hits: DefaultDict[int, int] = defaultdict(int)
+        # --- Point state ---
+        self._point: int = 0  # 0 means OFF
+        # Used for PSO detection: if we seven-out with exactly one roll since establish.
+        self._made_rolls_since_point: int = 0
 
-        # --- Hits (since point)
-        self._hits_since_point: DefaultDict[int, int] = defaultdict(int)
-        self._inside_hits_since_point: int = 0
-        self._outside_hits_since_point: int = 0
+        # --- Per-number hits (2..12) ---
+        self._hits: Dict[int, int] = {n: 0 for n in range(2, 13)}
 
-        # --- Bankroll aggregates
+        # --- Bankroll tracking ---
         self._bankroll: float = 0.0
         self._bankroll_peak: float = 0.0
-        self._drawdown: float = 0.0  # current peak-to-equity gap
+        self._drawdown: float = 0.0
         self._pnl_since_point: float = 0.0
 
-        # --- Session aggregates
-        self._points_established: int = 0
-        self._points_made: int = 0
+        # --- Session-level tallies ---
+        self._hands: int = 0
         self._seven_outs: int = 0
-        self._shooter_rolls_peak: int = 0
+        self._pso: int = 0
+        self._comeouts: int = 0
 
-    # --------------------------
-    # Event inputs
-    # --------------------------
+    # ---------------------------- Public API ---------------------------- #
 
-    def on_roll(self, total: int) -> None:
+    def on_roll(self, total: int, *, is_hard: bool = False) -> None:
+        """Record a roll outcome."""
         if not self.enabled:
             return
 
         self._last_roll = total
         self._shooter_rolls += 1
-        if self._shooter_rolls > self._shooter_rolls_peak:
-            self._shooter_rolls_peak = self._shooter_rolls
 
-        # Global hit map
-        self._hits[total] += 1
+        # Count per-number hits safely
+        if total in self._hits:
+            self._hits[total] += 1
 
-        # Per-point-cycle bookkeeping (only when point is ON: 4/5/6/8/9/10)
-        if self._point in (4, 5, 6, 8, 9, 10):
+        # Comeout vs. point-on logic
+        if self._point == 0:
+            # We're on the comeout
+            self._comeout_rolls += 1
+            self._comeouts += 1
+
+            # Naturals and craps on comeout
+            if total in (7, 11):
+                self._comeout_naturals += 1
+            if total in (2, 3, 12):
+                self._comeout_craps += 1
+
+            # Optional hardways signal if caller knows it was hard (doubles)
+            if is_hard and total in (4, 6, 8, 10):
+                self._comeout_hardways += 1
+        else:
+            # Point is ON → track rolls since point
             self._rolls_since_point += 1
-            self._hits_since_point[total] += 1
-            if total in self._INSIDE:
-                self._inside_hits_since_point += 1
-            elif total in self._OUTSIDE:
-                self._outside_hits_since_point += 1
+            self._made_rolls_since_point += 1
 
     def on_point_established(self, point: int) -> None:
+        """Point turned ON to `point` (4/5/6/8/9/10)."""
         if not self.enabled:
             return
 
-        self._point = point
-        self._points_established += 1
-        self._reset_since_point_counters()
+        self._point = int(point)
+        self._rolls_since_point = 0
+        self._made_rolls_since_point = 0
+        self._pnl_since_point = 0.0  # reset PnL meter at establishment
 
-    def on_point_made(self) -> None:
-        """
-        Optional signal: call when the shooter makes the point.
-        We clear the point and reset the point-cycle counters,
-        and bump the points_made aggregate.
-        """
+    def on_bankroll_delta(self, delta: float) -> None:
+        """Apply bankroll delta (wins/losses) and update peak/drawdown & PnL since point."""
         if not self.enabled:
             return
 
-        self._points_made += 1
-        # Clear point to 0 (explicitly OFF)
-        self._point = 0
-        self._reset_since_point_counters()
-
-    def on_seven_out(self) -> None:
-        if not self.enabled:
-            return
-
-        self._seven_outs += 1
-        # Hand ends; clear point and per-point-cycle counters.
-        self._point = 0
-        self._reset_since_point_counters()
-        # Shooter resets roll count for next hand
-        self._shooter_rolls = 0
-
-    def on_bankroll_delta(self, amount: float) -> None:
-        if not self.enabled:
-            return
-
-        self._bankroll += float(amount)
-        # Peak / drawdown
+        self._bankroll += float(delta)
+        # Peak & drawdown
         if self._bankroll > self._bankroll_peak:
             self._bankroll_peak = self._bankroll
-        self._drawdown = max(0.0, self._bankroll_peak - self._bankroll)
+        self._drawdown = self._bankroll_peak - self._bankroll
 
-        # Attribute PnL to current point-cycle if point is ON
-        if self._point in (4, 5, 6, 8, 9, 10):
-            self._pnl_since_point += float(amount)
+        # Track PnL since point establishment (even if point currently off, harmless)
+        self._pnl_since_point += float(delta)
 
-    # --------------------------
-    # Public view
-    # --------------------------
+    def on_seven_out(self) -> None:
+        """
+        Shooter seven-outs. This:
+          - increments seven_outs and hands,
+          - updates PSO if exactly one roll happened since establishment,
+          - turns the point OFF and resets roll counters tied to the point.
+        """
+        if not self.enabled:
+            return
+
+        # PSO: point established and immediately seven-out (one roll since establish).
+        if self._point != 0 and self._made_rolls_since_point == 1:
+            self._pso += 1
+
+        self._seven_outs += 1
+        self._hands += 1
+
+        # Turn the point OFF and reset point-related counters
+        self._point = 0
+        self._rolls_since_point = 0
+        self._made_rolls_since_point = 0
+
+        # PnL since point resets at the start of the next hand
+        self._pnl_since_point = 0.0
 
     def snapshot(self) -> Dict[str, Any]:
-        """
-        Structurally stable view that existing tests rely on.
-        Batch 1 adds a `since_point` section but keeps all prior keys.
-        """
+        """Return a stable dict snapshot of everything we track."""
+        if not self.enabled:
+            # Still return shape with neutral values so callers don't branch.
+            return {
+                "roll": {
+                    "last_roll": None,
+                    "shooter_rolls": 0,
+                    "rolls_since_point": 0,
+                    "comeout_rolls": 0,
+                    "comeout_naturals": 0,
+                    "comeout_craps": 0,
+                    "comeout_hardways": 0,
+                },
+                "point": {"point": 0},
+                "hits": {n: 0 for n in range(2, 13)},
+                "bankroll": {
+                    "bankroll": 0.0,
+                    "bankroll_peak": 0.0,
+                    "drawdown": 0.0,
+                    "pnl_since_point": 0.0,
+                },
+                "session": {
+                    "hands": 0,
+                    "seven_outs": 0,
+                    "pso": 0,
+                    "comeouts": 0,
+                },
+            }
+
         return {
             "roll": {
                 "last_roll": self._last_roll,
                 "shooter_rolls": self._shooter_rolls,
                 "rolls_since_point": self._rolls_since_point,
-                "shooter_rolls_peak": self._shooter_rolls_peak,
+                "comeout_rolls": self._comeout_rolls,
+                "comeout_naturals": self._comeout_naturals,
+                "comeout_craps": self._comeout_craps,
+                "comeout_hardways": self._comeout_hardways,
             },
-            "point": {
-                "point": self._point,
-                "points_established": self._points_established,
-                "points_made": self._points_made,
-            },
+            "point": {"point": self._point},
+            "hits": dict(self._hits),
             "bankroll": {
                 "bankroll": self._bankroll,
                 "bankroll_peak": self._bankroll_peak,
@@ -161,24 +212,9 @@ class Tracker:
                 "pnl_since_point": self._pnl_since_point,
             },
             "session": {
+                "hands": self._hands,
                 "seven_outs": self._seven_outs,
-            },
-            "hits": dict(self._hits),
-            # New, additive section for Batch 1
-            "since_point": {
-                "hits": dict(self._hits_since_point),
-                "inside_hits": self._inside_hits_since_point,
-                "outside_hits": self._outside_hits_since_point,
+                "pso": self._pso,
+                "comeouts": self._comeouts,
             },
         }
-
-    # --------------------------
-    # Internals
-    # --------------------------
-
-    def _reset_since_point_counters(self) -> None:
-        self._rolls_since_point = 0
-        self._pnl_since_point = 0.0
-        self._hits_since_point.clear()
-        self._inside_hits_since_point = 0
-        self._outside_hits_since_point = 0
