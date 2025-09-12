@@ -35,7 +35,8 @@ class Tracker:
         "pnl_since_point": float
       },
       "session": {
-        "seven_outs": int
+        "seven_outs": int,
+        "pso": int                     # point-seven-out (7-out after exactly one roll with point on)
       }
     }
     """
@@ -75,7 +76,10 @@ class Tracker:
         }
 
         # Session aggregates
-        self._session = {"seven_outs": 0}
+        self._session = {
+            "seven_outs": 0,
+            "pso": 0,
+        }
 
     # ---------- Public API ----------
 
@@ -102,7 +106,10 @@ class Tracker:
                 "drawdown": self._bankroll["drawdown"],
                 "pnl_since_point": self._bankroll["pnl_since_point"],
             },
-            "session": {"seven_outs": self._session["seven_outs"]},
+            "session": {
+                "seven_outs": self._session["seven_outs"],
+                "pso": self._session["pso"],
+            },
         }
 
     # --- Roll & point lifecycle ---
@@ -153,11 +160,18 @@ class Tracker:
         """
         Shooter sevens out.
         Reset point-cycle, set point off, increment seven_outs,
-        and reset shooter_rolls for the new shooter.
+        reset shooter_rolls for the new shooter, and count PSO if applicable.
         """
         if not self._enabled:
             return
+
+        # Determine PSO *before* we reset the point cycle.
+        is_pso = bool(self._point and self._roll["rolls_since_point"] == 1)
+
         self._session["seven_outs"] += 1
+        if is_pso:
+            self._session["pso"] += 1
+
         self._point = 0
         self._reset_point_cycle()
         self._roll["shooter_rolls"] = 0
