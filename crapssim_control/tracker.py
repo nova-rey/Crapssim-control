@@ -31,7 +31,7 @@ class Tracker:
             "comeout_craps": 0,
         }
 
-        # Overall hit histogram (all rolls counted; tests read specific numbers)
+        # Overall hit histogram (all rolls counted)
         self._hits: Dict[int, int] = {}
 
         # Per-point-cycle stats (reset on point establish/made/seven-out)
@@ -95,7 +95,6 @@ class Tracker:
                 self._roll["comeout_naturals"] += 1
             elif n in self._CRAPS:
                 self._roll["comeout_craps"] += 1
-            # No rolls_since_point changes while point is off
             return
 
         # Point is on → count towards point cycle
@@ -121,7 +120,6 @@ class Tracker:
         """
         if not self._enabled:
             return
-        # Turn point off and reset per-cycle counters.
         self._point = 0
         self._reset_point_cycle()
         # shooter_rolls intentionally NOT reset (same shooter continues)
