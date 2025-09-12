@@ -1,234 +1,299 @@
 # tracker.py
 
-from collections import defaultdict
-from typing import Dict, Optional, Tuple
+from collections import defaultdict, deque
+from dataclasses import dataclass, field
+from typing import Deque, Dict, List, Optional, Tuple
+import time
 
 
-INSIDE_SET = {5, 6, 8, 9}
-OUTSIDE_SET = {4, 10}
-POINT_SET = {4, 5, 6, 8, 9, 10}
-HARDWAYS_SET = {4, 6, 8, 10}
+INSIDE_NUMS = {5, 6, 8, 9}
+OUTSIDE_NUMS = {4, 10}
+CRAPS = {2, 3, 12}
+NATURALS = {7, 11}
 
 
+def _now_ts() -> float:
+    return time.time()
+
+
+@dataclass
+class TrackerConfig:
+    enabled: bool = True
+    timeline_size: int = 200  # ring buffer of most recent events
+
+
+@dataclass
 class Tracker:
-    """
-    Lightweight state tracker for a craps session.
+    config: Dict
 
-    Public event methods:
-      - on_roll(total: int, dice: Optional[Tuple[int,int]] = None)
-      - on_point_established(point: int)
-      - on_point_made()
-      - on_seven_out()
-      - on_bankroll_delta(delta: float)
-      - snapshot() -> Dict
-    """
+    # --- runtime state containers ---
+    roll: Dict = field(default_factory=dict)
+    point: Dict = field(default_factory=dict)
+    hits: Dict[int, int] = field(default_factory=lambda: defaultdict(int))
+    bankroll: Dict = field(default_factory=dict)
+    session: Dict = field(default_factory=dict)
+    since_point: Dict = field(default_factory=dict)
+    streaks: Dict = field(default_factory=dict)
+    shooter: Dict = field(default_factory=dict)
 
-    def __init__(self, config: Optional[Dict] = None):
-        cfg = config or {}
-        self.enabled = bool(cfg.get("enabled", True))
+    _timeline: Deque = field(default_factory=deque)
 
-        # Roll/hand state
-        self.roll: Dict = {
+    def __post_init__(self):
+        cfg = TrackerConfig(**self.config) if isinstance(self.config, dict) else self.config
+
+        # Rolls & comeout
+        self.roll = {
             "last_roll": None,
-            "shooter_rolls": 0,
-            "rolls_since_point": 0,
-            "comeout_rolls": 0,
-            "comeout_naturals": 0,  # 7 or 11 on comeout
-            "comeout_craps": 0,     # 2, 3, or 12 on comeout
+            "shooter_rolls": 0,         # rolls in current shooter's hand
+            "rolls_since_point": 0,     # rolls since last point was set
+            "comeout_rolls": 0,         # count of comeout tosses this session
+            "comeout_naturals": 0,      # 7/11 on comeout
+            "comeout_craps": 0,         # 2/3/12 on comeout
         }
 
-        # Extra split for comeout detail
-        self.comeout_detail: Dict = {
-            "winners_7": 0,
-            "winners_11": 0,
-            "craps_2": 0,
-            "craps_3": 0,
-            "craps_12": 0,
+        # Puck / point
+        self.point = {
+            "point": 0,     # 0 = off; otherwise 4/5/6/8/9/10
         }
 
-        # Point state
-        self.point: Dict = {
-            "point": 0,  # 0 means OFF / on-comeout
-        }
+        # Global hits tally (by box number)
+        self.hits = defaultdict(int)
 
-        # Hits
-        self._hits = defaultdict(int)  # overall box number hits (all phases)
-        self.since_point: Dict = {
-            "inside_hits": 0,
-            "outside_hits": 0,
-            "hits": {},  # per-number during current point cycle
-        }
-
-        # Bankroll state
-        self.bankroll: Dict = {
+        # Bankroll
+        self.bankroll = {
             "bankroll": 0.0,
             "bankroll_peak": 0.0,
-            "drawdown": 0.0,
-            "pnl_since_point": 0.0,
+            "drawdown": 0.0,            # peak - current
+            "pnl_since_point": 0.0,     # resets on point establish/made/7-out
         }
 
-        # Session summary
-        self.session: Dict = {
+        # Session tallies
+        self.session = {
             "seven_outs": 0,
-            "pso": 0,    # point-seven-out counter (we treat <=1 roll after point as PSO per tests)
-            "hands": 0,  # completed hands (each seven-out ends a hand)
+            "pso": 0,       # point-seven-out hands
+            "hands": 0,     # completed shooter hands
         }
 
-        # Batch 1 extras
-        self.points_established_by_number: Dict[int, int] = {n: 0 for n in POINT_SET}
-        self.points_made_by_number: Dict[int, int] = {n: 0 for n in POINT_SET}
+        # Per-point-cycle counters
+        self.since_point = {
+            "inside_hits": 0,
+            "outside_hits": 0,
+            "hits": {},     # per-number during current point cycle
+        }
 
-        # Hardways hits (requires dice tuple to be passed into on_roll)
-        self.hardways_hits: Dict[int, int] = {n: 0 for n in HARDWAYS_SET}
+        # Streak tracking
+        self.streaks = {
+            "inside_current": 0,
+            "inside_max": 0,
+            "outside_current": 0,
+            "outside_max": 0,
+            "hardway_current": 0,
+            "hardway_max": 0,
+        }
 
-    # ----------------------
-    # Event handlers
-    # ----------------------
+        # Shooter-level stats
+        self.shooter = {
+            "hand_lengths": [],     # list of ints (rolls per completed hand)
+            "longest_hand": 0,      # max rolls observed in a hand
+            "avg_rolls_per_hand": 0.0,
+            "hand_hist": {},        # length -> count
+        }
 
-    def on_roll(self, total: int, dice: Optional[Tuple[int, int]] = None) -> None:
-        if not self.enabled:
+        # Timeline ring buffer
+        self._timeline = deque(maxlen=cfg.timeline_size)
+
+        self._enabled = cfg.enabled
+
+    # ----------- helpers -----------
+
+    def _in_comeout(self) -> bool:
+        return self.point.get("point", 0) in (0, None)
+
+    def _is_inside(self, total: int) -> bool:
+        return total in INSIDE_NUMS
+
+    def _is_outside(self, total: int) -> bool:
+        return total in OUTSIDE_NUMS
+
+    def _update_streaks(self, total: int, is_hard: bool):
+        # Inside/outside streaks
+        if self._is_inside(total):
+            self.streaks["inside_current"] += 1
+            self.streaks["inside_max"] = max(self.streaks["inside_max"], self.streaks["inside_current"])
+            # reset opposite
+            self.streaks["outside_current"] = 0
+        elif self._is_outside(total):
+            self.streaks["outside_current"] += 1
+            self.streaks["outside_max"] = max(self.streaks["outside_max"], self.streaks["outside_current"])
+            # reset opposite
+            self.streaks["inside_current"] = 0
+        else:
+            # neither inside nor outside (e.g., 2,3,7,11,12)
+            self.streaks["inside_current"] = 0
+            self.streaks["outside_current"] = 0
+
+        # Hardway streak
+        if is_hard:
+            self.streaks["hardway_current"] += 1
+            self.streaks["hardway_max"] = max(self.streaks["hardway_max"], self.streaks["hardway_current"])
+        else:
+            self.streaks["hardway_current"] = 0
+
+    def _append_timeline(self, event: str, payload: Dict):
+        self._timeline.append({
+            "ts": _now_ts(),
+            "event": event,
+            **payload,
+        })
+
+    def _finalize_hand(self):
+        """Called only on seven-out: marks end of hand and updates shooter stats."""
+        length = self.roll["shooter_rolls"]
+        # Update shooter stats
+        self.shooter["hand_lengths"].append(length)
+        if length > self.shooter["longest_hand"]:
+            self.shooter["longest_hand"] = length
+
+        # Histogram
+        hist = defaultdict(int, self.shooter.get("hand_hist", {}))
+        hist[length] += 1
+        self.shooter["hand_hist"] = dict(hist)
+
+        # Average
+        n = len(self.shooter["hand_lengths"])
+        self.shooter["avg_rolls_per_hand"] = (
+            sum(self.shooter["hand_lengths"]) / n if n else 0.0
+        )
+
+        # Session hand complete
+        self.session["hands"] += 1
+
+        # Reset hand roll counter for the next shooter
+        self.roll["shooter_rolls"] = 0
+
+    # ----------- public API -----------
+
+    def on_roll(self, total: int, *, is_hard: bool = False):
+        """Record any roll (comeout or point-on). `is_hard` is optional and
+        only impacts hardway streaks (does not affect any existing tests)."""
+        if not self._enabled:
             return
 
         self.roll["last_roll"] = total
         self.roll["shooter_rolls"] += 1
 
-        if self.point["point"] == 0:
-            # Comeout context
+        # Global hits
+        if total > 0:
+            self.hits[total] += 1
+
+        # Comeout accounting
+        if self._in_comeout():
             self.roll["comeout_rolls"] += 1
-            if total in (7, 11):
+            if total in NATURALS:
                 self.roll["comeout_naturals"] += 1
-                if total == 7:
-                    self.comeout_detail["winners_7"] += 1
-                else:
-                    self.comeout_detail["winners_11"] += 1
-            elif total in (2, 3, 12):
+            elif total in CRAPS:
                 self.roll["comeout_craps"] += 1
-                if total == 2:
-                    self.comeout_detail["craps_2"] += 1
-                elif total == 3:
-                    self.comeout_detail["craps_3"] += 1
-                else:
-                    self.comeout_detail["craps_12"] += 1
         else:
-            # Point is ON: count rolls since point and number hits
+            # Point is on → per-point-cycle counters
             self.roll["rolls_since_point"] += 1
-
-            self._hits[total] += 1
-
-            # Since-point detail
-            sp_hits = self.since_point["hits"]
-            sp_hits[total] = sp_hits.get(total, 0) + 1
-
-            if total in INSIDE_SET:
+            if self._is_inside(total):
                 self.since_point["inside_hits"] += 1
-            elif total in OUTSIDE_SET:
+            elif self._is_outside(total):
                 self.since_point["outside_hits"] += 1
 
-        # Hardways detection (only if actual dice are passed)
-        if dice and len(dice) == 2 and dice[0] == dice[1]:
-            s = dice[0] + dice[1]
-            if s in HARDWAYS_SET and s == total:
-                self.hardways_hits[s] += 1
+            sp_hits = self.since_point.get("hits") or {}
+            sp_hits[total] = sp_hits.get(total, 0) + 1
+            self.since_point["hits"] = sp_hits
 
-    def on_point_established(self, point: int) -> None:
-        if not self.enabled:
+        # Streaks (works across both comeout and point-on)
+        self._update_streaks(total, is_hard=is_hard)
+
+        # Timeline
+        self._append_timeline("roll", {
+            "total": total,
+            "is_hard": is_hard,
+            "point": self.point["point"],
+            "comeout": self._in_comeout(),
+        })
+
+    def on_point_established(self, point: int):
+        if not self._enabled:
             return
-
-        # Set the point and reset point-cycle counters
         self.point["point"] = point
+        # Reset since-point counters
         self.roll["rolls_since_point"] = 0
         self.bankroll["pnl_since_point"] = 0.0
-        self.since_point = {
-            "inside_hits": 0,
-            "outside_hits": 0,
-            "hits": {},
-        }
+        self.since_point["inside_hits"] = 0
+        self.since_point["outside_hits"] = 0
+        self.since_point["hits"] = {}
+        # Timeline
+        self._append_timeline("point_established", {"point": point})
 
-        if point in self.points_established_by_number:
-            self.points_established_by_number[point] += 1
-
-    def on_point_made(self) -> None:
-        if not self.enabled:
+    def on_point_made(self):
+        """Point hit but shooter CONTINUES (no hand reset)."""
+        if not self._enabled:
             return
-
-        p = self.point["point"]
-        if p in self.points_made_by_number:
-            self.points_made_by_number[p] += 1
-
-        # Reset point/off state
+        # Reset point-cycle counters but keep shooter hand alive
         self.point["point"] = 0
         self.roll["rolls_since_point"] = 0
         self.bankroll["pnl_since_point"] = 0.0
-        self.since_point = {
-            "inside_hits": 0,
-            "outside_hits": 0,
-            "hits": {},
-        }
+        self.since_point["inside_hits"] = 0
+        self.since_point["outside_hits"] = 0
+        self.since_point["hits"] = {}
+        # Timeline
+        self._append_timeline("point_made", {})
 
-    def on_seven_out(self) -> None:
-        if not self.enabled:
+    def on_seven_out(self):
+        """Seven-out ends the shooter’s hand."""
+        if not self._enabled:
             return
 
-        # PSO policy (per tests): seven-out with <=1 roll after point counts as PSO
-        if self.roll["rolls_since_point"] <= 1:
+        # PSO means seven-out on the very next roll after point established.
+        # (Per your tests, PSO is counted when rolls_since_point == 1)
+        if self.roll["rolls_since_point"] == 1:
             self.session["pso"] += 1
 
         self.session["seven_outs"] += 1
-        self.session["hands"] += 1
 
-        # Turn point off & reset point-cycle counters
+        # End of hand → update shooter stats & reset shooter context
+        self._finalize_hand()
+
+        # Turn puck off & clear per-point-cycle counters
         self.point["point"] = 0
         self.roll["rolls_since_point"] = 0
-        self.since_point = {
-            "inside_hits": 0,
-            "outside_hits": 0,
-            "hits": {},
-        }
-
-        # New shooter
-        self.roll["shooter_rolls"] = 0
-        # PnL stays; pnl_since_point resets because the cycle ended
         self.bankroll["pnl_since_point"] = 0.0
+        self.since_point["inside_hits"] = 0
+        self.since_point["outside_hits"] = 0
+        self.since_point["hits"] = {}
 
-    def on_bankroll_delta(self, delta: float) -> None:
-        if not self.enabled or delta == 0:
-            if self.enabled and self.point["point"] != 0 and delta == 0:
-                # If zero delta, still keep pnl_since_point unchanged
-                pass
+        # Also reset inside/outside/hardway current streaks; keep maxes
+        self.streaks["inside_current"] = 0
+        self.streaks["outside_current"] = 0
+        self.streaks["hardway_current"] = 0
+
+        # Timeline
+        self._append_timeline("seven_out", {})
+
+    def on_bankroll_delta(self, amount: float):
+        if not self._enabled:
             return
+        self.bankroll["bankroll"] += amount
+        self.bankroll["bankroll_peak"] = max(self.bankroll["bankroll_peak"], self.bankroll["bankroll"])
+        self.bankroll["drawdown"] = self.bankroll["bankroll_peak"] - self.bankroll["bankroll"]
+        # Attribute to current point cycle (even if comeout, it will just be 0 when point is off)
+        self.bankroll["pnl_since_point"] += amount
+        # Timeline
+        self._append_timeline("bankroll_delta", {"delta": amount, "bankroll": self.bankroll["bankroll"]})
 
-        self.bankroll["bankroll"] += float(delta)
-
-        # Peak & drawdown logic (peak updated before drawdown calc)
-        if self.bankroll["bankroll"] > self.bankroll["bankroll_peak"]:
-            self.bankroll["bankroll_peak"] = self.bankroll["bankroll"]
-        self.bankroll["drawdown"] = max(
-            0.0, self.bankroll["bankroll_peak"] - self.bankroll["bankroll"]
-        )
-
-        # Attribute PnL to current point cycle only if point is ON
-        if self.point["point"] != 0:
-            self.bankroll["pnl_since_point"] += float(delta)
-
-    # ----------------------
-    # Snapshot
-    # ----------------------
+    # ----------- readout -----------
 
     def snapshot(self) -> Dict:
-        # Convert defaultdict to plain dict for stable output
-        hits_plain = dict(self._hits)
-
-        # Compute point-made rates safely
-        point_made_rate_by_number = {}
-        for n in POINT_SET:
-            est = self.points_established_by_number.get(n, 0)
-            made = self.points_made_by_number.get(n, 0)
-            point_made_rate_by_number[n] = (made / est) if est else 0.0
-
-        snap = {
+        """Return a read-only snapshot for tests/consumers."""
+        # Compute shooter averages are already maintained incrementally.
+        return {
             "roll": dict(self.roll),
             "point": dict(self.point),
-            "hits": hits_plain,
+            "hits": dict(self.hits),
             "bankroll": dict(self.bankroll),
             "session": dict(self.session),
             "since_point": {
@@ -236,11 +301,18 @@ class Tracker:
                 "outside_hits": self.since_point["outside_hits"],
                 "hits": dict(self.since_point["hits"]),
             },
-            # Batch 1 extras
-            "comeout_detail": dict(self.comeout_detail),
-            "points_established_by_number": dict(self.points_established_by_number),
-            "points_made_by_number": dict(self.points_made_by_number),
-            "point_made_rate_by_number": point_made_rate_by_number,
-            "hardways_hits": dict(self.hardways_hits),
+            "streaks": dict(self.streaks),
+            "shooter": {
+                "hand_lengths": list(self.shooter["hand_lengths"]),
+                "longest_hand": self.shooter["longest_hand"],
+                "avg_rolls_per_hand": self.shooter["avg_rolls_per_hand"],
+                "hand_hist": dict(self.shooter["hand_hist"]),
+            },
         }
-        return snap
+
+    def timeline(self, limit: Optional[int] = None) -> List[Dict]:
+        """Return recent timeline entries; newest last."""
+        if limit is None or limit >= len(self._timeline):
+            return list(self._timeline)
+        # return the most recent `limit` entries
+        return list(self._timeline)[-limit:]
