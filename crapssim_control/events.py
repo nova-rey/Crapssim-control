@@ -1,75 +1,43 @@
 # crapssim_control/events.py
 from __future__ import annotations
-
-from dataclasses import dataclass, field
-from enum import Enum, auto
-from typing import Optional, Dict
+from typing import Dict, Any
 
 
-class EventType(Enum):
-    """High-level event types seen by the tracker/simulator."""
-    ROLL = auto()
-    POINT_ESTABLISHED = auto()
-    POINT_MADE = auto()
-    SEVEN_OUT = auto()
-    COMEOUT = auto()
-
-
-# ------------ Dice / Table Events ------------
-
-@dataclass(frozen=True)
-class RollEvent:
-    """A single dice roll."""
-    value: int
-    is_comeout: bool = False
-
-
-@dataclass(frozen=True)
-class PointEvent:
-    """Point state change (established or cleared)."""
-    point: Optional[int]  # number 4/5/6/8/9/10, or None/0 when point is off
-
-
-# ------------ Betting Events (for ledger/tests) ------------
-
-@dataclass(frozen=True)
-class BetEvent:
+def derive_event(roll: int, point: int | None) -> Dict[str, Any]:
     """
-    A lightweight bet resolution/transaction event for the ledger.
+    Map a raw dice roll and point state into a semantic event dict.
 
-    Fields:
-        bet:     Name/identifier of the bet (e.g., 'pass', 'place_8', etc.)
-        amount:  Stake amount relevant to this event (typically the wager).
-        result:  Optional resolution result: 'win' | 'lose' | 'push' (None if not a resolution).
-        payout:  Explicit bankroll delta. If provided, it is used directly.
-                 If not provided, delta is inferred from (result, amount).
-                 win  -> +amount
-                 lose -> -amount
-                 push/None -> 0
-        meta:    Optional extra data for downstream consumers (odds, units, etc.)
+    Returns:
+        {
+          "type": str,        # event category
+          "roll": int,        # the rolled number
+          "point": int|None,  # current point, if any
+          "natural": bool,    # True if comeout natural (7 or 11)
+          "craps": bool,      # True if comeout craps (2, 3, 12)
+        }
     """
-    bet: str
-    amount: float = 0.0
-    result: Optional[str] = None        # 'win' | 'lose' | 'push' | None
-    payout: Optional[float] = None      # if set, used as the bankroll delta
-    meta: Dict[str, object] = field(default_factory=dict)
+    event: Dict[str, Any] = {
+        "roll": roll,
+        "point": point,
+        "natural": False,
+        "craps": False,
+    }
 
-    @property
-    def delta(self) -> float:
-        """Computed bankroll delta for this bet event."""
-        if self.payout is not None:
-            return float(self.payout)
-        if self.result == "win":
-            return float(self.amount)
-        if self.result == "lose":
-            return -float(self.amount)
-        # push or non-resolution
-        return 0.0
+    if point is None:  # comeout roll
+        if roll in (7, 11):
+            event["type"] = "comeout_natural"
+            event["natural"] = True
+        elif roll in (2, 3, 12):
+            event["type"] = "comeout_craps"
+            event["craps"] = True
+        else:
+            event["type"] = "point_established"
+    else:
+        if roll == 7:
+            event["type"] = "seven_out"
+        elif roll == point:
+            event["type"] = "point_made"
+        else:
+            event["type"] = "roll"
 
-
-__all__ = [
-    "EventType",
-    "RollEvent",
-    "PointEvent",
-    "BetEvent",
-]
+    return event
