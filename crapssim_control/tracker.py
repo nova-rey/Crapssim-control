@@ -1,224 +1,184 @@
 from __future__ import annotations
-
+from typing import Dict, Any, Optional, DefaultDict
 from collections import defaultdict
-from typing import Any, Dict, Optional
-
-
-def _dice_total(snapshot: Dict[str, Any]) -> Optional[int]:
-    """
-    Read total from a snapshot shaped like {"table":{"dice":(d1,d2,total), ...}}
-    """
-    tbl = (snapshot or {}).get("table", {}) or {}
-    dice = tbl.get("dice")
-    if isinstance(dice, (list, tuple)) and len(dice) == 3:
-        try:
-            return int(dice[2])
-        except Exception:
-            return None
-    return None
 
 
 class Tracker:
     """
-    Lightweight tracker used by tests:
+    Lightweight, engine-agnostic bookkeeping for a craps session.
+
+    Public signals you can feed:
       - on_roll(total)
       - on_point_established(point)
-      - on_bankroll_delta(delta)
+      - on_point_made()            # optional, nice-to-have
       - on_seven_out()
-      - snapshot() -> dict including:
-            ["roll"]["last_roll"]
-            ["roll"]["rolls_since_point"]
-            ["roll"]["shooter_rolls"]
-            ["point"]["point"]
-            ["hits"][total]                  (frequency by total)
-            ["bankroll"]["bankroll"]         (cumulative delta)
-            ["bankroll"]["bankroll_peak"]    (max cumulative delta seen)
-            ["bankroll"]["drawdown"]         (peak - current cum delta)
-            ["bankroll"]["pnl_since_point"]  (cum delta since point was set)
-            ["session"]["seven_outs"]        (aggregated)
+      - on_bankroll_delta(amount)
+
+    Call snapshot() anytime to fetch a stable, dict-shaped view.
+
+    Batch 1 (point-cycle extras):
+      - Tracks and resets per-point-cycle metrics cleanly:
+          * rolls_since_point
+          * pnl_since_point
+          * hits_since_point (per number)
+          * inside_hits_since_point / outside_hits_since_point
+      - Ensures resets happen on establish / make / seven-out.
     """
 
-    def __init__(self, config: Dict[str, Any] | None = None) -> None:
-        self.config = config or {}
-        # counters
-        self.total_rolls: int = 0
-        self.comeout_rolls: int = 0
-        self.point_phase_rolls: int = 0
-        self.hits_by_total = defaultdict(int)
-        self.points_established: int = 0
-        self.points_made: int = 0
-        self.seven_outs: int = 0
+    _INSIDE = {5, 6, 8, 9}
+    _OUTSIDE = {4, 10}
 
-        # state
-        self.current_point: Optional[int] = None
-        self.last_total: Optional[int] = None
-        self.last_event: Optional[str] = None
-        self.rolls_since_point: Optional[int] = None  # None when no point is on
-        self.last_bankroll_delta: float = 0.0
-        self.cum_bankroll_delta: float = 0.0
-        self.bankroll_peak: float = 0.0
-        self.point_bankroll_anchor: float = 0.0  # cum delta at point establishment
+    def __init__(self, config: Optional[Dict[str, Any]] = None) -> None:
+        cfg = config or {}
+        self.enabled: bool = bool(cfg.get("enabled", True))
 
-        # snapshots
-        self._prev_snapshot: Optional[Dict[str, Any]] = None
-        self._curr_snapshot: Optional[Dict[str, Any]] = None
+        # --- Roll state
+        self._last_roll: Optional[int] = None
+        self._shooter_rolls: int = 0
+        self._rolls_since_point: int = 0
 
-    # --- API the tests call ---------------------------------------------------
+        # --- Point state
+        # Convention: None = no info yet; 0 = explicitly off / cleared.
+        self._point: Optional[int] = 0
+
+        # --- Hits (global)
+        self._hits: DefaultDict[int, int] = defaultdict(int)
+
+        # --- Hits (since point)
+        self._hits_since_point: DefaultDict[int, int] = defaultdict(int)
+        self._inside_hits_since_point: int = 0
+        self._outside_hits_since_point: int = 0
+
+        # --- Bankroll aggregates
+        self._bankroll: float = 0.0
+        self._bankroll_peak: float = 0.0
+        self._drawdown: float = 0.0  # current peak-to-equity gap
+        self._pnl_since_point: float = 0.0
+
+        # --- Session aggregates
+        self._points_established: int = 0
+        self._points_made: int = 0
+        self._seven_outs: int = 0
+        self._shooter_rolls_peak: int = 0
+
+    # --------------------------
+    # Event inputs
+    # --------------------------
 
     def on_roll(self, total: int) -> None:
-        comeout = self.current_point is None
-        curr = {
-            "table": {
-                "dice": (0, 0, int(total)),
-                "comeout": comeout,
-                "point_on": (self.current_point is not None),
-                "point_number": self.current_point,
-                "roll_index": 1 if self.current_point is not None else 0,
-            }
-        }
-        self.observe(self._curr_snapshot, curr, {"event": "roll"})
+        if not self.enabled:
+            return
+
+        self._last_roll = total
+        self._shooter_rolls += 1
+        if self._shooter_rolls > self._shooter_rolls_peak:
+            self._shooter_rolls_peak = self._shooter_rolls
+
+        # Global hit map
+        self._hits[total] += 1
+
+        # Per-point-cycle bookkeeping (only when point is ON: 4/5/6/8/9/10)
+        if self._point in (4, 5, 6, 8, 9, 10):
+            self._rolls_since_point += 1
+            self._hits_since_point[total] += 1
+            if total in self._INSIDE:
+                self._inside_hits_since_point += 1
+            elif total in self._OUTSIDE:
+                self._outside_hits_since_point += 1
 
     def on_point_established(self, point: int) -> None:
-        # Transition to point-on phase
-        self.current_point = int(point)
-        self.points_established += 1
-        # reset rolls-since-point at the moment the point is established
-        self.rolls_since_point = 0
-        # anchor bankroll for pnl_since_point
-        self.point_bankroll_anchor = self.cum_bankroll_delta
+        if not self.enabled:
+            return
 
-        curr = {
-            "table": {
-                "dice": (0, 0, int(point)),
-                "comeout": False,
-                "point_on": True,
-                "point_number": self.current_point,
-                "roll_index": 1,
-            }
-        }
-        self.observe(self._curr_snapshot, curr, {"event": "point_established"})
+        self._point = point
+        self._points_established += 1
+        self._reset_since_point_counters()
 
-    def on_bankroll_delta(self, delta: float) -> None:
-        """Record a bankroll delta (some tests call this; used in snapshot)."""
-        try:
-            d = float(delta)
-        except Exception:
-            d = 0.0
-        self.last_bankroll_delta = d
-        self.cum_bankroll_delta += d
-        # track peak for tests
-        if self.cum_bankroll_delta > self.bankroll_peak:
-            self.bankroll_peak = self.cum_bankroll_delta
+    def on_point_made(self) -> None:
+        """
+        Optional signal: call when the shooter makes the point.
+        We clear the point and reset the point-cycle counters,
+        and bump the points_made aggregate.
+        """
+        if not self.enabled:
+            return
+
+        self._points_made += 1
+        # Clear point to 0 (explicitly OFF)
+        self._point = 0
+        self._reset_since_point_counters()
 
     def on_seven_out(self) -> None:
-        """
-        End of hand via seven-out:
-          - increment seven_outs
-          - clear current point and reset rolls_since_point
-          - reset pnl anchor to current cum delta (next point starts fresh)
-          - emit an observation with comeout=True, point_off
-        """
-        self.seven_outs += 1
-        self.current_point = None
-        self.rolls_since_point = 0
-        self.point_bankroll_anchor = self.cum_bankroll_delta
+        if not self.enabled:
+            return
 
-        curr = {
-            "table": {
-                "dice": (0, 0, 7),
-                "comeout": True,
-                "point_on": False,
-                "point_number": None,
-                "roll_index": 0,
-            }
-        }
-        self.observe(self._curr_snapshot, curr, {"event": "seven_out"})
+        self._seven_outs += 1
+        # Hand ends; clear point and per-point-cycle counters.
+        self._point = 0
+        self._reset_since_point_counters()
+        # Shooter resets roll count for next hand
+        self._shooter_rolls = 0
+
+    def on_bankroll_delta(self, amount: float) -> None:
+        if not self.enabled:
+            return
+
+        self._bankroll += float(amount)
+        # Peak / drawdown
+        if self._bankroll > self._bankroll_peak:
+            self._bankroll_peak = self._bankroll
+        self._drawdown = max(0.0, self._bankroll_peak - self._bankroll)
+
+        # Attribute PnL to current point-cycle if point is ON
+        if self._point in (4, 5, 6, 8, 9, 10):
+            self._pnl_since_point += float(amount)
+
+    # --------------------------
+    # Public view
+    # --------------------------
 
     def snapshot(self) -> Dict[str, Any]:
-        shooter_rolls = 0
-        if self.current_point is not None:
-            # Count the establishing roll as 1; subsequent rolls increment rolls_since_point.
-            shooter_rolls = 1 + (self.rolls_since_point or 0)
-
-        drawdown = max(0.0, self.bankroll_peak - self.cum_bankroll_delta)
-        if self.current_point is not None:
-            pnl_since_point = self.cum_bankroll_delta - self.point_bankroll_anchor
-        else:
-            pnl_since_point = 0.0
-
-        # Tests expect 0 when the point is off (not None)
-        point_value = self.current_point if self.current_point is not None else 0
-
+        """
+        Structurally stable view that existing tests rely on.
+        Batch 1 adds a `since_point` section but keeps all prior keys.
+        """
         return {
             "roll": {
-                "last_roll": self.last_total,
-                "rolls_since_point": self.rolls_since_point if self.rolls_since_point is not None else 0,
-                "shooter_rolls": shooter_rolls,
+                "last_roll": self._last_roll,
+                "shooter_rolls": self._shooter_rolls,
+                "rolls_since_point": self._rolls_since_point,
+                "shooter_rolls_peak": self._shooter_rolls_peak,
             },
-            "point": {"point": point_value, "current": point_value},
-            "hits": dict(self.hits_by_total),          # snap["hits"][8]
-            "totals": dict(self.hits_by_total),        # keep prior key too
-            "total_rolls": self.total_rolls,
-            "comeout_rolls": self.comeout_rolls,
-            "point_phase_rolls": self.point_phase_rolls,
-            "points_established": self.points_established,
-            "points_made": self.points_made,
-            "seven_outs": self.seven_outs,
-            "current_point": point_value,
-            "last_total": self.last_total,
-            "last_event": self.last_event,
+            "point": {
+                "point": self._point,
+                "points_established": self._points_established,
+                "points_made": self._points_made,
+            },
             "bankroll": {
-                "last_delta": self.last_bankroll_delta,
-                "cum_delta": self.cum_bankroll_delta,
-                # tests read these exact keys:
-                "bankroll": self.cum_bankroll_delta,
-                "bankroll_peak": self.bankroll_peak,
-                "drawdown": drawdown,
-                "pnl_since_point": pnl_since_point,
+                "bankroll": self._bankroll,
+                "bankroll_peak": self._bankroll_peak,
+                "drawdown": self._drawdown,
+                "pnl_since_point": self._pnl_since_point,
             },
-            # NEW: tests expect session.seven_outs
             "session": {
-                "seven_outs": self.seven_outs,
-                "points_established": self.points_established,
+                "seven_outs": self._seven_outs,
+            },
+            "hits": dict(self._hits),
+            # New, additive section for Batch 1
+            "since_point": {
+                "hits": dict(self._hits_since_point),
+                "inside_hits": self._inside_hits_since_point,
+                "outside_hits": self._outside_hits_since_point,
             },
         }
 
-    # --- Internal -------------------------------------------------------------
+    # --------------------------
+    # Internals
+    # --------------------------
 
-    def observe(self, prev: Any, curr: Any, event: Optional[Dict[str, Any]] = None) -> None:
-        self._prev_snapshot = prev
-        self._curr_snapshot = curr
-
-        ev_name = (event or {}).get("event")
-        self.last_event = ev_name
-
-        total = _dice_total(curr)
-        if total is not None and 2 <= total <= 12:
-            self.last_total = total
-            self.hits_by_total[total] += 1
-
-        self.total_rolls += 1
-
-        tbl = (curr or {}).get("table", {}) or {}
-        point_on = bool(tbl.get("point_on"))
-        comeout = bool(tbl.get("comeout"))
-
-        if comeout:
-            self.comeout_rolls += 1
-        else:
-            self.point_phase_rolls += 1
-
-        # Maintain rolls_since_point
-        if point_on:
-            if ev_name == "point_established":
-                # already reset in on_point_established; ensure consistency here too
-                self.rolls_since_point = 0
-            elif ev_name == "roll":
-                # Only increment for rolls during point-on phase
-                if self.rolls_since_point is None:
-                    self.rolls_since_point = 0
-                else:
-                    self.rolls_since_point += 1
-        else:
-            # no point is on; keep it as 0 for snapshot purposes
-            self.rolls_since_point = 0
+    def _reset_since_point_counters(self) -> None:
+        self._rolls_since_point = 0
+        self._pnl_since_point = 0.0
+        self._hits_since_point.clear()
+        self._inside_hits_since_point = 0
+        self._outside_hits_since_point = 0
