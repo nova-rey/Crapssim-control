@@ -26,9 +26,7 @@ class Tracker:
           "comeout_craps": int,
           "comeout_hardways": int,
         },
-        "point": {
-          "point": int,   # 0 means OFF
-        },
+        "point": {"point": int},             # 0 = OFF
         "hits": {2..12: int},
         "bankroll": {
           "bankroll": float,
@@ -36,11 +34,14 @@ class Tracker:
           "drawdown": float,
           "pnl_since_point": float,
         },
+        "since_point": {
+          "inside_hits": int,                # counts 5/6/8/9 while point ON
+        },
         "session": {
-          "hands": int,        # increments on seven-out
+          "hands": int,                      # increments on seven-out
           "seven_outs": int,
-          "pso": int,          # point-seven-out count
-          "comeouts": int,     # number of comeout rolls observed
+          "pso": int,                        # point-seven-out count
+          "comeouts": int,                   # number of comeout rolls observed
         }
       }
     """
@@ -73,6 +74,9 @@ class Tracker:
         self._bankroll_peak: float = 0.0
         self._drawdown: float = 0.0
         self._pnl_since_point: float = 0.0
+
+        # --- Since-point extras ---
+        self._inside_hits_since_point: int = 0  # counts 5/6/8/9 while point is ON
 
         # --- Session-level tallies ---
         self._hands: int = 0
@@ -114,6 +118,10 @@ class Tracker:
             self._rolls_since_point += 1
             self._made_rolls_since_point += 1
 
+            # Inside hits (5/6/8/9) while point is ON
+            if total in (5, 6, 8, 9):
+                self._inside_hits_since_point += 1
+
     def on_point_established(self, point: int) -> None:
         """Point turned ON to `point` (4/5/6/8/9/10)."""
         if not self.enabled:
@@ -123,6 +131,7 @@ class Tracker:
         self._rolls_since_point = 0
         self._made_rolls_since_point = 0
         self._pnl_since_point = 0.0  # reset PnL meter at establishment
+        self._inside_hits_since_point = 0
 
     def on_bankroll_delta(self, delta: float) -> None:
         """Apply bankroll delta (wins/losses) and update peak/drawdown & PnL since point."""
@@ -143,7 +152,7 @@ class Tracker:
         Shooter seven-outs. This:
           - increments seven_outs and hands,
           - updates PSO if exactly one roll happened since establishment,
-          - turns the point OFF and resets roll counters tied to the point.
+          - turns the point OFF and resets point- and shooter-related counters.
         """
         if not self.enabled:
             return
@@ -159,9 +168,11 @@ class Tracker:
         self._point = 0
         self._rolls_since_point = 0
         self._made_rolls_since_point = 0
-
-        # PnL since point resets at the start of the next hand
+        self._inside_hits_since_point = 0
         self._pnl_since_point = 0.0
+
+        # New shooter context starts; reset shooter roll count
+        self._shooter_rolls = 0
 
     def snapshot(self) -> Dict[str, Any]:
         """Return a stable dict snapshot of everything we track."""
@@ -185,6 +196,7 @@ class Tracker:
                     "drawdown": 0.0,
                     "pnl_since_point": 0.0,
                 },
+                "since_point": {"inside_hits": 0},
                 "session": {
                     "hands": 0,
                     "seven_outs": 0,
@@ -210,6 +222,9 @@ class Tracker:
                 "bankroll_peak": self._bankroll_peak,
                 "drawdown": self._drawdown,
                 "pnl_since_point": self._pnl_since_point,
+            },
+            "since_point": {
+                "inside_hits": self._inside_hits_since_point,
             },
             "session": {
                 "hands": self._hands,
