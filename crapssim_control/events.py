@@ -28,7 +28,6 @@ def _normalize_state(s: Any) -> Dict[str, Any]:
           s.just_established_point
     and return a uniform dict.
     """
-    # Case 1: looks like your GameState object
     if hasattr(s, "table"):
         t = getattr(s, "table", None)
         comeout = bool(getattr(t, "comeout", False))
@@ -46,7 +45,6 @@ def _normalize_state(s: Any) -> Dict[str, Any]:
             "just_est": just_est,
         }
 
-    # Case 2: dict-like
     if isinstance(s, dict):
         total = int(s.get("total", 0))
         return {
@@ -57,7 +55,6 @@ def _normalize_state(s: Any) -> Dict[str, Any]:
             "just_est": bool(s.get("just_est", False)),
         }
 
-    # Fallback: unknown shape
     return {"comeout": False, "total": 0, "point_on": False, "point_num": None, "just_est": False}
 
 
@@ -84,28 +81,36 @@ def derive_event(prev: Any, curr: Any) -> Dict[str, Any]:
     natural = False
     craps = False
 
-    # Decide primary event
-    if comeout:
-        # If this roll establishes the point, surface "point_established".
-        if roll in POINT_NUMS or just_est:
-            evt = "point_established"
-        else:
+    # Priority: if the roll *just established* the point, surface that first.
+    if just_est:
+        evt = "point_established"
+    else:
+        if comeout:
+            # Comeout, not establishing a point: classify natural/craps/comeout
             if roll in NATURAL_NUMS:
                 natural = True
+                evt = "comeout"
             elif roll in CRAPS_NUMS:
                 craps = True
-            evt = "comeout"
-    else:
-        if point_on and point_num is not None and roll == point_num:
-            evt = "point_made"
-        elif roll == 7:
-            evt = "seven_out"
+                evt = "comeout"
+            elif roll in POINT_NUMS:
+                # If we get here it's an establishment without the just_est flag,
+                # but still treat it as point_established for safety.
+                evt = "point_established"
+            else:
+                evt = "comeout"
         else:
-            evt = "roll"
+            # Point is on (or off) mid-hand
+            if point_on and point_num is not None and roll == point_num:
+                evt = "point_made"
+            elif roll == 7:
+                evt = "seven_out"
+            else:
+                evt = "roll"
 
     return {
-        "event": evt,      # tests read this
-        "type": evt,       # compatibility alias
+        "event": evt,
+        "type": evt,  # alias
         "roll": roll,
         "point": point_num if point_on else None,
         "natural": natural,
