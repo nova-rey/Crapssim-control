@@ -50,7 +50,8 @@ class Tracker:
         # Session-level tallies
         self._session = {
             "seven_outs": 0,
-            "pso": 0,  # point–seven-out (exactly one roll occurred after point came on)
+            "pso": 0,      # point–seven-out (exactly one roll occurred after point came on)
+            "hands": 0,    # completed hands (incremented on seven-out)
         }
 
     # --------------------------
@@ -138,6 +139,9 @@ class Tracker:
         if is_pso:
             self._session["pso"] += 1
 
+        # A seven-out ends the current hand.
+        self._session["hands"] += 1
+
         # Turn off point and reset point-cycle stats
         self._point = 0
         self._reset_point_cycle()
@@ -195,5 +199,6 @@ class Tracker:
             "session": {
                 "seven_outs": self._session["seven_outs"],
                 "pso": self._session["pso"],
+                "hands": self._session["hands"],
             },
         }
