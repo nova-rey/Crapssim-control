@@ -1,27 +1,69 @@
 # crapssim_control/events.py
 from __future__ import annotations
-from typing import Dict, Any, Optional
-
+from typing import Dict, Any, Optional, Tuple
 
 POINT_NUMS = {4, 5, 6, 8, 9, 10}
 CRAPS_NUMS = {2, 3, 12}
 NATURAL_NUMS = {7, 11}
 
 
-def _bool(x: Any) -> bool:
-    return bool(x)
+def _as_tuple3(x: Any) -> Tuple[int, int, int]:
+    """Return (d1, d2, total) or (0,0,int(x)) if not a proper dice tuple."""
+    if isinstance(x, tuple) and len(x) >= 3:
+        return int(x[0]), int(x[1]), int(x[2])
+    try:
+        tot = int(x)  # allow a single total
+    except Exception:
+        tot = 0
+    return 0, 0, tot
 
 
-def derive_event(prev: Dict[str, Any], curr: Dict[str, Any]) -> Dict[str, Any]:
+def _normalize_state(s: Any) -> Dict[str, Any]:
+    """
+    Accept either:
+      - dict-like with keys: comeout, total, point_on, point_num, just_est
+      - GameState object with:
+          s.table.comeout, s.table.dice -> (d1,d2,total),
+          s.table.point_on, s.table.point_number,
+          s.just_established_point
+    and return a uniform dict.
+    """
+    # Case 1: looks like your GameState object
+    if hasattr(s, "table"):
+        t = getattr(s, "table", None)
+        comeout = bool(getattr(t, "comeout", False))
+        d1, d2, total = _as_tuple3(getattr(t, "dice", (0, 0, 0)))
+        point_on = bool(getattr(t, "point_on", False))
+        point_num = getattr(t, "point_number", None)
+        just_est = bool(
+            getattr(s, "just_established_point", False) or getattr(s, "just_est", False)
+        )
+        return {
+            "comeout": comeout,
+            "total": int(total),
+            "point_on": point_on,
+            "point_num": point_num,
+            "just_est": just_est,
+        }
+
+    # Case 2: dict-like
+    if isinstance(s, dict):
+        total = int(s.get("total", 0))
+        return {
+            "comeout": bool(s.get("comeout", False)),
+            "total": total,
+            "point_on": bool(s.get("point_on", False)),
+            "point_num": s.get("point_num"),
+            "just_est": bool(s.get("just_est", False)),
+        }
+
+    # Fallback: unknown shape
+    return {"comeout": False, "total": 0, "point_on": False, "point_num": None, "just_est": False}
+
+
+def derive_event(prev: Any, curr: Any) -> Dict[str, Any]:
     """
     Derive a semantic event from previous and current game state snapshots.
-
-    Both `prev` and `curr` are dict-like objects with (at least) these keys:
-      - 'comeout' : bool        -> whether the roll is a comeout roll
-      - 'total'   : int         -> the dice total for the current roll
-      - 'point_on': bool        -> whether a point is currently on (after roll)
-      - 'point_num': Optional[int] -> the current point number if on, else None
-      - 'just_est': Optional[bool]  -> True if this roll just established the point
 
     Returns a dict with:
       - 'event'  : str (primary key expected by tests)
@@ -31,46 +73,41 @@ def derive_event(prev: Dict[str, Any], curr: Dict[str, Any]) -> Dict[str, Any]:
       - 'natural': bool (only meaningful on comeout)
       - 'craps'  : bool (only meaningful on comeout)
     """
-    # Pull with safe defaults to tolerate slightly different shapes
-    roll: int = int(curr.get("total", 0))
-    comeout: bool = _bool(curr.get("comeout", False))
-    point_on: bool = _bool(curr.get("point_on", False))
-    point_num: Optional[int] = curr.get("point_num")
-    just_est: bool = _bool(curr.get("just_est", False))
+    c = _normalize_state(curr)
+
+    roll: int = int(c["total"])
+    comeout: bool = bool(c["comeout"])
+    point_on: bool = bool(c["point_on"])
+    point_num: Optional[int] = c["point_num"]
+    just_est: bool = bool(c["just_est"])
 
     natural = False
     craps = False
 
     # Decide primary event
     if comeout:
-        # Priority: if this roll establishes a point, tests accept "point_established"
-        # even when the number is a point number (4,5,6,8,9,10).
+        # If this roll establishes the point, surface "point_established".
         if roll in POINT_NUMS or just_est:
             evt = "point_established"
         else:
-            # Otherwise it’s a generic "comeout" event, with flags for natural/craps.
             if roll in NATURAL_NUMS:
                 natural = True
             elif roll in CRAPS_NUMS:
                 craps = True
             evt = "comeout"
     else:
-        # Point is already on or we're in the box numbers phase
         if point_on and point_num is not None and roll == point_num:
             evt = "point_made"
         elif roll == 7:
-            # Seven when point is on is a seven-out; even if point_on is false due to
-            # upstream timing, 7 without comeout is a seven-out for our purposes.
             evt = "seven_out"
         else:
             evt = "roll"
 
-    event: Dict[str, Any] = {
-        "event": evt,     # tests read this
-        "type": evt,      # compatibility alias
+    return {
+        "event": evt,      # tests read this
+        "type": evt,       # compatibility alias
         "roll": roll,
         "point": point_num if point_on else None,
         "natural": natural,
         "craps": craps,
     }
-    return event
