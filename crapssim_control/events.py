@@ -8,34 +8,32 @@ NATURAL_NUMS = {7, 11}
 
 
 def _as_tuple3(x: Any) -> Tuple[int, int, int]:
-    """Return (d1, d2, total) or (0,0,int(x)) if not a proper dice tuple."""
     if isinstance(x, tuple) and len(x) >= 3:
         return int(x[0]), int(x[1]), int(x[2])
     try:
-        tot = int(x)  # allow a single total
+        return 0, 0, int(x)
     except Exception:
-        tot = 0
-    return 0, 0, tot
+        return 0, 0, 0
 
 
 def _normalize_state(s: Any) -> Dict[str, Any]:
     """
     Accept either:
-      - dict-like with keys: comeout, total, point_on, point_num, just_est
-      - GameState object with:
-          s.table.comeout, s.table.dice -> (d1,d2,total),
-          s.table.point_on, s.table.point_number,
-          s.just_established_point
-    and return a uniform dict.
+      - dict-like with keys: comeout, total, point_on, point_num, just_est, just_made
+      - GameState object with attributes on .table and flags like
+        .just_established_point / .just_made_point
     """
     if hasattr(s, "table"):
         t = getattr(s, "table", None)
         comeout = bool(getattr(t, "comeout", False))
-        d1, d2, total = _as_tuple3(getattr(t, "dice", (0, 0, 0)))
+        _, _, total = _as_tuple3(getattr(t, "dice", (0, 0, 0)))
         point_on = bool(getattr(t, "point_on", False))
         point_num = getattr(t, "point_number", None)
         just_est = bool(
             getattr(s, "just_established_point", False) or getattr(s, "just_est", False)
+        )
+        just_made = bool(
+            getattr(s, "just_made_point", False) or getattr(s, "just_made", False)
         )
         return {
             "comeout": comeout,
@@ -43,19 +41,27 @@ def _normalize_state(s: Any) -> Dict[str, Any]:
             "point_on": point_on,
             "point_num": point_num,
             "just_est": just_est,
+            "just_made": just_made,
         }
 
     if isinstance(s, dict):
-        total = int(s.get("total", 0))
         return {
             "comeout": bool(s.get("comeout", False)),
-            "total": total,
+            "total": int(s.get("total", 0)),
             "point_on": bool(s.get("point_on", False)),
             "point_num": s.get("point_num"),
             "just_est": bool(s.get("just_est", False)),
+            "just_made": bool(s.get("just_made", False)),
         }
 
-    return {"comeout": False, "total": 0, "point_on": False, "point_num": None, "just_est": False}
+    return {
+        "comeout": False,
+        "total": 0,
+        "point_on": False,
+        "point_num": None,
+        "just_est": False,
+        "just_made": False,
+    }
 
 
 def derive_event(prev: Any, curr: Any) -> Dict[str, Any]:
@@ -77,16 +83,21 @@ def derive_event(prev: Any, curr: Any) -> Dict[str, Any]:
     point_on: bool = bool(c["point_on"])
     point_num: Optional[int] = c["point_num"]
     just_est: bool = bool(c["just_est"])
+    just_made: bool = bool(c["just_made"])
 
     natural = False
     craps = False
 
-    # Priority: if the roll *just established* the point, surface that first.
+    # Priority of semantic events:
+    # 1) point just established
+    # 2) point just made
+    # 3) comeout classifications / seven-out / generic roll
     if just_est:
         evt = "point_established"
+    elif just_made:
+        evt = "point_made"
     else:
         if comeout:
-            # Comeout, not establishing a point: classify natural/craps/comeout
             if roll in NATURAL_NUMS:
                 natural = True
                 evt = "comeout"
@@ -94,13 +105,11 @@ def derive_event(prev: Any, curr: Any) -> Dict[str, Any]:
                 craps = True
                 evt = "comeout"
             elif roll in POINT_NUMS:
-                # If we get here it's an establishment without the just_est flag,
-                # but still treat it as point_established for safety.
+                # Defensive: if upstream forgot to set just_est on establishment
                 evt = "point_established"
             else:
                 evt = "comeout"
         else:
-            # Point is on (or off) mid-hand
             if point_on and point_num is not None and roll == point_num:
                 evt = "point_made"
             elif roll == 7:
@@ -110,7 +119,7 @@ def derive_event(prev: Any, curr: Any) -> Dict[str, Any]:
 
     return {
         "event": evt,
-        "type": evt,  # alias
+        "type": evt,  # alias for compatibility
         "roll": roll,
         "point": point_num if point_on else None,
         "natural": natural,
