@@ -112,6 +112,7 @@ class Tracker:
         # Point turns off, but shooter keeps shooting (same hand).
         self.point.point = 0
         self.roll.rolls_since_point = 0
+        self.bankroll.pnl_since_point = 0.0  # <-- reset per tests
         self._reset_since_point_buckets()
         # Do NOT finalize hand here.
 
@@ -129,6 +130,7 @@ class Tracker:
         self.point.point = 0
         self.roll.rolls_since_point = 0
         self.roll.shooter_rolls = 0
+        self.bankroll.pnl_since_point = 0.0  # <-- reset per tests
         self._reset_since_point_buckets()
 
         # Finalize & log per-hand PnL (Batch-4)
