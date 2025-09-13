@@ -9,9 +9,9 @@ def _approx(a, b, tol=1e-9):
 
 
 def test_bet_attrib_tallies_when_enabled():
-    # Enable the feature and attach to this tracker instance
-    tr = Tracker({"enabled": True, "bet_attrib_enabled": True})
-    attach_bet_attrib(tr)
+    # Use explicit override because Tracker may not retain unknown config keys.
+    tr = Tracker({"enabled": True})
+    attach_bet_attrib(tr, enabled=True)
 
     # Simulate several independent bet resolutions
     # Pass line win +10
@@ -45,8 +45,8 @@ def test_bet_attrib_tallies_when_enabled():
 
 
 def test_bet_attrib_absent_when_disabled():
-    tr = Tracker({"enabled": True, "bet_attrib_enabled": False})
-    attach_bet_attrib(tr)
+    tr = Tracker({"enabled": True})
+    attach_bet_attrib(tr, enabled=False)
 
     # Even if we send events, attribution is disabled → no side effects in snapshot
     tr.on_bet_resolved({"bet_type": "pass_line", "pnl": 10.0, "outcome": "win"})

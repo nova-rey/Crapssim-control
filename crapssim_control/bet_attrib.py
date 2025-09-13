@@ -6,35 +6,18 @@ Non-invasive add-on that augments an existing Tracker instance with:
   - on_bet_resolved(event: dict) -> None        # updates per-type wins/losses/pnl
   - snapshot() wrapper that injects a 'bet_attrib' block (when enabled)
 
-Enable via tracker config:
-  Tracker({"enabled": True, "bet_attrib_enabled": True})
+Enable either by:
+  - Passing enabled explicitly to attach_bet_attrib(tracker, enabled=True), or
+  - Setting tracker.config.get("bet_attrib_enabled") to True (if your Tracker preserves it)
 
-Expected event shape (lenient):
-  - event for resolution should have:
-      bet_type: str            (or 'type')
-      pnl: float               (or 'delta' or 'net'; if absent -> inferred from win/loss)
-      outcome: 'win'|'loss'|'push' (or 'result', 'status', 'won' bool); optional
-
-If 'pnl' is absent, we infer from outcome:
-  win  -> +abs(amount or 1.0)
-  loss -> -abs(amount or 1.0)
-  push -> 0.0
-We do NOT mutate bankroll here--this is read-only attribution.
-
-To use:
-  from crapssim_control.bet_attrib import attach_bet_attrib
-  tr = Tracker({"enabled": True, "bet_attrib_enabled": True})
-  attach_bet_attrib(tr)
-  tr.on_bet_resolved({...})
-  snap = tr.snapshot()
-  snap["bet_attrib"]["by_bet_type"] -> dict
+This module does NOT mutate bankroll or core game logic. It's purely accounting.
 """
 
 from __future__ import annotations
 
 from collections import defaultdict
 from types import MethodType
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional
 
 
 def _coerce_str(d: Dict[str, Any], *keys: str, default: str = "unknown") -> str:
@@ -72,14 +55,21 @@ def _coerce_bool(d: Dict[str, Any], *keys: str) -> Optional[bool]:
     return None
 
 
-def attach_bet_attrib(tracker: Any) -> None:
+def attach_bet_attrib(tracker: Any, *, enabled: Optional[bool] = None) -> None:
     """
     Monkey-patch a Tracker instance with bet attribution hooks & snapshot injection.
     This is instance-level (safe), not class-wide.
+
+    Args:
+        tracker: an instance of Tracker
+        enabled: optionally force-enable/disable attribution. If None, falls back to
+                 tracker.config.get("bet_attrib_enabled", False)
     """
-    # Respect feature flag on tracker.config if present
-    cfg = getattr(tracker, "config", {}) or {}
-    enabled = bool(cfg.get("bet_attrib_enabled", False))
+    # Resolve enabled flag
+    if enabled is None:
+        cfg = getattr(tracker, "config", {}) or {}
+        enabled = bool(cfg.get("bet_attrib_enabled", False))
+    enabled = bool(enabled)
 
     # Internal storage (per instance)
     store = defaultdict(lambda: {"wins": 0, "losses": 0, "pnl": 0.0})
@@ -90,19 +80,17 @@ def attach_bet_attrib(tracker: Any) -> None:
     def _snapshot_with_bet_attrib(self) -> Dict[str, Any]:
         snap = orig_snapshot()
         if enabled:
-            # Convert defaultdict -> plain dict with shallow copies to avoid accidental mutation by callers
             by_type_plain: Dict[str, Dict[str, Any]] = {
                 k: {"wins": v["wins"], "losses": v["losses"], "pnl": float(v["pnl"])}
                 for k, v in store.items()
             }
             snap["bet_attrib"] = {"by_bet_type": by_type_plain}
         else:
-            # When disabled, do NOT add the key at all (clean no-op)
             snap.pop("bet_attrib", None)
         return snap
 
     def _on_bet_placed(self, event: Dict[str, Any]) -> None:
-        # Reserved; we may later track exposure. For now, no-op to keep behavior predictable.
+        # Reserved for future (exposure tracking). Intentionally no-op for stability.
         _ = event
         return
 
@@ -110,14 +98,11 @@ def attach_bet_attrib(tracker: Any) -> None:
         if not enabled:
             return
 
-        # Extract bet_type
         bet_type = _coerce_str(event, "bet_type", "type")
 
-        # Determine pnl
         pnl = _coerce_float(event, "pnl", "delta", "net")
         if pnl is None:
-            # Infer from outcome or 'won' flag
-            won: Optional[bool] = _coerce_bool(event, "won", "win", "is_win")
+            won = _coerce_bool(event, "won", "win", "is_win")
             if won is None:
                 outcome = _coerce_str(event, "outcome", "result", "status", default="")
                 if outcome.lower() in ("win", "won"):
@@ -130,19 +115,16 @@ def attach_bet_attrib(tracker: Any) -> None:
                     won = None
 
             if won is None:
-                amt = _coerce_float(event, "amount", "risk", "stake") or 0.0
-                pnl = 0.0  # unknown → treat as neutral
+                pnl = 0.0
             else:
                 amt = _coerce_float(event, "amount", "risk", "stake") or 1.0
                 pnl = amt if won else -amt
 
-        # Tally
         bucket = store[bet_type]
         if pnl > 0:
             bucket["wins"] += 1
         elif pnl < 0:
             bucket["losses"] += 1
-        # pushes (pnl == 0) do not increment wins/losses
         bucket["pnl"] = float(bucket["pnl"]) + float(pnl)
 
     # Bind to *this* instance only
@@ -150,7 +132,7 @@ def attach_bet_attrib(tracker: Any) -> None:
     tracker.on_bet_resolved = MethodType(_on_bet_resolved, tracker)
     tracker.snapshot = MethodType(_snapshot_with_bet_attrib, tracker)
 
-    # Stash references (optional, for debugging/detach if ever needed)
+    # Debug hooks (optional)
     tracker._bet_attrib_enabled = enabled
     tracker._bet_attrib_store = store
     tracker._bet_attrib_snapshot_wrapped = orig_snapshot
