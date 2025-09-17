@@ -6,22 +6,10 @@ Public API:
     eval_num(expr: str, state: dict | None = None, event: dict | None = None) -> float
     eval_bool(expr: str, state: dict | None = None, event: dict | None = None) -> bool
 
-Features (whitelisted):
-  - Literals: int, float, bool, str
-  - Vars: names from `state` and `event`
-  - Arithmetic: +, -, *, / (true division), unary -
-  - Comparisons: ==, !=, <, <=, >, >= (chained ok)
-  - Logic: and, or, not
-  - Grouping: ( ... )
-  - Python ternary:  a if cond else b
-  - Helpers: min(x,y), max(x,y), abs(x), round(x[,nd]), floor(x), ceil(x)
-
-Forbidden:
-  - Attribute access (obj.attr), indexing/subscripts (a[0]), comprehensions, lambdas,
-    function definitions, imports, names starting with '_' (dunder/privates), etc.
-
-Errors:
-  - Raises EvalError(message, expr, lineno, col_offset) with friendly context.
+Back-compat aliases (for older modules/tests that import these):
+    safe_eval        -> evaluate
+    safe_eval_num    -> eval_num
+    safe_eval_bool   -> eval_bool
 """
 
 from __future__ import annotations
@@ -30,7 +18,6 @@ import ast
 import math
 from dataclasses import dataclass
 from typing import Any, Dict, Mapping, Optional
-
 
 # -----------------------------
 # Errors
@@ -73,46 +60,37 @@ class _Evaluator(ast.NodeVisitor):
         self._expr = expr
         self._ctx = ctx
 
-    # entry
     def evaluate(self, node: ast.AST) -> Any:
         try:
             return self.visit(node)
         except EvalError:
             raise
         except Exception as e:
-            # Normalize any unexpected errors into EvalError
             line = getattr(node, "lineno", None)
             col = getattr(node, "col_offset", None)
             raise EvalError(f"Evaluation error: {e}", self._expr, line, col)
 
-    # expression root
     def visit_Expression(self, node: ast.Expression) -> Any:
         return self.visit(node.body)
 
-    # constants
     def visit_Constant(self, node: ast.Constant) -> Any:
         if isinstance(node.value, (int, float, bool, str)) or node.value is None:
             return node.value
         raise EvalError("Constant type not allowed", self._expr, node.lineno, node.col_offset)
 
-    # names (variables)
     def visit_Name(self, node: ast.Name) -> Any:
         name = node.id
         if not name or name.startswith("_"):
             raise EvalError(f"Name '{name}' is not allowed", self._expr, node.lineno, node.col_offset)
         if name in _ALLOWED_FUNCS:
-            # functions are only usable via Call; returning the function object is okay here
             return _ALLOWED_FUNCS[name]
         if name in self._ctx:
             v = self._ctx[name]
-            # allow only simple JSON-ish values to flow through
             if isinstance(v, (int, float, bool, str)) or v is None:
                 return v
-            # Best effort: coerce to number if obvious
             raise EvalError(f"Variable '{name}' has unsupported type {type(v).__name__}", self._expr, node.lineno, node.col_offset)
         raise EvalError(f"Unknown variable '{name}'", self._expr, node.lineno, node.col_offset)
 
-    # arithmetic
     def visit_BinOp(self, node: ast.BinOp) -> Any:
         left = self.visit(node.left)
         right = self.visit(node.right)
@@ -137,10 +115,8 @@ class _Evaluator(ast.NodeVisitor):
             return not operand
         raise EvalError(f"Unary operator '{type(node.op).__name__}' not allowed", self._expr, node.lineno, node.col_offset)
 
-    # boolean logic
     def visit_BoolOp(self, node: ast.BoolOp) -> Any:
         if isinstance(node.op, ast.And):
-            # short-circuit
             for v in node.values:
                 if not self.visit(v):
                     return False
@@ -152,12 +128,10 @@ class _Evaluator(ast.NodeVisitor):
             return False
         raise EvalError(f"Boolean operator '{type(node.op).__name__}' not allowed", self._expr, node.lineno, node.col_offset)
 
-    # comparisons (chained)
     def visit_Compare(self, node: ast.Compare) -> Any:
         left = self.visit(node.left)
         for op, comp in zip(node.ops, node.comparators):
             right = self.visit(comp)
-            ok: bool
             if isinstance(op, ast.Eq):
                 ok = left == right
             elif isinstance(op, ast.NotEq):
@@ -177,22 +151,18 @@ class _Evaluator(ast.NodeVisitor):
             left = right
         return True
 
-    # calls (helpers only)
     def visit_Call(self, node: ast.Call) -> Any:
-        # Only simple Name() calls; no attribute or keyword calls to unknowns
         if not isinstance(node.func, ast.Name):
             raise EvalError("Only simple helper calls are allowed", self._expr, node.lineno, node.col_offset)
         fname = node.func.id
         if fname not in _ALLOWED_FUNCS:
             raise EvalError(f"Function '{fname}' is not allowed", self._expr, node.lineno, node.col_offset)
         fn = _ALLOWED_FUNCS[fname]
-        # Evaluate args positionally; allow up to 2 args for helpers like min/max/round
         args = [self.visit(a) for a in node.args]
-        # no **kwargs; allow simple keyword args for round(ndigits=) if provided
         kwargs = {}
         if node.keywords:
             for kw in node.keywords:
-                if kw.arg not in ("ndigits",):  # only permit round(ndigits=)
+                if kw.arg not in ("ndigits",):
                     raise EvalError("Keyword arguments not allowed", self._expr, node.lineno, node.col_offset)
                 kwargs[kw.arg] = self.visit(kw.value)
             if fname != "round":
@@ -200,14 +170,12 @@ class _Evaluator(ast.NodeVisitor):
         try:
             return fn(*args, **kwargs)
         except Exception as e:
-            raise EvalError(f"Error in {fname}(): {e}", self._expr, node.lineno, node.col_offset)
+            raise EvalError(f"Error in {fname}(): {e}", self._expr, node.leno if hasattr(node, 'leno') else node.lineno, node.col_offset)
 
-    # ternary: a if cond else b
     def visit_IfExp(self, node: ast.IfExp) -> Any:
         cond = self.visit(node.test)
         return self.visit(node.body) if cond else self.visit(node.orelse)
 
-    # disallowed nodes
     def generic_visit(self, node: ast.AST) -> Any:
         DISALLOWED = (
             ast.Subscript, ast.Attribute, ast.List, ast.Tuple, ast.Dict, ast.Set,
@@ -217,7 +185,12 @@ class _Evaluator(ast.NodeVisitor):
             ast.Import, ast.ImportFrom, ast.Global, ast.Nonlocal, ast.ClassDef, ast.FunctionDef,
         )
         if isinstance(node, DISALLOWED):
-            raise EvalError(f"Syntax not allowed: {type(node).__name__}", self._expr, getattr(node, "lineno", None), getattr(node, "col_offset", None))
+            raise EvalError(
+                f"Syntax not allowed: {type(node).__name__}",
+                self._expr,
+                getattr(node, "lineno", None),
+                getattr(node, "col_offset", None),
+            )
         return super().generic_visit(node)
 
 
@@ -234,20 +207,13 @@ def _build_ctx(state: Optional[Dict[str, Any]], event: Optional[Dict[str, Any]])
     if event:
         for k, v in event.items():
             if k and not str(k).startswith("_"):
-                # event keys should not clobber state unless explicitly intended;
-                # but for simplicity we let event overwrite (event data is "most recent").
                 ctx[str(k)] = v
-    # expose a read-only snapshot of helpers via names (already enforced in visit_Name/Call)
     for k in _ALLOWED_FUNCS:
         ctx.setdefault(k, _ALLOWED_FUNCS[k])
     return ctx
 
 
 def evaluate(expr: str, state: Optional[Dict[str, Any]] = None, event: Optional[Dict[str, Any]] = None) -> Any:
-    """
-    Evaluate a safe expression with variables from `state` and `event`.
-    Raises EvalError on invalid syntax, unsafe constructs, or unknown variables.
-    """
     if not isinstance(expr, str):
         raise EvalError("Expression must be a string", str(expr))
     try:
@@ -260,7 +226,7 @@ def evaluate(expr: str, state: Optional[Dict[str, Any]] = None, event: Optional[
 
 def eval_num(expr: str, state: Optional[Dict[str, Any]] = None, event: Optional[Dict[str, Any]] = None) -> float:
     v = evaluate(expr, state, event)
-    if isinstance(v, bool):  # bool is a subclass of int; reject silently -> cast to float 0/1
+    if isinstance(v, bool):
         return float(v)
     try:
         return float(v)
@@ -272,7 +238,6 @@ def eval_bool(expr: str, state: Optional[Dict[str, Any]] = None, event: Optional
     v = evaluate(expr, state, event)
     if isinstance(v, bool):
         return v
-    # common coercions: nonzero numbers -> True; nonempty strings -> True
     if isinstance(v, (int, float)):
         return bool(v)
     if isinstance(v, str):
@@ -282,3 +247,25 @@ def eval_bool(expr: str, state: Optional[Dict[str, Any]] = None, event: Optional
         if s in ("false", "f", "0", "no", "n"):
             return False
     raise EvalError(f"Expected boolean result, got {type(v).__name__}", expr)
+
+
+# -----------------------------
+# Back-compat aliases
+# -----------------------------
+
+# Some modules/tests import these legacy names:
+def safe_eval(expr: str, state: Optional[Dict[str, Any]] = None, event: Optional[Dict[str, Any]] = None) -> Any:
+    return evaluate(expr, state, event)
+
+def safe_eval_num(expr: str, state: Optional[Dict[str, Any]] = None, event: Optional[Dict[str, Any]] = None) -> float:
+    return eval_num(expr, state, event)
+
+def safe_eval_bool(expr: str, state: Optional[Dict[str, Any]] = None, event: Optional[Dict[str, Any]] = None) -> bool:
+    return eval_bool(expr, state, event)
+
+
+__all__ = [
+    "EvalError",
+    "evaluate", "eval_num", "eval_bool",
+    "safe_eval", "safe_eval_num", "safe_eval_bool",
+]
