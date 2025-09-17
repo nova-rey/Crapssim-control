@@ -1,10 +1,12 @@
-# bet_ledger.py
+# bet_ledger.py -- Batch 6 + Batch 9 (canon type tagging)
 from __future__ import annotations
 from dataclasses import dataclass, field, asdict
 from typing import Dict, Any, List, Optional, Tuple
 import time
 import itertools
 import copy
+
+from .bet_types import normalize_bet_type  # NEW
 
 
 # --------------------------
@@ -13,9 +15,9 @@ import copy
 
 def _infer_category(bet: str) -> str:
     b = (bet or "").lower()
-    if b in {"pass", "dont pass", "dp"}:
+    if b in {"pass", "pass line", "pass_line", "dont pass", "don't pass", "dp"}:
         return "line"
-    if b in {"come", "dont come", "dc"}:
+    if b in {"come", "dont come", "don't come", "dc"}:
         return "come"
     if b.startswith("place") or b in {"4","5","6","8","9","10"}:
         return "place"
@@ -25,6 +27,8 @@ def _infer_category(bet: str) -> str:
         return "field"
     if "hard" in b:
         return "hardways"
+    if "lay" in b:
+        return "lay"
     return "other"
 
 
@@ -34,7 +38,6 @@ def _lifo_key(bet: str, meta: Dict[str, Any]) -> str:
     Keeps stacks separate (e.g., place-6 vs place-8).
     """
     parts = [str(bet).lower()]
-    # common discriminators
     n = meta.get("number") or meta.get("point") or meta.get("box")
     if n is not None:
         parts.append(str(n))
@@ -61,7 +64,6 @@ class LedgerEntry:
 
     def snapshot(self) -> Dict[str, Any]:
         d = asdict(self)
-        # shallow-copy meta to avoid downstream mutation
         d["meta"] = copy.deepcopy(d.get("meta", {}))
         return d
 
@@ -101,12 +103,13 @@ class BetLedger:
       - Track open bets (exposure) and closed bets (realized P&L)
       - Attribute realized P&L to the current point cycle via `begin_point_cycle` / `end_point_cycle`
       - Track strategy intents and match them to actual bets (Batch 6)
+      - Tag entries with canonical bet type (Batch 9) for clean exports
       - Provide a compact snapshot for UI/analytics
     """
     def __init__(self) -> None:
         # bets
         self._entries: List[LedgerEntry] = []
-        self._open_stack: Dict[str, List[int]] = {}   # lifo key -> [entry ids]
+        self._open_stack: Dict[str, List[int]] = {}
         self._id_seq = itertools.count(1)
         self._realized_pnl_total: float = 0.0
         self._open_exposure: float = 0.0
@@ -130,31 +133,38 @@ class BetLedger:
         if amount < 0:
             raise ValueError("amount must be >= 0")
 
-        cat = category or _infer_category(bet)
+        # Compute canon bet type for analytics
+        canon_type = normalize_bet_type(bet, meta)
+        cat = category or _infer_category(canon_type or bet)
+
+        # include canon+raw in meta (don't overwrite user fields)
+        meta = dict(meta) if meta else {}
+        meta.setdefault("raw_bet_type", bet)
+        meta.setdefault("canon_bet_type", canon_type)
+
         eid = next(self._id_seq)
         e = LedgerEntry(
             id=eid,
             created_ts=time.time(),
-            bet=bet,
+            bet=canon_type or (bet or ""),
             amount=float(amount),
             category=cat,
-            meta=dict(meta) if meta else {},
+            meta=meta,
         )
 
         # Optional roll linkage
         if self._current_roll_index is not None:
             e.meta.setdefault("roll_index_opened", self._current_roll_index)
 
-        # Optional intent linking (Batch 6)
+        # Intent linking (Batch 6)
         intent_id = e.meta.get("intent_id")
         if intent_id is not None:
             self._mark_intent_matched(int(intent_id), eid)
         else:
-            # best-effort implicit match by bet + number if any
             self._maybe_match_nearest_intent(eid, bet, e.meta)
 
         self._entries.append(e)
-        key = _lifo_key(bet, e.meta)
+        key = _lifo_key(e.bet, e.meta)
         self._open_stack.setdefault(key, []).append(eid)
         self._open_exposure += e.amount
         return eid
@@ -173,14 +183,21 @@ class BetLedger:
         """
         Close the most recent open entry for `bet` (LIFO) or a specific `entry_id`.
         Returns (entry_id, realized_pnl).
-        If `apply_to_bankroll` and `bankroll_hook` are provided, calls bankroll_hook(pnl).
         """
+        # Use canon key in search to avoid mismatches
+        canon = normalize_bet_type(bet, meta)
+        key_meta = dict(meta or {})
+        key = _lifo_key(canon or bet, key_meta)
+
         # Find entry
         if entry_id is None:
-            key = _lifo_key(bet, meta)
             stack = self._open_stack.get(key) or []
             if not stack:
-                raise KeyError(f"No open {bet} to resolve for key={key}")
+                # fallback: try raw bet key if canon didn't match (back-compat)
+                key_fallback = _lifo_key(bet, key_meta)
+                stack = self._open_stack.get(key_fallback) or []
+                if not stack:
+                    raise KeyError(f"No open {bet} to resolve for key={key}")
             entry_id = stack.pop()
         entry = self._by_id(entry_id)
 
@@ -209,7 +226,6 @@ class BetLedger:
             try:
                 bankroll_hook(entry.realized_pnl)
             except Exception:
-                # Never let stats crash gameplay
                 pass
 
         return entry_id, entry.realized_pnl
@@ -238,7 +254,7 @@ class BetLedger:
         ie = IntentEntry(
             id=iid,
             created_ts=time.time(),
-            bet=bet,
+            bet=normalize_bet_type(bet, meta) or bet,
             stake=stake,
             number=int(number) if number is not None else None,
             status="open",
@@ -246,6 +262,9 @@ class BetLedger:
             meta=dict(meta) if meta else {},
             created_roll_index=self._current_roll_index,
         )
+        # keep raw as well for audit
+        ie.meta.setdefault("raw_bet_type", bet)
+        ie.meta.setdefault("canon_bet_type", ie.bet)
         self._intents.append(ie)
         return iid
 
@@ -275,13 +294,14 @@ class BetLedger:
         ie.matched_ts = time.time()
 
     def _maybe_match_nearest_intent(self, entry_id: int, bet: str, meta: Dict[str, Any]) -> None:
-        """Best-effort implicit matching: same bet & (optional) number, most recent open intent."""
+        """Best-effort implicit matching: same canon bet & (optional) number, most recent open intent."""
+        canon = normalize_bet_type(bet, meta)
         number = meta.get("number") or meta.get("point") or meta.get("box")
         candidate: Optional[IntentEntry] = None
         for ie in reversed(self._intents):
             if ie.status != "open":
                 continue
-            if (ie.bet or "").lower() != (bet or "").lower():
+            if (ie.bet or "").lower() != (canon or bet or "").lower():
                 continue
             if number is not None and ie.number is not None and int(ie.number) != int(number):
                 continue
