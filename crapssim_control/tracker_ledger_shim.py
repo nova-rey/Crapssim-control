@@ -1,7 +1,7 @@
 # tracker_ledger_shim.py
 from __future__ import annotations
 from typing import Any, Dict, Optional
-from bet_ledger import BetLedger
+from .bet_ledger import BetLedger   # <-- fixed: relative import
 
 
 def wire_ledger(tracker_obj: Any) -> None:
@@ -10,19 +10,17 @@ def wire_ledger(tracker_obj: Any) -> None:
       - tracker_obj.ledger : BetLedger
       - tracker_obj.on_bet_placed(event: dict)
       - tracker_obj.on_bet_resolved(event: dict)
-      - tracker_obj.on_intent_created(event: dict)   # NEW in Batch 6
-      - tracker_obj.on_intent_canceled(intent_id, reason=None)  # NEW
+      - tracker_obj.on_intent_created(event: dict)   # Batch 6
+      - tracker_obj.on_intent_canceled(intent_id, reason=None)
       - snapshot() now includes "ledger" section (non-breaking)
       - point-cycle hooks bridged to ledger
     """
     if hasattr(tracker_obj, "ledger") and isinstance(tracker_obj.ledger, BetLedger):
-        # Already wired
         pass
     else:
         tracker_obj.ledger = BetLedger()
 
     # ----- Bridge point-cycle + roll ----------------------------------------
-
     prev_begin_point = getattr(tracker_obj, "on_point_established", None)
     prev_point_made = getattr(tracker_obj, "on_point_made", None)
     prev_roll_hook = getattr(tracker_obj, "on_roll", None)
@@ -44,7 +42,6 @@ def wire_ledger(tracker_obj: Any) -> None:
             return prev_point_made(*args, **kwargs)
 
     def on_roll_wrapper(*args, **kwargs):
-        # assume tracker has roll counter; otherwise ignore
         try:
             roll_index = getattr(tracker_obj, "roll").shooter_rolls  # best effort
             tracker_obj.ledger.touch_roll(int(roll_index))
@@ -61,15 +58,7 @@ def wire_ledger(tracker_obj: Any) -> None:
         setattr(tracker_obj, "on_roll", on_roll_wrapper)
 
     # ----- Bet hooks ---------------------------------------------------------
-
     def on_bet_placed(event: Dict[str, Any]) -> None:
-        """
-        Expected event keys (best-effort):
-          - bet: str
-          - amount: float
-          - number/point/box: Optional[int]
-          - intent_id: Optional[int]
-        """
         bet = str(event.get("bet", ""))
         amount = float(event.get("amount", 0.0))
         meta = dict(event)
@@ -78,17 +67,9 @@ def wire_ledger(tracker_obj: Any) -> None:
         try:
             tracker_obj.ledger.place(bet, amount, **meta)
         except Exception:
-            # Never crash caller
             pass
 
     def on_bet_resolved(event: Dict[str, Any]) -> None:
-        """
-        Expected event keys:
-          - bet: str
-          - result: 'win'|'lose'|'push'
-          - payout: float (full return incl winnings; 0 on loss, amount on push)
-          - entry_id (optional): prefer exact resolution by id
-        """
         bet = str(event.get("bet", ""))
         result = str(event.get("result", "")) or str(event.get("outcome", ""))
         payout = float(event.get("payout", 0.0))
@@ -105,17 +86,7 @@ def wire_ledger(tracker_obj: Any) -> None:
     setattr(tracker_obj, "on_bet_resolved", on_bet_resolved)
 
     # ----- Intent hooks (Batch 6) -------------------------------------------
-
     def on_intent_created(event: Dict[str, Any]) -> Optional[int]:
-        """
-        Expected event keys (suggested):
-          - bet: str
-          - stake: Optional[float]
-          - number/point/box: Optional[int]
-          - reason: Optional[str] (why plan was formed, e.g. 'hedge', 'odds_entry')
-          - any extra tags/metadata
-        Returns the intent_id for convenience.
-        """
         bet = str(event.get("bet", ""))
         stake = event.get("stake")
         number = event.get("number") or event.get("point") or event.get("box")
@@ -124,8 +95,7 @@ def wire_ledger(tracker_obj: Any) -> None:
         for k in ("bet", "stake", "number", "point", "box", "reason"):
             meta.pop(k, None)
         try:
-            iid = tracker_obj.ledger.create_intent(bet=bet, stake=stake, number=number, reason=reason, **meta)
-            return iid
+            return tracker_obj.ledger.create_intent(bet=bet, stake=stake, number=number, reason=reason, **meta)
         except Exception:
             return None
 
@@ -139,7 +109,6 @@ def wire_ledger(tracker_obj: Any) -> None:
     setattr(tracker_obj, "on_intent_canceled", on_intent_canceled)
 
     # ----- Snapshot wrapper --------------------------------------------------
-
     prev_snapshot = getattr(tracker_obj, "snapshot")
 
     def snapshot_with_ledger(*args, **kwargs):
@@ -147,7 +116,6 @@ def wire_ledger(tracker_obj: Any) -> None:
         try:
             snap["ledger"] = tracker_obj.ledger.snapshot()
         except Exception:
-            # Never let ledger break an existing snapshot
             snap["ledger"] = {
                 "open_count": 0,
                 "closed_count": 0,
