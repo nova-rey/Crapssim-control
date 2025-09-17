@@ -1,12 +1,39 @@
 """
-Bet-type attribution (Batch 5 + Batch 7 + Batch 9)
+Bet-type attribution
+(Batch 5 + Batch 7 + Batch 9 + Batch 10)
 
-Batch 7 adds opportunity/exposure counters per bet type:
-  placed_count, resolved_count, push_count, total_staked, exposure_rolls, peak_open_bets
-Batch 9 canonicalizes keys via bet_types.normalize_bet_type to prevent fragmentation.
+What this module provides:
+  - Hooks to attribute results + opportunity/exposure to bet types
+  - Canonical bet-type keys (via bet_types.normalize_bet_type)
+  - Batch 10 computed rates and richer metadata aggregation
 
-Snapshot shape (as expected by tests):
-  snap["bet_attrib"]["by_bet_type"] = { <canon_type>: {counters...}, ... }
+Per bet type we track raw counters (B5/B7):
+  placed_count, resolved_count, push_count,
+  total_staked, exposure_rolls, peak_open_bets,
+  wins, losses, pnl  (pnl is NET, see commission handling below)
+
+NEW in Batch 10 (fields added to each bet type snapshot):
+  - total_commission         (sum of commission/vig/fee provided on events)
+  - hit_rate                 = wins / max(1, resolved_count - push_count)
+  - roi                      = pnl / max(1, total_staked)
+  - pnl_per_exposure_roll    = pnl / max(1, exposure_rolls)
+
+Optional event fields that are consumed if present:
+  - 'commission' | 'vig' | 'fee'  (float)   → subtracted from pnl and tallied into total_commission
+  - 'working_on_comeout'          (bool)    → recorded on resolution for context counts (lightweight)
+  - 'odds_multiple'               (float)   → accepted but not aggregated yet (reserved for future)
+  - 'point_number'                (int)     → accepted; not aggregated here (you can export from ledger)
+
+Snapshot shape (unchanged at the top level for compatibility):
+  snap["bet_attrib"]["by_bet_type"] = {
+      <canon_type>: {
+          placed_count, resolved_count, push_count,
+          total_staked, exposure_rolls, peak_open_bets,
+          wins, losses, pnl, total_commission,
+          hit_rate, roi, pnl_per_exposure_roll,
+          _ctx: { "comeout_resolved": x, "point_resolved": y }  # optional context counters
+      }, ...
+  }
 """
 
 from __future__ import annotations
@@ -15,7 +42,7 @@ from collections import defaultdict, deque
 from dataclasses import dataclass, asdict
 from typing import Any, Dict, DefaultDict, Deque, Optional
 
-from .bet_types import normalize_bet_type  # NEW
+from .bet_types import normalize_bet_type
 
 
 # -----------------------------
@@ -35,6 +62,11 @@ class _PerTypeStats:
     wins: int = 0
     losses: int = 0
     pnl: float = 0.0
+    # Batch 10 (rich meta)
+    total_commission: float = 0.0
+    # lightweight context counters (Batch 10)
+    comeout_resolved: int = 0
+    point_resolved: int = 0
 
 
 def _coerce_str(event: Dict[str, Any], *keys: str, default: str = "") -> str:
@@ -54,28 +86,30 @@ def _coerce_float(event: Dict[str, Any], *keys: str, default: float = 0.0) -> fl
     return default
 
 
+def _coerce_bool(value: Any) -> Optional[bool]:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        s = value.strip().lower()
+        if s in ("true", "t", "1", "yes", "y"):
+            return True
+        if s in ("false", "f", "0", "no", "n"):
+            return False
+        if s == "push":
+            return None
+    return None
+
+
 def _coerce_bool_outcome(event: Dict[str, Any]) -> Optional[bool]:
-    """
-    Normalize outcome → True (win) / False (loss) / None (push or unknown).
-    Accepts fields like won/win/is_win/outcome/result/status.
-    """
-    # direct booleans first
+    # Direct booleans first
     for k in ("won", "win", "is_win"):
         if k in event:
-            v = event[k]
-            if isinstance(v, bool):
-                return v
-            if isinstance(v, (int, float)):
-                return bool(v)
-            if isinstance(v, str):
-                s = v.strip().lower()
-                if s in ("true", "t", "1", "yes", "y"):
-                    return True
-                if s in ("false", "f", "0", "no", "n"):
-                    return False
-                if s == "push":
-                    return None
-    # string outcomes
+            b = _coerce_bool(event[k])
+            if b is not None:
+                return b
+    # String outcomes
     s = _coerce_str(event, "outcome", "result", "status", default="").strip().lower()
     if s in ("win", "won"):
         return True
@@ -87,12 +121,7 @@ def _coerce_bool_outcome(event: Dict[str, Any]) -> Optional[bool]:
 
 
 def _bet_key(event: Dict[str, Any]) -> str:
-    """
-    Canonical key for attribution buckets.
-
-    Batch 9: prefer 'bet_type' if present (test fixtures use this),
-    but ALWAYS normalize using the normalizer with number/context from event.
-    """
+    # Prefer explicit bet_type, else bet/type; always normalize
     raw = _coerce_str(event, "bet_type", "bet", "type", default="").strip()
     canon = normalize_bet_type(raw, event)
     return canon or "unknown"
@@ -104,7 +133,7 @@ def _bet_key(event: Dict[str, Any]) -> str:
 
 def attach_bet_attrib(tracker: Any, enabled: Optional[bool] = None) -> None:
     """
-    Monkey-patch a live Tracker with bet attribution + exposure counters.
+    Monkey-patch a live Tracker with bet attribution + exposure counters + Batch 10 rates.
 
     Adds:
       tracker.on_bet_placed(event)
@@ -112,7 +141,7 @@ def attach_bet_attrib(tracker: Any, enabled: Optional[bool] = None) -> None:
       tracker.on_bet_cleared(event)   # optional
     Wraps:
       tracker.on_roll(...) to accrue exposure for open bets
-      tracker.snapshot()   to include 'bet_attrib' when enabled
+      tracker.snapshot()   to include 'bet_attrib' (with computed rates) when enabled
     """
     # determine enablement
     if enabled is None:
@@ -140,7 +169,11 @@ def attach_bet_attrib(tracker: Any, enabled: Optional[bool] = None) -> None:
 
         # track an open unit for exposure accrual
         opened_at_roll = _safe_roll_index(tracker)
-        tracker._bet_open[key].append({"opened_at_roll": opened_at_roll, "amount": float(amt)})
+        # store minimal meta in case we want to expand context later
+        tracker._bet_open[key].append({
+            "opened_at_roll": opened_at_roll,
+            "amount": float(amt),
+        })
 
         # peak concurrency per type
         if len(tracker._bet_open[key]) > stats.peak_open_bets:
@@ -154,25 +187,38 @@ def attach_bet_attrib(tracker: Any, enabled: Optional[bool] = None) -> None:
         key = _bet_key(event)
         outcome = _coerce_bool_outcome(event)
 
-        # pnl handling
+        # commission/vig handling (Batch 10)
+        commission = _coerce_float(event, "commission", "vig", "fee", default=0.0)
+
+        # pnl handling: if 'pnl' provided, treat it as gross; subtract commission.
         pnl = _coerce_float(event, "pnl", default=None)
         if pnl is None:
             payout = _coerce_float(event, "payout", default=0.0)   # full return incl winnings
             amount = _coerce_float(event, "amount", "stake", default=0.0)
-            pnl = payout - amount if (payout or amount) else 0.0
+            pnl = payout - amount
+        net_pnl = float(pnl) - float(commission)
 
         stats = tracker._bet_stats[key]
         stats.resolved_count += 1
+        stats.total_commission += float(commission)
+
+        # Lightweight context recording (count only; does not split exposure)
+        woc = event.get("working_on_comeout")
+        woc_b = _coerce_bool(woc)
+        if woc_b is True:
+            stats.comeout_resolved += 1
+        elif woc_b is False:
+            stats.point_resolved += 1
 
         if outcome is True:
             stats.wins += 1
-            stats.pnl += float(pnl)
+            stats.pnl += net_pnl
         elif outcome is False:
             stats.losses += 1
-            stats.pnl += float(pnl)
+            stats.pnl += net_pnl
         else:
             stats.push_count += 1
-            stats.pnl += float(pnl)  # likely ~0, but preserve engine-provided value
+            stats.pnl += net_pnl  # usually ~0 after commission, but keep engine-provided value
 
         # close one open unit if present (LIFO)
         if tracker._bet_open[key]:
@@ -214,7 +260,18 @@ def attach_bet_attrib(tracker: Any, enabled: Optional[bool] = None) -> None:
         if tracker._bet_attrib_enabled:
             by_type: Dict[str, Any] = {}
             for key, stats in tracker._bet_stats.items():
-                by_type[key] = asdict(stats)
+                row = asdict(stats)
+                # Derived metrics (Batch 10)
+                denom_resolved_no_push = max(1, stats.resolved_count - stats.push_count)
+                row["hit_rate"] = float(stats.wins) / float(denom_resolved_no_push)
+                row["roi"] = float(stats.pnl) / float(max(1.0, stats.total_staked))
+                row["pnl_per_exposure_roll"] = float(stats.pnl) / float(max(1, stats.exposure_rolls))
+                # Present context as a nested, clearly named block
+                row["_ctx"] = {
+                    "comeout_resolved": stats.comeout_resolved,
+                    "point_resolved": stats.point_resolved,
+                }
+                by_type[key] = row
             snap["bet_attrib"] = {"by_bet_type": by_type}
         return snap
 
