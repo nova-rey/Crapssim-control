@@ -5,7 +5,7 @@ Helpers to turn raw bet amounts into table-legal amounts.
 
 Config (table_cfg dict; all optional):
   - bubble: bool (default False)          # bubble craps allows $1 increments generally
-  - level: int (default 10)               # table minimum for line bets
+  - level: int (default 10)               # table minimum for *line* bets (pass/don't), not field
   - place_410_increment: int (default 5)  # increment for place 4/10 (some houses use 10)
   - max_odds_multiple: float (default 3.0)# cap odds at N x base line bet
 
@@ -91,16 +91,30 @@ def legalize_amount(
     # Bubble or not affects increments for place bets primarily
     bubble = bool(cfg.get("bubble", False))
 
-    # Simple $1 increment bets (line, field, come/dc)
-    LINE_BETS = {"pass_line", "dont_pass", "come", "dont_come", "field"}
-    if bt in LINE_BETS:
-        # enforce table minimum on line bets
+    # Line bets: apply table minimum only to pass/don't; others are $1 increments
+    if bt in {"pass_line", "dont_pass"}:
         min_level = int(cfg.get("level", 10))
         legal = int(amt // 1)
         if legal < min_level:
             flags["clamped"] = True
             flags["reason"] = f"min_level_{min_level}"
             legal = min_level
+        return legal, flags
+
+    # Come / Don't Come: $1 increments, no level clamp here
+    if bt in {"come", "dont_come"}:
+        legal = int(amt // 1)
+        if legal < amt:
+            flags["clamped"] = True
+            flags["reason"] = "come_step_1"
+        return legal, flags
+
+    # Field: $1 increments, explicitly no level clamp
+    if bt == "field":
+        legal = int(amt // 1)
+        if legal < amt:
+            flags["clamped"] = True
+            flags["reason"] = "field_step_1"
         return legal, flags
 
     # Place bets
@@ -136,10 +150,9 @@ def legalize_amount(
         parts = bt.split("_")
         if len(parts) >= 3:
             try:
-                odds_point = int(parts[1])
+                odds_point = int(parts[1])  # noqa: F841 (reserved for future validation)
             except Exception:
-                odds_point = None
-            # If needed you could validate odds_point vs current table point
+                odds_point = None  # noqa: F841
         max_mult = float(cfg.get("max_odds_multiple", 3.0))
         base = float(base_line_bet or 0.0)
         capped = cap_odds_amount(base, amt, max_mult)
