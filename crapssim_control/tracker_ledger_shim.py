@@ -1,6 +1,6 @@
 # tracker_ledger_shim.py
 from __future__ import annotations
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 from bet_ledger import BetLedger
 
 
@@ -8,103 +8,160 @@ def wire_ledger(tracker_obj: Any) -> None:
     """
     Mutates a live Tracker instance to add:
       - tracker_obj.ledger : BetLedger
-      - tracker_obj.on_bet_placed(...)
-      - tracker_obj.on_bet_resolved(...)
+      - tracker_obj.on_bet_placed(event: dict)
+      - tracker_obj.on_bet_resolved(event: dict)
+      - tracker_obj.on_intent_created(event: dict)   # NEW in Batch 6
+      - tracker_obj.on_intent_canceled(intent_id, reason=None)  # NEW
       - snapshot() now includes "ledger" section (non-breaking)
       - point-cycle hooks bridged to ledger
     """
     if hasattr(tracker_obj, "ledger") and isinstance(tracker_obj.ledger, BetLedger):
-        return  # already wired
+        # Already wired
+        pass
+    else:
+        tracker_obj.ledger = BetLedger()
 
-    ledger = BetLedger()
-    tracker_obj.ledger = ledger
+    # ----- Bridge point-cycle + roll ----------------------------------------
 
-    # --- Bridge existing roll index (if tracker has one) into ledger (optional) ---
-    if hasattr(tracker_obj, "_roll") and isinstance(getattr(tracker_obj, "_roll"), dict):
-        # best effort: expose a method tracker_obj._touch_roll_index(i) that updates ledger too
-        original_on_roll = getattr(tracker_obj, "on_roll", None)
+    prev_begin_point = getattr(tracker_obj, "on_point_established", None)
+    prev_point_made = getattr(tracker_obj, "on_point_made", None)
+    prev_roll_hook = getattr(tracker_obj, "on_roll", None)
 
-        def on_roll_with_ledger(n: int) -> None:
-            if original_on_roll:
-                original_on_roll(n)
-            # try to derive a roll index if tracker maintains one; else just increment locally
-            idx = None
-            if "shooter_rolls" in tracker_obj._roll:
-                idx = tracker_obj._roll.get("shooter_rolls")
-            ledger.touch_roll(idx if idx is not None else 0)
+    def on_point_established_wrapper(*args, **kwargs):
+        try:
+            tracker_obj.ledger.begin_point_cycle()
+        except Exception:
+            pass
+        if callable(prev_begin_point):
+            return prev_begin_point(*args, **kwargs)
 
-        setattr(tracker_obj, "on_roll", on_roll_with_ledger)
+    def on_point_made_wrapper(*args, **kwargs):
+        try:
+            tracker_obj.ledger.end_point_cycle()
+        except Exception:
+            pass
+        if callable(prev_point_made):
+            return prev_point_made(*args, **kwargs)
 
-    # --- Bridge point cycle ---
-    original_point_established = getattr(tracker_obj, "on_point_established", None)
-    def pe_with_ledger(p: int) -> None:
-        if original_point_established:
-            original_point_established(p)
-        ledger.begin_point_cycle()
-    setattr(tracker_obj, "on_point_established", pe_with_ledger)
+    def on_roll_wrapper(*args, **kwargs):
+        # assume tracker has roll counter; otherwise ignore
+        try:
+            roll_index = getattr(tracker_obj, "roll").shooter_rolls  # best effort
+            tracker_obj.ledger.touch_roll(int(roll_index))
+        except Exception:
+            pass
+        if callable(prev_roll_hook):
+            return prev_roll_hook(*args, **kwargs)
 
-    # Both "point made" and "seven-out" end the cycle
-    for end_hook_name in ("on_point_made", "on_seven_out"):
-        original = getattr(tracker_obj, end_hook_name, None)
-        if original is None:
-            continue
-        def _wrap(orig):
-            def wrapped(*a, **k):
-                res = orig(*a, **k)
-                ledger.end_point_cycle()
-                return res
-            return wrapped
-        setattr(tracker_obj, end_hook_name, _wrap(original))
+    if callable(prev_begin_point):
+        setattr(tracker_obj, "on_point_established", on_point_established_wrapper)
+    if callable(prev_point_made):
+        setattr(tracker_obj, "on_point_made", on_point_made_wrapper)
+    if callable(prev_roll_hook):
+        setattr(tracker_obj, "on_roll", on_roll_wrapper)
 
-    # --- Public API: placing & resolving bets ---
-    def on_bet_placed(bet: str, amount: float, *, category: str | None = None, **meta: Any) -> int:
-        return ledger.place(bet, amount, category=category, **meta)
+    # ----- Bet hooks ---------------------------------------------------------
 
-    def on_bet_resolved(
-        bet: str,
-        *,
-        result: str,
-        payout: float = 0.0,
-        entry_id: int | None = None,
-        apply_to_bankroll: bool = False,
-        **meta: Any,
-    ):
-        bankroll_hook = None
-        if apply_to_bankroll and hasattr(tracker_obj, "on_bankroll_delta"):
-            bankroll_hook = tracker_obj.on_bankroll_delta
-        return ledger.resolve(
-            bet,
-            result=result,
-            payout=payout,
-            entry_id=entry_id,
-            apply_to_bankroll=apply_to_bankroll,
-            bankroll_hook=bankroll_hook,
-            **meta,
-        )
+    def on_bet_placed(event: Dict[str, Any]) -> None:
+        """
+        Expected event keys (best-effort):
+          - bet: str
+          - amount: float
+          - number/point/box: Optional[int]
+          - intent_id: Optional[int]
+        """
+        bet = str(event.get("bet", ""))
+        amount = float(event.get("amount", 0.0))
+        meta = dict(event)
+        meta.pop("bet", None)
+        meta.pop("amount", None)
+        try:
+            tracker_obj.ledger.place(bet, amount, **meta)
+        except Exception:
+            # Never crash caller
+            pass
+
+    def on_bet_resolved(event: Dict[str, Any]) -> None:
+        """
+        Expected event keys:
+          - bet: str
+          - result: 'win'|'lose'|'push'
+          - payout: float (full return incl winnings; 0 on loss, amount on push)
+          - entry_id (optional): prefer exact resolution by id
+        """
+        bet = str(event.get("bet", ""))
+        result = str(event.get("result", "")) or str(event.get("outcome", ""))
+        payout = float(event.get("payout", 0.0))
+        entry_id = event.get("entry_id")
+        meta = dict(event)
+        for k in ("bet", "result", "outcome", "payout", "entry_id"):
+            meta.pop(k, None)
+        try:
+            tracker_obj.ledger.resolve(bet, result=result, payout=payout, entry_id=entry_id, **meta)
+        except Exception:
+            pass
 
     setattr(tracker_obj, "on_bet_placed", on_bet_placed)
     setattr(tracker_obj, "on_bet_resolved", on_bet_resolved)
 
-    # --- Snapshot extender (non-breaking) ---
-    if hasattr(tracker_obj, "snapshot"):
-        original_snapshot = tracker_obj.snapshot
+    # ----- Intent hooks (Batch 6) -------------------------------------------
 
-        def snapshot_with_ledger() -> Dict[str, Any]:
-            snap = original_snapshot()
-            try:
-                snap["ledger"] = ledger.snapshot()
-            except Exception:
-                # Never let ledger break an existing snapshot
-                snap["ledger"] = {
-                    "open_count": 0,
-                    "closed_count": 0,
-                    "open_exposure": 0.0,
-                    "realized_pnl": 0.0,
-                    "realized_pnl_since_point": 0.0,
-                    "by_category": {"exposure": {}, "realized": {}},
-                    "open": [],
-                    "closed": [],
-                }
-            return snap
+    def on_intent_created(event: Dict[str, Any]) -> Optional[int]:
+        """
+        Expected event keys (suggested):
+          - bet: str
+          - stake: Optional[float]
+          - number/point/box: Optional[int]
+          - reason: Optional[str] (why plan was formed, e.g. 'hedge', 'odds_entry')
+          - any extra tags/metadata
+        Returns the intent_id for convenience.
+        """
+        bet = str(event.get("bet", ""))
+        stake = event.get("stake")
+        number = event.get("number") or event.get("point") or event.get("box")
+        reason = event.get("reason")
+        meta = dict(event)
+        for k in ("bet", "stake", "number", "point", "box", "reason"):
+            meta.pop(k, None)
+        try:
+            iid = tracker_obj.ledger.create_intent(bet=bet, stake=stake, number=number, reason=reason, **meta)
+            return iid
+        except Exception:
+            return None
 
-        setattr(tracker_obj, "snapshot", snapshot_with_ledger)
+    def on_intent_canceled(intent_id: int, reason: Optional[str] = None) -> None:
+        try:
+            tracker_obj.ledger.cancel_intent(int(intent_id), reason=reason)
+        except Exception:
+            pass
+
+    setattr(tracker_obj, "on_intent_created", on_intent_created)
+    setattr(tracker_obj, "on_intent_canceled", on_intent_canceled)
+
+    # ----- Snapshot wrapper --------------------------------------------------
+
+    prev_snapshot = getattr(tracker_obj, "snapshot")
+
+    def snapshot_with_ledger(*args, **kwargs):
+        snap = prev_snapshot(*args, **kwargs)
+        try:
+            snap["ledger"] = tracker_obj.ledger.snapshot()
+        except Exception:
+            # Never let ledger break an existing snapshot
+            snap["ledger"] = {
+                "open_count": 0,
+                "closed_count": 0,
+                "open_exposure": 0.0,
+                "realized_pnl": 0.0,
+                "realized_pnl_since_point": 0.0,
+                "by_category": {"exposure": {}, "realized": {}},
+                "open": [],
+                "closed": [],
+                "intents": {
+                    "open_count": 0, "matched_count": 0, "canceled_count": 0,
+                    "open": [], "matched": [], "canceled": []
+                },
+            }
+        return snap
+
+    setattr(tracker_obj, "snapshot", snapshot_with_ledger)
