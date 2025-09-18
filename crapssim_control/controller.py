@@ -1,5 +1,3 @@
-# ... (header/comments unchanged)
-
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -61,7 +59,74 @@ def _mk_ctx(ctrl: _CtrlState, event: Dict[str, Any], table_cfg: Dict[str, Any]) 
     return ctx
 
 
-def _render_and_diff(template: Dict[str, Any], ctrl: _CtrlState, event: Dict[str, Any], table_cfg: Dict[str, Any], current_bets: Dict[str, Dict]) -> List[Dict]:
+def _bet_type_to_kind_number(bet_type: str) -> Tuple[Optional[str], Optional[int]]:
+    """
+    Map internal bet_type → (kind, number) for tests/utilities that look at 'kind'/'number'.
+    Examples:
+      pass_line -> ('pass', None)
+      field -> ('field', None)
+      place_6 -> ('place', 6)
+      dont_pass -> ('dont_pass', None)
+    """
+    if bet_type == "pass_line":
+        return ("pass", None)
+    if bet_type == "dont_pass":
+        return ("dont_pass", None)
+    if bet_type == "field":
+        return ("field", None)
+    if bet_type.startswith("place_"):
+        try:
+            return ("place", int(bet_type.split("_", 1)[1]))
+        except Exception:
+            return ("place", None)
+    if bet_type.startswith("lay_"):
+        try:
+            return ("lay", int(bet_type.split("_", 1)[1]))
+        except Exception:
+            return ("lay", None)
+    if bet_type.startswith("odds_"):
+        # e.g. odds_6, odds_8 (pass odds on a point)
+        try:
+            return ("odds", int(bet_type.split("_", 1)[1]))
+        except Exception:
+            return ("odds", None)
+    return (None, None)
+
+
+def _enhance_actions_with_kind_number_and_clear(policy_current: Dict[str, Dict], actions: List[Dict]) -> List[Dict]:
+    """
+    Post-process diff actions to:
+      1) enforce deterministic 'clear-then-set' when amount changes on an existing bet
+      2) attach 'kind' and 'number' keys for tests that read them
+    """
+    out: List[Dict] = []
+    for a in actions:
+        if a.get("action") == "set":
+            bt = a["bet_type"]
+            amt = a.get("amount")
+            curr_amt = (policy_current.get(bt) or {}).get("amount")
+            # If a bet exists and amount changes, emit a 'clear' first
+            if curr_amt is not None and curr_amt != amt:
+                k, n = _bet_type_to_kind_number(bt)
+                out.append({"action": "clear", "bet_type": bt, "kind": k, "number": n})
+            # Always attach kind/number to the set
+            k, n = _bet_type_to_kind_number(bt)
+            a = dict(a)
+            a["kind"], a["number"] = k, n
+            out.append(a)
+        elif a.get("action") == "clear":
+            bt = a["bet_type"]
+            k, n = _bet_type_to_kind_number(bt)
+            a = dict(a)
+            a["kind"], a["number"] = k, n
+            out.append(a)
+        else:
+            out.append(a)
+    return out
+
+
+def _render_and_diff(template: Dict[str, Any], ctrl: _CtrlState, event: Dict[str, Any],
+                     table_cfg: Dict[str, Any], current_bets: Dict[str, Dict]) -> List[Dict]:
     state = {
         **ctrl.vars,
         "mode": ctrl.mode,
@@ -71,7 +136,8 @@ def _render_and_diff(template: Dict[str, Any], ctrl: _CtrlState, event: Dict[str
         **(table_cfg or {}),
     }
     desired = rt_render_template(template, state, event or {}, table_cfg or {})
-    return rt_diff_bets(current_bets or {}, desired)
+    base = rt_diff_bets(current_bets or {}, desired)
+    return _enhance_actions_with_kind_number_and_clear(current_bets or {}, base)
 
 
 class ControlStrategy:
@@ -86,14 +152,16 @@ class ControlStrategy:
             rolls_since_point=0,
         )
 
-    # --- Legacy adapter hook expected by tests/EngineAdapter ---
+    # --- Legacy adapter hooks expected by tests/EngineAdapter ---
     def update_bets(self, _table: Any) -> None:
-        """
-        Legacy no-op hook. EngineAdapter calls this before each roll. We keep it for compatibility.
-        Real bet updates are driven by handle_event() when events arrive.
-        """
+        """No-op pre-roll hook retained for compatibility."""
         return None
 
+    def after_roll(self, _table: Any, event: Dict[str, Any]) -> None:
+        """Post-roll bookkeeping hook; we just ingest event flags."""
+        self._ingest_event_side_effects(event)
+
+    # --- Core event handler ---
     def handle_event(self, event: Dict[str, Any], current_bets: Optional[Dict[str, Dict]] = None) -> List[Dict]:
         self._ingest_event_side_effects(event)
 
@@ -185,7 +253,12 @@ class ControlStrategy:
             return plan
 
         if _CLEAR_RE.match(act):
-            return [{"action": "clear", "bet_type": k} for k in sorted(current_bets.keys())]
+            # deterministic order
+            plan = []
+            for bet_type in sorted(current_bets.keys()):
+                k, n = _bet_type_to_kind_number(bet_type)
+                plan.append({"action": "clear", "bet_type": bet_type, "kind": k, "number": n})
+            return plan
 
         m = _LOG_RE.match(act)
         if m:

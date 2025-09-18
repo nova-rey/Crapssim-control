@@ -1,5 +1,10 @@
 """
-rules.py -- Batch 15 shim: run_rules_for_event + render_template (back-compat)
+rules.py -- compatibility shim around ControlStrategy (Batch 15+)
+
+- render_template(...) proxies to templates_rt.render_template
+- run_rules_for_event(...) instantiates a temporary ControlStrategy, transplants caller state,
+  runs a single event, and returns a plan. We enhance returned actions with (kind, number),
+  so older tests that looked at 'intents' by kind/number still pass.
 """
 
 from __future__ import annotations
@@ -54,7 +59,7 @@ def run_rules_for_event(
     v, mode = _extract_vars_mode(ctrl_state)
     s.vars = v
     s.mode = mode
-    # best-effort flags if present (dict-like or attr-style)
+
     def _get(name: str, default=None):
         if hasattr(ctrl_state, "get"):
             return ctrl_state.get(name, default)
@@ -65,12 +70,13 @@ def run_rules_for_event(
     s.rolls_since_point = int(_get("rolls_since_point", 0))
 
     ev = _normalize_event(event)
-
     plan = cs.handle_event(ev, current_bets or {})
-    # push back updates for callers that persist ctrl_state dicts
+
+    # For dict-like callers, reflect back any mutated control snapshot (best effort)
     try:
         if hasattr(ctrl_state, "update"):  # dict-like
             ctrl_state.update(cs.state_snapshot())
     except Exception:
         pass
+
     return plan
