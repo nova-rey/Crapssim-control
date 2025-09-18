@@ -3,201 +3,263 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from .eval import evaluate as _eval
-from .templates_rt import render_template, diff_bets
+from .templates_rt import render_template
+from .utils import diff_bets
 
 
 @dataclass
 class _CtrlState:
-    """
-    Internal control state the rules & controller mutate over time.
-    Only minimal fields are tracked to satisfy tests / adapter flow.
-    """
+    """Internal runtime state holder used to expose variables to the evaluator and rules."""
     vars: Dict[str, Any] = field(default_factory=dict)
-    mode: str = "Main"
 
-    # Table/hand state for convenience
-    point: int | None = None
+    # table/hand state exposed to expressions
     on_comeout: bool = True
+    point: Optional[int] = None
     rolls_since_point: int = 0
+    mode: Optional[str] = None
 
-    # lightweight counters used by eval environment
+    # some useful counters for richer strategies (optionally populated)
     counters: Dict[str, Any] = field(default_factory=lambda: {
+        "number_frequencies": {i: 0 for i in range(2, 13)},
         "points_established": 0,
-        "seven_outs": 0,
-        "number_frequencies": {n: 0 for n in (2, 3, 4, 5, 6, 8, 9, 10, 11, 12)},
+        "sevens_out": 0,
         "last_event": None,
     })
 
 
+def _eval_env(ctrl: _CtrlState, event: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Build the evaluation environment for expressions."""
+    env = {
+        **ctrl.vars,
+        "on_comeout": ctrl.on_comeout,
+        "point": ctrl.point if ctrl.point else 0,
+        "rolls_since_point": ctrl.rolls_since_point,
+        "mode": ctrl.mode,
+        "counters": ctrl.counters,
+        "state": {
+            "on_comeout": ctrl.on_comeout,
+            "point": ctrl.point,
+            "rolls_since_point": ctrl.rolls_since_point,
+            "mode": ctrl.mode,
+            "counters": ctrl.counters,
+        },
+    }
+    if event:
+        # mirror tests: expose both "event" and the event keys at top-level
+        env["event"] = dict(event)
+        for k, v in event.items():
+            if k not in env:
+                env[k] = v
+    return env
+
+
+def _normalize_action(a: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Ensure each action carries engine-facing 'bet_type' and rules-facing 'bet'.
+    Accepts variations from diff_bets/template rendering.
+    """
+    bet_type = a.get("bet_type") or a.get("bet") or a.get("kind")
+    amount = a.get("amount") or a.get("value") or a.get("units") or 0
+    res = dict(a)
+    res["bet_type"] = bet_type
+    res["bet"] = bet_type  # rules module expects 'bet'
+    res["amount"] = amount
+    return res
+
+
 class ControlStrategy:
     """
-    Reference runtime that:
-      - tracks a small mutable control state (variables + simple point/comeout bookkeeping)
-      - applies spec-defined actions to produce a betting plan (set/remove/update)
-      - exposes a tiny adapter surface for the engine adapter smoke test
+    Rules-driven controller that turns game events into bet update plans.
     """
 
-    def __init__(self, spec: Dict[str, Any], table_cfg: Dict[str, Any] | None = None) -> None:
+    def __init__(self, spec: Dict[str, Any]):
         self._spec = spec or {}
-        self._table_cfg = table_cfg or (self._spec.get("table") or {})
 
-        # seed variables
-        variables = dict(self._spec.get("variables") or {})
-        default_mode = variables.get("mode") or (list((self._spec.get("modes") or {}).keys())[:1] or ["Main"])[0]
+        # table config shim (bubble/level keys)
+        tbl = self._spec.get("table") or {}
+        self._table_cfg = {
+            "bubble": bool(tbl.get("bubble", False)),
+            "level": int(tbl.get("level", 5)),
+        }
+
+        # seed variables + default mode
+        variables = dict((self._spec.get("variables") or {}))
+        default_mode = variables.get("mode") or (self._spec.get("modes") and next(iter(self._spec["modes"].keys()))) or None
 
         self._ctrl = _CtrlState(vars=variables, mode=default_mode)
 
-    # ---------------------------
-    # Small engine-adapter surface
-    # ---------------------------
+    # --- Public adapter hooks expected by tests/EngineAdapter
 
-    def update_bets(self, table: Any) -> None:
-        """
-        Called by the EngineAdapter before each roll.
-        For this minimal reference impl we don't proactively bet before a derived event,
-        so this is a no-op on purpose.
-        """
-        return None
+    def update_bets(self, table_like: Any) -> None:
+        """EngineAdapter pre-roll hook: we don't auto-place here, rules drive placements via events."""
+        # Intentionally a no-op; bets placed via explicit 'apply_template' actions on events.
+        return
 
-    def after_roll(self, table: Any, event: Dict[str, Any]) -> None:
-        """
-        Called by the EngineAdapter after a roll has happened and been settled.
-        We only do bookkeeping that mirrors what tests expect:
-          - increment rolls_since_point on rolls (when a point is on)
-          - reset point/on_comeout on seven_out
-        """
-        ev_type = event.get("type") or event.get("event")
-        self._ctrl.counters["last_event"] = ev_type
+    def after_roll(self, table_like: Any, event: Dict[str, Any]) -> None:
+        """EngineAdapter post-roll bookkeeping: update counters/frequencies."""
+        total = event.get("total")
+        if isinstance(total, int) and 2 <= total <= 12:
+            self._ctrl.counters["number_frequencies"][total] += 1
+        self._ctrl.counters["last_event"] = event.get("event") or event.get("type")
 
-        if ev_type == "roll":
-            total = event.get("total")
-            if isinstance(total, int) and total in self._ctrl.counters["number_frequencies"]:
-                self._ctrl.counters["number_frequencies"][total] += 1
+    def state_snapshot(self) -> Dict[str, Any]:
+        """Lightweight state view used in tests."""
+        return {
+            "on_comeout": self._ctrl.on_comeout,
+            "point": self._ctrl.point if self._ctrl.point else None,
+            "rolls_since_point": self._ctrl.rolls_since_point,
+            "mode": self._ctrl.mode,
+            "counters": self._ctrl.counters,
+        }
 
-            if self._ctrl.point:
-                self._ctrl.rolls_since_point += 1
-
-        elif ev_type == "seven_out":
-            # reset table state
-            self._ctrl.counters["seven_outs"] += 1
-            self._ctrl.point = None
-            self._ctrl.on_comeout = True
-            self._ctrl.rolls_since_point = 0
-
-        elif ev_type == "point_established":
-            p = int(event.get("point") or 0)
-            self._ctrl.point = p
-            self._ctrl.on_comeout = False
-            self._ctrl.rolls_since_point = 0
-            self._ctrl.counters["points_established"] += 1
-
-    # ---------------------------
-    # Primary rules/event entrypoint
-    # ---------------------------
+    # --- Core event handler used both by tests and rules shim
 
     def handle_event(self, event: Dict[str, Any], current_bets: Dict[str, Dict]) -> List[Dict[str, Any]]:
-        """
-        Main entry the tests use: consume an event and current bets,
-        return a plan (list of actions).
-        """
-        ev = _normalize_event(event)
+        ev = dict(event)
+        if "event" not in ev and "type" in ev:
+            ev["event"] = ev["type"]
+        if "type" not in ev and "event" in ev:
+            ev["type"] = ev["event"]
 
-        # Minimal built-in bookkeeping to satisfy tests that call handle_event directly
-        if ev["type"] == "point_established":
-            p = int(ev.get("point") or 0)
-            self._ctrl.point = p
+        # state transitions based on event
+        if ev["event"] == "comeout":
+            self._ctrl.on_comeout = True
+            self._ctrl.point = None
+            self._ctrl.rolls_since_point = 0
+
+        elif ev["event"] == "point_established":
             self._ctrl.on_comeout = False
+            self._ctrl.point = int(ev.get("point") or 0) or None
             self._ctrl.rolls_since_point = 0
             self._ctrl.counters["points_established"] += 1
 
-        elif ev["type"] == "roll":
-            total = ev.get("total")
-            if isinstance(total, int) and total in self._ctrl.counters["number_frequencies"]:
-                self._ctrl.counters["number_frequencies"][total] += 1
-            if self._ctrl.point:
+        elif ev["event"] == "roll":
+            if not self._ctrl.on_comeout and self._ctrl.point:
                 self._ctrl.rolls_since_point += 1
 
-        elif ev["type"] == "seven_out":
-            self._ctrl.counters["seven_outs"] += 1
-            self._ctrl.point = None
+        elif ev["event"] == "seven_out":
             self._ctrl.on_comeout = True
+            self._ctrl.point = None
             self._ctrl.rolls_since_point = 0
+            self._ctrl.counters["sevens_out"] += 1
 
-        # Execute matching rule actions (in order) and accumulate plan
+        # Run rules: for this simple controller, we execute the single matching rule list
         plan: List[Dict[str, Any]] = []
-        for act in self._match_actions(ev):
+        for act in (self._spec.get("rules") or []):
             plan_delta = self._exec_action(act, ev, current_bets)
             if plan_delta:
                 plan.extend(plan_delta)
 
         return plan
 
-    # ---------------------------
-    # Introspection helpers for tests/shims
-    # ---------------------------
+    # --- Helpers
 
-    def state_snapshot(self) -> Dict[str, Any]:
+    def _exec_action(self, act: Dict[str, Any], event: Dict[str, Any], current_bets: Dict[str, Dict]) -> List[Dict[str, Any]]:
         """
-        Provide a compact snapshot used by tests/rules shim to round-trip state.
+        Execute one action descriptor into a set of bet update commands.
+        Action schema mirrors tests/spec:
+          - {"apply_template": "<name>"}
+          - {"expr": "<python-ish expression>"}
         """
-        return {
-            "vars": dict(self._ctrl.vars),
-            "mode": self._ctrl.mode,
-            "point": self._ctrl.point,
-            "on_comeout": self._ctrl.on_comeout,
-            "rolls_since_point": self._ctrl.rolls_since_point,
-            "counters": self._ctrl.counters,
-        }
+        if "apply_template" in act or act.get("do") == "apply_template":
+            name = act["apply_template"] if "apply_template" in act else act.get("name") or act.get("value")
+            return self._apply_template(name, current_bets, event)
 
-    # ---------------------------
-    # Internals
-    # ---------------------------
+        if "expr" in act:
+            expr = act["expr"]
 
-    def _match_actions(self, event: Dict[str, Any]) -> List[Tuple[str, Any]]:
-        """
-        Return a flat list of ("kind", payload) describing the actions
-        for rules whose `on` clause matches the event.
-        Supported action kinds:
-          - "expr": a textual expression to evaluate/mutate variables
-          - "apply_template": name of a template/mode to render and diff to actions
-        """
-        actions: List[Tuple[str, Any]] = []
-        for rule in self._spec.get("rules") or []:
-            on = rule.get("on") or {}
-            if _event_matches(on, event):
-                for step in rule.get("do") or []:
-                    if isinstance(step, str):
-                        if step.startswith("apply_template(") and step.endswith(")"):
-                            # pull the single quoted template name
-                            name = step[len("apply_template("):-1].strip()
-                            if (name.startswith("'") and name.endswith("'")) or (name.startswith('"') and name.endswith('"')):
-                                name = name[1:-1]
-                            actions.append(("apply_template", name))
-                        else:
-                            actions.append(("expr", step))
-                    elif isinstance(step, dict) and step.get("action") == "apply_template":
-                        actions.append(("apply_template", step.get("name")))
-                    else:
-                        # fall back: treat as no-op
-                        pass
-        return actions
+            # First, try to handle simple assignments/aug-assignments the evaluator disallows.
+            if self._maybe_exec_assignment(expr, event):
+                return []
 
-    def _exec_action(self, action: Tuple[str, Any], event: Dict[str, Any], current_bets: Dict[str, Dict]) -> List[Dict[str, Any]] | None:
-        kind, payload = action
-        if kind == "expr":
-            expr = str(payload)
-            # mutate vars via expression evaluator
+            # Fall back to pure expression evaluation (no state mutation)
             _ = _eval(expr, _eval_env(self._ctrl, event))
             return []
 
-        if kind == "apply_template":
-            name = str(payload or self._ctrl.mode or "Main")
-            return self._apply_template(name, current_bets, event)
+        # Fallback: rule with explicit "do": string or list
+        if "do" in act:
+            cmds = act["do"]
+            if isinstance(cmds, str):
+                cmds = [cmds]
+
+            out_plan: List[Dict[str, Any]] = []
+            for cmd in cmds:
+                if cmd.startswith("apply_template("):
+                    # extract name inside quotes
+                    name = cmd[len("apply_template("):].rstrip(")").strip().strip('"').strip("'")
+                    out_plan.extend(self._apply_template(name, current_bets, event))
+                else:
+                    # assignment-friendly path
+                    if not self._maybe_exec_assignment(cmd, event):
+                        _ = _eval(cmd, _eval_env(self._ctrl, event))
+            return out_plan
 
         return []
+
+    def _maybe_exec_assignment(self, expr: str, event: Optional[Dict[str, Any]]) -> bool:
+        """
+        Support a tiny subset of statements used in specs: 'name = <expr>' and 'name += <expr>'.
+        Returns True if handled (mutation performed), False otherwise.
+        """
+        s = expr.strip()
+        op = None
+        if "+=" in s:
+            parts = s.split("+=", 1)
+            op = "+="
+        elif "=" in s:
+            parts = s.split("=", 1)
+            op = "="
+        else:
+            return False
+
+        lhs, rhs = parts[0].strip(), parts[1].strip()
+        if not lhs.isidentifier():
+            return False  # not a simple name on LHS; let evaluator complain
+
+        # evaluate RHS as a pure expression
+        rhs_val = _eval(rhs, _eval_env(self._ctrl, event))
+
+        # figure out current value if +=
+        if op == "+=":
+            cur = self._get_var_or_state(lhs)
+            rhs_val = (cur or 0) + rhs_val
+
+        # write back
+        self._set_var_or_state(lhs, rhs_val)
+        return True
+
+    def _get_var_or_state(self, name: str) -> Any:
+        if name == "rolls_since_point":
+            return self._ctrl.rolls_since_point
+        if name == "point":
+            return self._ctrl.point
+        if name == "on_comeout":
+            return self._ctrl.on_comeout
+        if name == "mode":
+            # prefer explicit runtime mode, fall back to vars
+            return self._ctrl.mode if self._ctrl.mode is not None else self._ctrl.vars.get("mode")
+        # default to user vars
+        return self._ctrl.vars.get(name)
+
+    def _set_var_or_state(self, name: str, value: Any) -> None:
+        if name == "rolls_since_point":
+            self._ctrl.rolls_since_point = int(value)
+            return
+        if name == "point":
+            self._ctrl.point = int(value) if value else None
+            return
+        if name == "on_comeout":
+            self._ctrl.on_comeout = bool(value)
+            return
+        if name == "mode":
+            self._ctrl.mode = value
+            self._ctrl.vars["mode"] = value
+            return
+        # default to user vars
+        self._ctrl.vars[name] = value
 
     def _apply_template(
         self,
@@ -212,72 +274,22 @@ class ControlStrategy:
         # Resolve template object from spec modes (runtime renderer handles mapping)
         tmpl_spec = (self._spec.get("modes") or {}).get(name, {}).get("template") or {}
 
-        # NOTE: match templates_rt.render_template signature: (template, vars, table_cfg[, optional])
-        # The tests that are failing do not require the optional 4th param (point/comeout),
-        # so we call the 3-arg form for maximum compatibility.
+        # NOTE: use positional call to match templates_rt.render_template signature
+        # Signature in this project is: render_template(template_spec, variables, table_cfg[, on_comeout/point bundled])
+        # Our runtime state supplies variables and table config; on_comeout/point can be derived downstream.
         rendered = render_template(
             tmpl_spec,
             self._ctrl.vars,
             self._table_cfg,
         )
 
-        # Compute actions from diff against current
+        # Diff against current to produce actions
         actions = diff_bets(current_bets or {}, rendered or {})
 
-        # Ensure each action carries both bet_type (engine) and bet (rules shim)
-        out: List[Dict[str, Any]] = []
-        for act in actions:
-            a = dict(act)
-            bet_type = a.get("bet_type") or a.get("bet")
-            if bet_type is None:
-                # skip malformed
-                continue
-            a["bet_type"] = bet_type
-            a["bet"] = bet_type
-            out.append(a)
-        return out
-
-
-# ---------------------------
-# Helpers
-# ---------------------------
-
-def _normalize_event(ev: Dict[str, Any]) -> Dict[str, Any]:
-    e = dict(ev or {})
-    if "type" not in e and "event" in e:
-        e["type"] = e["event"]
-    if "event" not in e and "type" in e:
-        e["event"] = e["type"]
-    return e
-
-
-def _event_matches(on: Dict[str, Any], event: Dict[str, Any]) -> bool:
-    """
-    A tiny matcher: all keys present in `on` must match exactly on the event.
-    (Used by tests to ensure we require all declared keys, not just 'event').
-    """
-    if not on:
-        return False
-    for k, v in on.items():
-        if event.get(k) != v:
-            return False
-    return True
-
-
-def _eval_env(ctrl: _CtrlState, event: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Build evaluation environment for expressions.
-    Only exposes safe primitives and our variables/counters.
-    """
-    env: Dict[str, Any] = {}
-    # whitelist primitives via the evaluator itself (min, max, abs provided there)
-    # expose variables and a couple of state flags as plain values
-    env.update(ctrl.vars)
-    env["mode"] = ctrl.mode
-    env["point"] = ctrl.point if ctrl.point is not None else 0
-    env["on_comeout"] = ctrl.on_comeout
-    env["rolls_since_point"] = ctrl.rolls_since_point
-    env["counters"] = ctrl.counters
-    # event is available to rules if needed
-    env["event"] = event
-    return env
+        # Normalize each action to include both 'bet_type' and 'bet'
+        return [_normalize_action(a if isinstance(a, dict) else {
+            # some diff_bets variants return tuples; coerce to dict best-effort
+            "action": a[0] if len(a) > 0 else None,
+            "amount": a[1] if len(a) > 1 else None,
+            "bet_type": a[2] if len(a) > 2 else None,
+        }) for a in actions]
