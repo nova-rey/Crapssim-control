@@ -41,17 +41,13 @@ def _boolish(x: Any) -> bool:
 
 def _mk_ctx(ctrl: _CtrlState, event: Dict[str, Any], table_cfg: Dict[str, Any]) -> Dict[str, Any]:
     ctx: Dict[str, Any] = {}
-    for k, v in ctrl.vars.items():
-        ctx[k] = v
+    ctx.update(ctrl.vars)
     ctx["mode"] = ctrl.mode
     ctx["point"] = ctrl.point or 0
     ctx["on_comeout"] = ctrl.on_comeout
     ctx["rolls_since_point"] = ctrl.rolls_since_point
-    for k, v in (table_cfg or {}).items():
-        ctx[k] = v
-    for k, v in (event or {}).items():
-        ctx[k] = v
-    # normalize alias so rules can use "event" or "type"
+    ctx.update(table_cfg or {})
+    ctx.update(event or {})
     if "type" in event and "event" not in ctx:
         ctx["event"] = event["type"]
     if "event" in event and "type" not in ctx:
@@ -60,14 +56,6 @@ def _mk_ctx(ctrl: _CtrlState, event: Dict[str, Any], table_cfg: Dict[str, Any]) 
 
 
 def _bet_type_to_kind_number(bet_type: str) -> Tuple[Optional[str], Optional[int]]:
-    """
-    Map internal bet_type → (kind, number) for tests/utilities that look at 'kind'/'number'.
-    Examples:
-      pass_line -> ('pass', None)
-      field -> ('field', None)
-      place_6 -> ('place', 6)
-      dont_pass -> ('dont_pass', None)
-    """
     if bet_type == "pass_line":
         return ("pass", None)
     if bet_type == "dont_pass":
@@ -85,7 +73,6 @@ def _bet_type_to_kind_number(bet_type: str) -> Tuple[Optional[str], Optional[int
         except Exception:
             return ("lay", None)
     if bet_type.startswith("odds_"):
-        # e.g. odds_6, odds_8 (pass odds on a point)
         try:
             return ("odds", int(bet_type.split("_", 1)[1]))
         except Exception:
@@ -96,17 +83,16 @@ def _bet_type_to_kind_number(bet_type: str) -> Tuple[Optional[str], Optional[int
 def _enhance_actions_with_kind_number_and_clear(policy_current: Dict[str, Dict], actions: List[Dict]) -> List[Dict]:
     """
     Post-process diff actions to:
-      1) enforce deterministic 'clear-then-set' when amount changes on an existing bet
+      1) enforce deterministic 'clear-then-set' for ANY existing bet we change (even if amount
+         is the same after legalization, stay deterministic for tests)
       2) attach 'kind' and 'number' keys for tests that read them
     """
     out: List[Dict] = []
     for a in actions:
         if a.get("action") == "set":
             bt = a["bet_type"]
-            amt = a.get("amount")
-            curr_amt = (policy_current.get(bt) or {}).get("amount")
-            # If a bet exists and amount changes, emit a 'clear' first
-            if curr_amt is not None and curr_amt != amt:
+            # If a bet exists in current policy, emit a 'clear' first (deterministic)
+            if bt in (policy_current or {}):
                 k, n = _bet_type_to_kind_number(bt)
                 out.append({"action": "clear", "bet_type": bt, "kind": k, "number": n})
             # Always attach kind/number to the set
@@ -154,11 +140,9 @@ class ControlStrategy:
 
     # --- Legacy adapter hooks expected by tests/EngineAdapter ---
     def update_bets(self, _table: Any) -> None:
-        """No-op pre-roll hook retained for compatibility."""
         return None
 
     def after_roll(self, _table: Any, event: Dict[str, Any]) -> None:
-        """Post-roll bookkeeping hook; we just ingest event flags."""
         self._ingest_event_side_effects(event)
 
     # --- Core event handler ---
@@ -171,25 +155,16 @@ class ControlStrategy:
                 continue
 
             on = (rule.get("on") or {})
-            # Normalize event with aliases for matching
             ctx_for_on = _mk_ctx(self._ctrl, event, self.table_cfg)
 
-            # 1) event/type key must match if present
             evt_key = on.get("event")
             if evt_key and ctx_for_on.get("type") != evt_key and ctx_for_on.get("event") != evt_key:
                 continue
 
-            # 2) all other keys in "on" must match exactly (e.g., bet="pass", result="lose")
             extra_keys = {k: v for k, v in on.items() if k != "event"}
-            mismatch = False
-            for k, v in extra_keys.items():
-                if ctx_for_on.get(k) != v:
-                    mismatch = True
-                    break
-            if mismatch:
+            if any(ctx_for_on.get(k) != v for k, v in extra_keys.items()):
                 continue
 
-            # Optional condition
             cond_expr = rule.get("if")
             if cond_expr is not None:
                 try:
@@ -198,7 +173,6 @@ class ControlStrategy:
                 except EvalError:
                     continue
 
-            # Execute actions
             for act in (rule.get("do") or []):
                 plan_delta = self._exec_action(act, event, current_bets or {})
                 if plan_delta:
@@ -238,8 +212,6 @@ class ControlStrategy:
             self._ctrl.on_comeout = True
             self._ctrl.point = None
             self._ctrl.rolls_since_point = 0
-        elif et == "shooter_change":
-            pass
 
     def _exec_action(self, act: Any, event: Dict[str, Any], current_bets: Dict[str, Dict]) -> List[Dict]:
         if not isinstance(act, str):
@@ -249,11 +221,9 @@ class ControlStrategy:
         if m:
             mode_name = m.group(1)
             template = ((self.spec.get("modes") or {}).get(mode_name) or {}).get("template") or {}
-            plan = _render_and_diff(template, self._ctrl, event, self.table_cfg, current_bets)
-            return plan
+            return _render_and_diff(template, self._ctrl, event, self.table_cfg, current_bets)
 
         if _CLEAR_RE.match(act):
-            # deterministic order
             plan = []
             for bet_type in sorted(current_bets.keys()):
                 k, n = _bet_type_to_kind_number(bet_type)
