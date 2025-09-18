@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import Any, Dict, Optional
 import ast
 
-__all__ = ["evaluate", "EvalError"]
+__all__ = ["evaluate", "eval_num", "eval_bool", "EvalError"]
 
 
 class EvalError(Exception):
@@ -23,7 +23,8 @@ class EvalError(Exception):
         return f"{super().__str__()}{loc}"
 
 
-# Strict AST allowlist
+# --- Allowed / disallowed node sets -----------------------------------------
+
 _ALLOWED_EXPR_NODES = {
     ast.Expression,
     ast.Constant,
@@ -34,9 +35,9 @@ _ALLOWED_EXPR_NODES = {
     ast.USub, ast.UAdd,
     ast.Compare, ast.Eq, ast.NotEq, ast.Lt, ast.LtE, ast.Gt, ast.GtE,
     ast.IfExp,
-    ast.Tuple, ast.List, ast.Dict,  # construction is fine; indexing is not
+    ast.Tuple, ast.List, ast.Dict,  # literal construction only
     ast.Load, ast.Store,
-    ast.Call,  # function calls are allowed but only to SAFE_FUNCS (checked separately)
+    ast.Call,  # gated to SAFE_FUNCS only
 }
 
 _ALLOWED_STMT_NODES = {
@@ -51,17 +52,18 @@ _ALLOWED_STMT_NODES = {
     ast.IfExp,
     ast.Tuple, ast.List, ast.Dict,
     ast.Constant,
-    ast.Call,  # gated below
+    ast.Call,  # gated to SAFE_FUNCS only
 }
 
-# Hard NOs (explicit to be safe)
 _DISALLOWED_NODES = {
-    ast.Attribute,   # obj.attr
-    ast.Subscript,   # a[0]
+    ast.Attribute,      # a.b
+    ast.Subscript,      # a[0]
     ast.Slice, ast.ExtSlice,
     ast.Lambda, ast.ListComp, ast.DictComp, ast.SetComp, ast.GeneratorExp,
-    ast.With, ast.Raise, ast.Try, ast.While, ast.For, ast.AsyncFor, ast.AsyncWith, ast.FunctionDef,
-    ast.ClassDef, ast.AnnAssign, ast.Delete, ast.Import, ast.ImportFrom, ast.Global, ast.Nonlocal,
+    ast.With, ast.Raise, ast.Try, ast.While, ast.For, ast.AsyncFor, ast.AsyncWith,
+    ast.FunctionDef, ast.AsyncFunctionDef,
+    ast.ClassDef, ast.AnnAssign, ast.Delete, ast.Import, ast.ImportFrom,
+    ast.Global, ast.Nonlocal,
     ast.Yield, ast.YieldFrom, ast.Await, ast.Match,
 }
 
@@ -83,16 +85,15 @@ def _assert_allowed(tree: ast.AST, allowed: set[type]) -> None:
             raise EvalError(f"Disallowed syntax: {t.__name__}")
         if t not in allowed:
             raise EvalError(f"Disallowed syntax: {t.__name__}")
-        # Gate function calls to SAFE_FUNCS only
         if isinstance(node, ast.Call):
-            # Only allow calls like name(args...)
+            # Only allow simple name calls to whitelisted functions
             if not isinstance(node.func, ast.Name):
                 raise EvalError("Function calls on attributes or complex targets are not allowed")
             if node.func.id not in _SAFE_FUNCS:
                 raise EvalError(f"Call to '{node.func.id}' is not allowed")
 
 
-def _exec_statements(src: str, ns: Dict[str, Any]) -> Any:
+def _exec_statements(src: str, ns: Dict[str, Any]) -> None:
     try:
         tree = ast.parse(src, mode="exec")
     except SyntaxError as e:
@@ -100,9 +101,7 @@ def _exec_statements(src: str, ns: Dict[str, Any]) -> Any:
 
     _assert_allowed(tree, _ALLOWED_STMT_NODES)
     code = compile(tree, "<safe-eval>", "exec")
-    # Never expose real builtins
-    exec(code, {"__builtins__": {} , **_SAFE_FUNCS}, ns)
-    return None
+    exec(code, {"__builtins__": {}, **_SAFE_FUNCS}, ns)
 
 
 def _eval_expr(src: str, ns: Dict[str, Any]) -> Any:
@@ -118,19 +117,14 @@ def _eval_expr(src: str, ns: Dict[str, Any]) -> Any:
 
 def evaluate(expr: str, state: Optional[Dict[str, Any]] = None, event: Optional[Dict[str, Any]] = None) -> Any:
     """
-    Safely evaluate/execute a tiny expression language.
+    General evaluator.
 
-    - Mutates `state` for Assign/AugAssign (e.g., `units = 10`, `units += 5`).
-    - Returns the value of a pure expression when `expr` is an expression.
-    - For statements, returns None.
+    - If `expr` is an expression: returns its value (no state mutation).
+    - If `expr` is assignment/augassign: executes it and returns None (mutates `state`).
+    - Strictly blocks attributes, subscripts, loops, imports, etc.
+    - Allows only calls to SAFE_FUNCS (min, max, abs, round, int, float).
 
-    Forbidden:
-      * Attribute access (a.b)
-      * Subscripts / indexing (a[0])
-      * Any function call except whitelisted SAFE_FUNCS
-      * Imports, defs, loops, with/try, etc.
-
-    The `event` dict is merged read-only into the namespace (state wins on conflicts).
+    `event` is merged read-only into the namespace (state wins on conflicts).
     """
     ns: Dict[str, Any] = {}
     state = state or {}
@@ -138,18 +132,46 @@ def evaluate(expr: str, state: Optional[Dict[str, Any]] = None, event: Optional[
         ns.update(event)
     ns.update(state)
 
-    # Try expression first; on failure, fall back to statements
     try:
         result = _eval_expr(expr, ns)
-        # Expressions do not mutate state; but if they referenced vars, nothing to sync.
         return result
     except EvalError:
-        # Not a pure expression or failed gating; try as statements (assign/augassign)
+        # Not a pure expression (or blocked in expr mode): try as a statement
         _exec_statements(expr, ns)
-        # Sync all simple names back to state (we only allow simple names anyway)
+        # Sync simple names back into state (skip SAFE_FUNCS and __builtins__)
         for k, v in ns.items():
-            # Don’t copy SAFE_FUNCS or __builtins__/event-only keys by accident
             if k in _SAFE_FUNCS or k == "__builtins__":
                 continue
             state[k] = v
         return None
+
+
+# --- Back-compat helpers used throughout the codebase/tests -------------------
+
+def eval_num(expr: str, state: Optional[Dict[str, Any]] = None, event: Optional[Dict[str, Any]] = None) -> float:
+    """
+    Evaluate a numeric expression only (no statements). Returns float.
+    """
+    ns: Dict[str, Any] = {}
+    if event:
+        ns.update(event)
+    if state:
+        ns.update(state)
+    val = _eval_expr(expr, ns)
+    try:
+        return float(val)
+    except (TypeError, ValueError):
+        raise EvalError("Expression did not produce a number", expr)
+
+
+def eval_bool(expr: str, state: Optional[Dict[str, Any]] = None, event: Optional[Dict[str, Any]] = None) -> bool:
+    """
+    Evaluate a boolean expression only (no statements). Returns bool(val).
+    """
+    ns: Dict[str, Any] = {}
+    if event:
+        ns.update(event)
+    if state:
+        ns.update(state)
+    val = _eval_expr(expr, ns)
+    return bool(val)
