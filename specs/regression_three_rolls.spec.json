@@ -1,0 +1,58 @@
+{
+  "meta": { "version": 0, "name": "Regression after 3 Rolls (Golden Spec)" },
+
+  "table": {
+    "bubble": false,
+    "level": 10,
+    "odds_policy": "3-4-5x"
+  },
+
+  "variables": {
+    "units": 10,
+    "mode": "Aggressive"
+  },
+
+  "modes": {
+    "Aggressive": {
+      "template": {
+        "pass": "10",
+        "place_5": "5",
+        "place_6": "6",
+        "place_8": "6"
+      }
+    },
+    "Regressed": {
+      "template": {
+        "pass": "10",
+        "place_5": "5"
+      }
+    }
+  },
+
+  "rules": [
+    { "on": { "event": "comeout" },
+      "do": [
+        "apply_template('Aggressive')"
+      ]
+    },
+
+    { "on": { "event": "point_established" },
+      "do": [
+        "apply_template('Aggressive')"
+      ]
+    },
+
+    /*
+      Note: This "golden" spec demonstrates intent.
+      Roll-count–based regression is typically handled by the runtime controller’s state.
+      If your runtime exposes `rolls_since_point`, you could gate the template like:
+      if rolls_since_point >= 3 then apply_template('Regressed')
+      The rule engine here applies templates on key events for clarity.
+    */
+    { "on": { "event": "seven_out" },
+      "do": [
+        "apply_template('Aggressive')"
+      ]
+    }
+  ]
+}
