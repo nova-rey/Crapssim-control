@@ -3,14 +3,11 @@ from __future__ import annotations
 from typing import Any, Dict, List, Tuple
 
 from .eval import evaluate
-from .templates import render_template  # spec-time template → {bet_type: amount}
+from .templates import render_template  # spec-time: returns {bet_type: amount}
 
 
-# Map a bet_type string from a template into the (bet, number) pair that tests expect
-# Examples:
-#   "pass_line" → ("pass", None)
-#   "place_6"   → ("place", 6)
 def _kind_number(bet_type: str) -> Tuple[str | None, int | None]:
+    """Map template bet_type → (bet, number) pairs expected by tests."""
     if bet_type == "pass_line":
         return ("pass", None)
     if bet_type.startswith("place_"):
@@ -18,21 +15,36 @@ def _kind_number(bet_type: str) -> Tuple[str | None, int | None]:
             return ("place", int(bet_type.split("_", 1)[1]))
         except Exception:
             return (None, None)
-    # Extend mapping here if future tests need more
     return (None, None)
+
+
+def _get_bubble_and_level(spec: Dict[str, Any], vs: Any) -> Tuple[bool, int]:
+    """Resolve bubble and table_level from VarStore.system or spec['table'] with safe fallbacks."""
+    sys = getattr(vs, "system", {}) or {}
+    bubble = sys.get("bubble")
+    table_level = sys.get("table_level")
+
+    if bubble is None or table_level is None:
+        tbl = spec.get("table", {}) or {}
+        if bubble is None:
+            bubble = bool(tbl.get("bubble", False))
+        if table_level is None:
+            # some specs use "level", others "table_level"
+            table_level = int(tbl.get("table_level", tbl.get("level", 10)))
+
+    # final safety
+    return bool(bubble), int(table_level)
 
 
 def _template_to_intents(spec: Dict[str, Any], vs: Any, mode_name: str) -> List[Tuple]:
     """
-    Materialize the given mode's template (if any) using the current variable store.
-    Returns a list of tuple intents: (bet, number, "set", amount)
+    Materialize the given mode's template into tuple intents: (bet, number, "set", amount)
     """
     modes = spec.get("modes", {})
     mode = modes.get(mode_name) or {}
     tmpl = mode.get("template") or {}
 
     # Build state for expression evaluation: system first, then user/variables (user wins).
-    # render_template expects a dict of concrete values or evaluable expressions already
     state: Dict[str, Any] = {}
     state.update(getattr(vs, "system", {}) or {})
     user = getattr(vs, "user", None)
@@ -40,7 +52,10 @@ def _template_to_intents(spec: Dict[str, Any], vs: Any, mode_name: str) -> List[
         user = getattr(vs, "variables", {}) or {}
     state.update(user)
 
-    bets = render_template(tmpl, state)  # {bet_type: amount}
+    bubble, table_level = _get_bubble_and_level(spec, vs)
+    # templates.render_template requires (template, state, bubble, table_level)
+    bets = render_template(tmpl, state, bubble, table_level)  # {bet_type: amount}
+
     out: List[Tuple] = []
     for bet_type, amount in bets.items():
         bet, number = _kind_number(bet_type)
@@ -56,18 +71,17 @@ def run_rules_for_event(
     table_cfg: Dict[str, Any] | None = None,
 ) -> List[Tuple]:
     """
-    Helper used by tests to run the controller/rules and convert actions into
-    simple tuples: (bet, number, action, amount)
+    Execute rules for an event and return tuple intents:
+      (bet, number, action, amount)
 
-    Expected behavior per tests:
-      - On "comeout" (when no explicit rule matches), apply the active mode template.
-      - When rules match, execute each "do" statement in order:
-           * variable mutations like "units += 10"
-           * apply_template('ModeName') to emit tuple intents
+    Behavior required by tests:
+      • If rules match, execute each "do" statement in order:
+          - variable mutations (e.g., "units += 10")
+          - apply_template('ModeName') to emit tuple intents
+      • If no rules match and event == "comeout", apply the active mode template once.
     """
     intents: List[Tuple] = []
 
-    # ----- 1) Match rules on the event dict -----
     rules = spec.get("rules", [])
     matched: List[Dict[str, Any]] = []
     for rule in rules:
@@ -75,30 +89,26 @@ def run_rules_for_event(
         if all(event.get(k) == v for k, v in cond.items()):
             matched.append(rule)
 
-    # ----- 2) Helper to apply a template into tuple intents -----
-    def _apply_template(mode_name: str | None = None) -> None:
-        # Determine default mode from ctrl_state if not provided
-        if mode_name is None:
-            mode_name = (
-                getattr(ctrl_state, "user", {}).get("mode")
-                or getattr(ctrl_state, "variables", {}).get("mode")
-                or next(iter(spec.get("modes", {}) or {"Main": {}}).keys())
-            )
-        intents.extend(_template_to_intents(spec, ctrl_state, mode_name))
+    def _active_mode_name() -> str:
+        return (
+            getattr(ctrl_state, "user", {}).get("mode")
+            or getattr(ctrl_state, "variables", {}).get("mode")
+            or next(iter(spec.get("modes", {}) or {"Main": {}}).keys())
+        )
 
-    # ----- 3) Execute matched rules -----
+    def _apply_template(mode_name: str | None = None) -> None:
+        name = mode_name or _active_mode_name()
+        intents.extend(_template_to_intents(spec, ctrl_state, name))
+
     for rule in matched:
         for stmt in rule.get("do", []):
             s = stmt.strip()
             if s.startswith("apply_template"):
-                # Supports:
-                #   apply_template()
-                #   apply_template('Aggressive')
+                # allow apply_template() or apply_template('Aggressive')
                 rest = s.removeprefix("apply_template").strip()
                 if rest.startswith("(") and rest.endswith(")"):
                     inner = rest[1:-1].strip()
                     if inner:
-                        # Strip quotes if present
                         if (inner.startswith("'") and inner.endswith("'")) or (inner.startswith('"') and inner.endswith('"')):
                             inner = inner[1:-1]
                         _apply_template(inner)
@@ -107,13 +117,12 @@ def run_rules_for_event(
                 else:
                     _apply_template(None)
             else:
-                # Mutate ctrl_state.user if available, otherwise .variables
+                # mutate ctrl_state.user if present else .variables
                 state = getattr(ctrl_state, "user", None)
                 if state is None:
                     state = getattr(ctrl_state, "variables", {})
                 evaluate(s, state, event)
 
-    # ----- 4) If nothing matched and this is "comeout", auto-apply active mode template -----
     if not matched and event.get("event") == "comeout":
         _apply_template(None)
 
