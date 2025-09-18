@@ -9,10 +9,6 @@ from .templates_rt import render_template, diff_bets
 from .varstore import VarStore
 
 
-# -------------------------
-# Bet helpers
-# -------------------------
-
 _KIND_ALIASES = {
     "pass_line": ("pass", None),
     "dont_pass": ("dont_pass", None),
@@ -27,8 +23,7 @@ def _bet_type_to_kind_number(bt: str) -> Tuple[str, Optional[int]]:
     if "_" in bt:
         k, tail = bt.split("_", 1)
         try:
-            n = int(tail)
-            return k, n
+            return k, int(tail)
         except ValueError:
             return bt, None
     return bt, None
@@ -59,8 +54,7 @@ def _normalize_event_keys(ev: Dict[str, Any]) -> Dict[str, Any]:
 
 def _desugar_augassign(expr: str) -> str:
     s = expr.strip()
-    ops = [("+=", "+"), ("-=", "-"), ("*=", "*"), ("/=", "/"), ("//=", "//"), ("%=", "%")]
-    for op, sym in ops:
+    for op, sym in (("+=", "+"), ("-=", "-"), ("*=", "*"), ("/=", "/"), ("//=", "//"), ("%=", "%")):
         if op in s:
             lhs, rhs = s.split(op, 1)
             name = lhs.strip()
@@ -70,7 +64,6 @@ def _desugar_augassign(expr: str) -> str:
 
 
 def _split_simple_assign(expr: str) -> Optional[Tuple[str, str]]:
-    """Return ('name', 'rhs') for 'name = rhs' if it's a simple single-target assignment."""
     s = expr.strip()
     if "==" in s or ":=" in s:
         return None
@@ -85,10 +78,6 @@ def _split_simple_assign(expr: str) -> Optional[Tuple[str, str]]:
     return name, rhs.strip()
 
 
-# -------------------------
-# Internal controller state
-# -------------------------
-
 @dataclass
 class _Ctrl:
     spec: Dict[str, Any]
@@ -100,12 +89,11 @@ class _Ctrl:
     def from_spec(cls, spec: Dict[str, Any], table_cfg: Optional[Dict[str, Any]] = None) -> "_Ctrl":
         vs = VarStore.from_spec(spec)
         tbl = (table_cfg or spec.get("table", {}))
-        sys = {
+        vs.system = {
             "bubble": bool(tbl.get("bubble", False)),
             "table_level": int(tbl.get("level", 10)),
         }
-        vs.system = sys
-        # Ensure counters exist so eval sees them as names
+        # prime commonly-used counters
         vs.counters.setdefault("point", 0)
         vs.counters.setdefault("on_comeout", True)
         vs.counters.setdefault("rolls_since_point", 0)
@@ -124,10 +112,9 @@ class _Ctrl:
         else:
             self.vs.variables["mode"] = m
 
-    # Support for rules.run_rules_for_event() which sets s.vars = v
+    # external shims set s.vars = v; respect it
     @property
     def vars(self) -> Dict[str, Any]:
-        # overlay wins (used for eval), backing store is vs.user/variables
         base = self.vs.user if self.vs.user else self.vs.variables
         out = dict(base)
         out.update(self._vars_overlay)
@@ -136,18 +123,13 @@ class _Ctrl:
     @vars.setter
     def vars(self, v: Dict[str, Any]) -> None:
         self._vars_overlay = dict(v or {})
-        # also sync into backing store so later snapshots/assignments persist
         base = self.vs.user if self.vs.user else self.vs.variables
         base.update(self._vars_overlay)
 
 
-# -------------------------
-# Public Strategy
-# -------------------------
-
 class ControlStrategy:
     """
-    Public surface (used by tests/adapter):
+    Public surface:
       - update_bets(table)
       - after_roll(table, event)
       - handle_event(event, current_bets) -> List[actions]
@@ -159,35 +141,25 @@ class ControlStrategy:
         self._ctrl = _Ctrl.from_spec(spec, table_cfg)
         self._last_bets_snapshot: Dict[str, Dict] = {}
 
-    # -------------------------
-    # Public hooks
-    # -------------------------
-
     def update_bets(self, table: Any) -> None:
         return None
 
     def after_roll(self, table: Any, event: Dict[str, Any]) -> None:
-        # Keep counters consistent if someone calls this; handle_event already applies side effects.
         self._apply_event_counters(_normalize_event_keys(event))
 
     def state_snapshot(self) -> Dict[str, Any]:
         vs = self._ctrl.vs
+        point_val = int(vs.counters.get("point", 0))
         return {
             "mode": self._ctrl.mode,
             "vars": self._ctrl.vars.copy(),
-            "point": int(vs.counters.get("point", 0)),
-            "on_comeout": bool(vs.counters.get("on_comeout", True if int(vs.counters.get("point", 0)) == 0 else False)),
+            "point": None if point_val == 0 else point_val,
+            "on_comeout": bool(vs.counters.get("on_comeout", point_val == 0)),
             "rolls_since_point": int(vs.counters.get("rolls_since_point", 0)),
         }
 
-    # -------------------------
-    # Event handling
-    # -------------------------
-
     def handle_event(self, event: Dict[str, Any], current_bets: Optional[Dict[str, Dict]] = None) -> List[Dict]:
         event = _normalize_event_keys(event)
-
-        # Apply semantic side-effects (point, comeout, most counters) before rules
         self._apply_event_counters(event)
 
         actions: List[Dict] = []
@@ -205,12 +177,7 @@ class ControlStrategy:
                 if plan_delta:
                     actions.extend(plan_delta)
 
-        actions = _ensure_clears_for_sets(actions)
-        return actions
-
-    # -------------------------
-    # Internals
-    # -------------------------
+        return _ensure_clears_for_sets(actions)
 
     def _apply_event_counters(self, event: Dict[str, Any]) -> None:
         vs = self._ctrl.vs
@@ -220,7 +187,6 @@ class ControlStrategy:
         if "total" in event:
             vs.counters["last_total"] = int(event["total"])
 
-        # semantic transitions used by tests/spec
         if ev == "comeout":
             vs.counters["rolls_since_point"] = 0
             vs.counters["on_comeout"] = True
@@ -236,11 +202,10 @@ class ControlStrategy:
             vs.counters["on_comeout"] = True
             vs.counters["seven_outs"] = vs.counters.get("seven_outs", 0) + 1
         elif ev == "roll":
-            # Do NOT auto-increment rolls_since_point here; rules take care of it.
+            # rules are responsible for incrementing rolls_since_point
             pass
 
     def _assign_var(self, name: str, value: Any) -> None:
-        """Route assignments to counters or user/variable scopes appropriately."""
         vs = self._ctrl.vs
         counter_keys = {
             "point", "on_comeout", "rolls_since_point",
@@ -250,15 +215,9 @@ class ControlStrategy:
             vs.counters[name] = value
             return
 
-        base = self._ctrl.vars  # includes overlay
-        # write-through to backing store
-        if name in vs.user or (vs.user and name in base):
-            vs.user[name] = value
-        elif name in vs.variables or name in base:
-            vs.variables[name] = value
-        else:
-            # default to user scope
-            vs.user[name] = value
+        # write-through: keep user and variables in sync so tests that read vs.user see updates
+        vs.user[name] = value
+        vs.variables[name] = value
 
         if name == "mode":
             try:
@@ -267,12 +226,6 @@ class ControlStrategy:
                 pass
 
     def _exec_action(self, action: Any, event: Dict[str, Any], current_bets: Dict[str, Dict]) -> List[Dict]:
-        """
-        Execute a single action:
-          - "apply_template('ModeName')"
-          - "clear_bets()"
-          - variable expressions, including assignments and augmented assignments
-        """
         if isinstance(action, str) and action.strip().startswith("apply_template"):
             mode_name = _extract_first_string_literal(action) or self._ctrl.mode
             return self._apply_template(mode_name, event, current_bets)
@@ -317,10 +270,6 @@ class ControlStrategy:
         return plan
 
 
-# -------------------------
-# Pure helpers
-# -------------------------
-
 def _event_matches(on: Dict[str, Any], ev: Dict[str, Any]) -> bool:
     for k, v in on.items():
         if ev.get(k) != v:
@@ -329,42 +278,19 @@ def _event_matches(on: Dict[str, Any], ev: Dict[str, Any]) -> bool:
 
 
 def _extract_first_string_literal(s: str) -> Optional[str]:
-    q1 = s.find("'")
-    q2 = s.find('"')
-    q = None
-    if q1 != -1 and (q2 == -1 or q1 < q2):
-        q = "'"
-    elif q2 != -1:
-        q = '"'
+    q1 = s.find("'"); q2 = s.find('"')
+    q = "'" if (q1 != -1 and (q2 == -1 or q1 < q2)) else ('"' if q2 != -1 else None)
     if q is None:
         return None
     start = s.find(q) + 1
     end = s.find(q, start)
-    if start > 0 and end > start:
-        return s[start:end]
-    return None
+    return s[start:end] if start > 0 and end > start else None
 
 
 def _eval_env(ctrl: _Ctrl, event: Dict[str, Any]) -> Dict[str, Any]:
-    """Expose variables and counters as top-level names for the safe evaluator."""
     vs = ctrl.vs
-    var_scope = ctrl.vars  # honor transplanted state from rules shim
+    var_scope = ctrl.vars
     counters = vs.counters
-
-    env: Dict[str, Any] = {
-        # flatten variables
-        **var_scope,
-        # flatten counters (rolls_since_point, point, etc.)
-        **counters,
-        # also keep structured maps if rules want them
-        "vars": var_scope,
-        "system": vs.system,
-        "counters": counters,
-        "min": min,
-        "max": max,
-        "abs": abs,
-        "round": round,
-    }
 
     class _ModeProxy:
         def __init__(self, _ctrl: _Ctrl) -> None:
@@ -374,8 +300,15 @@ def _eval_env(ctrl: _Ctrl, event: Dict[str, Any]) -> Dict[str, Any]:
         def __str__(self) -> str:
             return self._ctrl.mode
 
-    env["mode"] = _ModeProxy(ctrl)
-    return env
+    return {
+        **var_scope,
+        **counters,
+        "vars": var_scope,
+        "system": vs.system,
+        "counters": counters,
+        "mode": _ModeProxy(ctrl),
+        "min": min, "max": max, "abs": abs, "round": round,
+    }
 
 
 def _state_env_for_template(ctrl: _Ctrl) -> Dict[str, Any]:
