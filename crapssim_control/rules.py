@@ -107,7 +107,6 @@ def _template_to_intents(spec: Dict[str, Any], vs: Any, mode_name: str) -> List[
     mode = modes.get(mode_name) or {}
     tmpl = mode.get("template") or {}
 
-    # --- IMPORTANT FIX ---
     # Build state for expression evaluation with correct precedence:
     # system + variables + user (user wins).
     state: Dict[str, Any] = {}
@@ -116,10 +115,29 @@ def _template_to_intents(spec: Dict[str, Any], vs: Any, mode_name: str) -> List[
     state.update(getattr(vs, "user", {}) or {})
 
     bubble, table_level = _get_bubble_and_level(spec, vs)
-    # spec-time templates.render_template requires (template, state, bubble, table_level)
-    bets_obj = render_template(tmpl, state, bubble, table_level)
 
-    return _normalize_template_output_to_intents(bets_obj)
+    # ---- Primary path: use the spec-time renderer (full fidelity) ----
+    bets_obj = render_template(tmpl, state, bubble, table_level)
+    intents = _normalize_template_output_to_intents(bets_obj)
+    if intents:
+        return intents
+
+    # ---- Fallback path (important for simple/unit-test specs) ----
+    # If the renderer produced nothing (e.g., minimal spec like {"pass": "units"}),
+    # evaluate the short-form entries directly and convert to intents.
+    fallback: Dict[str, float] = {}
+    for k, v in (tmpl.items() if isinstance(tmpl, dict) else []):
+        try:
+            amt = evaluate(str(v), state)
+        except Exception:
+            amt = 0.0
+        try:
+            fallback[k] = float(amt)
+        except Exception:
+            # accept dicts like {"amount": X} in the short form too
+            fallback[k] = _extract_amount(amt)
+
+    return _normalize_template_output_to_intents(fallback)
 
 
 def run_rules_for_event(
