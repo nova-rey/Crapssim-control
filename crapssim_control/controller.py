@@ -5,7 +5,8 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
 from .eval import evaluate as _eval
-from .templates import render_template, diff_bets
+# FIX: use the runtime template module
+from .templates_rt import render_template, diff_bets
 from .varstore import VarStore
 
 
