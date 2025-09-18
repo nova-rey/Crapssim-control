@@ -10,10 +10,10 @@ Exports the core classes/functions that tests and users import from
 from .controller import ControlStrategy
 from .engine_adapter import EngineAdapter
 
-# Template rendering helpers (used in some tests/spec tooling)
-from .templates import render_template, render_runtime_template
+# Template rendering helper (runtime rendering is internal to controller/rules)
+from .templates import render_template
 
-# Safe evaluation utilities (tests import/expect these)
+# Safe evaluation utilities
 from .eval import (
     evaluate,
     eval_num,
@@ -21,10 +21,12 @@ from .eval import (
     EvalError,
 )
 
-# Spec validation (Batch 17)
-from .spec_validate import (
+# Spec validation (tests import via crapssim_control.spec_validation, but we
+# also surface the API at the package root for convenience)
+from .spec_validation import (
     validate_spec,
     assert_valid_spec,
+    is_valid_spec,
     SpecValidationError,
 )
 
@@ -34,7 +36,6 @@ __all__ = [
     "EngineAdapter",
     # Templates
     "render_template",
-    "render_runtime_template",
     # Eval
     "evaluate",
     "eval_num",
@@ -43,5 +44,6 @@ __all__ = [
     # Spec validation
     "validate_spec",
     "assert_valid_spec",
+    "is_valid_spec",
     "SpecValidationError",
 ]
