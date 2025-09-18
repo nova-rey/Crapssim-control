@@ -83,29 +83,26 @@ def _bet_type_to_kind_number(bet_type: str) -> Tuple[Optional[str], Optional[int
 def _enhance_actions_with_kind_number_and_clear(policy_current: Dict[str, Dict], actions: List[Dict]) -> List[Dict]:
     """
     Post-process diff actions to:
-      1) enforce deterministic 'clear-then-set' for ANY existing bet we change (even if amount
-         is the same after legalization, stay deterministic for tests)
+      1) deterministically emit 'clear' immediately before every 'set' (even if none exists)
       2) attach 'kind' and 'number' keys for tests that read them
     """
     out: List[Dict] = []
     for a in actions:
         if a.get("action") == "set":
             bt = a["bet_type"]
-            # If a bet exists in current policy, emit a 'clear' first (deterministic)
-            if bt in (policy_current or {}):
-                k, n = _bet_type_to_kind_number(bt)
-                out.append({"action": "clear", "bet_type": bt, "kind": k, "number": n})
-            # Always attach kind/number to the set
             k, n = _bet_type_to_kind_number(bt)
-            a = dict(a)
-            a["kind"], a["number"] = k, n
-            out.append(a)
+            # Always clear first (safe if not present)
+            out.append({"action": "clear", "bet_type": bt, "kind": k, "number": n})
+            # Then the set with annotations
+            b = dict(a)
+            b["kind"], b["number"] = k, n
+            out.append(b)
         elif a.get("action") == "clear":
             bt = a["bet_type"]
             k, n = _bet_type_to_kind_number(bt)
-            a = dict(a)
-            a["kind"], a["number"] = k, n
-            out.append(a)
+            b = dict(a)
+            b["kind"], b["number"] = k, n
+            out.append(b)
         else:
             out.append(a)
     return out
@@ -138,14 +135,13 @@ class ControlStrategy:
             rolls_since_point=0,
         )
 
-    # --- Legacy adapter hooks expected by tests/EngineAdapter ---
+    # Legacy adapter hooks expected by tests/EngineAdapter
     def update_bets(self, _table: Any) -> None:
         return None
 
     def after_roll(self, _table: Any, event: Dict[str, Any]) -> None:
         self._ingest_event_side_effects(event)
 
-    # --- Core event handler ---
     def handle_event(self, event: Dict[str, Any], current_bets: Optional[Dict[str, Dict]] = None) -> List[Dict]:
         self._ingest_event_side_effects(event)
 

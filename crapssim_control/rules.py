@@ -1,11 +1,10 @@
 """
-rules.py -- compatibility shim around ControlStrategy (Batch 15+)
+rules.py -- compatibility shim around ControlStrategy
 
 - render_template(...) proxies to templates_rt.render_template
 - run_rules_for_event(...) builds a temporary ControlStrategy, transplants caller state,
-  runs a single event, and returns a plan in *legacy tuple* form:
-    - ('pass', None, 'set', 10) or ('pass', None, 'clear')
-    - ('place', 6, 'set', 12)   or ('place', 6, 'clear')
+  runs a single event, and returns a plan in legacy tuple form:
+    ('pass', None, 'set', 10) / ('pass', None, 'clear') / ('place', 6, 'set', 12) ...
 """
 
 from __future__ import annotations
@@ -41,7 +40,6 @@ def _normalize_event(ev: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _to_legacy_tuples(plan: List[Dict]) -> List[Tuple]:
-    """Convert dict actions to ('kind', number, 'action', [amount])."""
     out: List[Tuple] = []
     for a in plan:
         kind = a.get("kind")
@@ -52,9 +50,31 @@ def _to_legacy_tuples(plan: List[Dict]) -> List[Tuple]:
         elif action == "clear":
             out.append((kind, number, "clear"))
         else:
-            # keep unknowns as-is for future-proofing
             out.append((kind, number, action))
     return out
+
+
+def _write_back_state_like_varstore(ctrl_state: Any, snapshot: Dict[str, Any]) -> None:
+    """Update VarStore-like objects with mutated variables/mode/point/flags."""
+    # Prefer .user for "effective" variables if present
+    user = getattr(ctrl_state, "user", None)
+    if isinstance(user, dict):
+        user.update(snapshot.get("vars", {}))
+        if snapshot.get("mode") is not None:
+            user["mode"] = snapshot["mode"]
+    # Also reflect into .variables for completeness
+    variables = getattr(ctrl_state, "variables", None)
+    if isinstance(variables, dict):
+        variables.update(snapshot.get("vars", {}))
+        if snapshot.get("mode") is not None:
+            variables["mode"] = snapshot["mode"]
+    # Simple attributes if they exist
+    for k in ("point", "on_comeout", "rolls_since_point"):
+        if hasattr(ctrl_state, k):
+            try:
+                setattr(ctrl_state, k, snapshot.get(k))
+            except Exception:
+                pass
 
 
 def run_rules_for_event(
@@ -66,7 +86,7 @@ def run_rules_for_event(
 ) -> List[Tuple]:
     cs = ControlStrategy(spec, table_cfg=table_cfg or spec.get("table") or {})
 
-    # Transplant state from caller
+    # Transplant incoming state
     s = cs._ctrl  # intentional internal access for this shim
     v, mode = _extract_vars_mode(ctrl_state)
     s.vars = v
@@ -84,10 +104,13 @@ def run_rules_for_event(
     ev = _normalize_event(event)
     plan = cs.handle_event(ev, current_bets or {})
 
-    # Reflect snapshot back to dict-like callers (best-effort)
+    # Write back mutated control state for VarStore-like callers
+    snapshot = cs.state_snapshot()
     try:
         if hasattr(ctrl_state, "update"):
-            ctrl_state.update(cs.state_snapshot())
+            ctrl_state.update(snapshot)
+        else:
+            _write_back_state_like_varstore(ctrl_state, snapshot)
     except Exception:
         pass
 
