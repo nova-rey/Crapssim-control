@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import ast
 import math
+import re
 from typing import Any, Dict, Optional
 
 
@@ -125,6 +126,17 @@ def _assert_allowed(tree: ast.AST, allowed: set[type]) -> None:
                 raise EvalError(f"Call to '{node.func.id}' is not allowed")
 
 
+def _pretty_name_error_message(e: NameError) -> str:
+    """Convert a NameError into the message shape the tests expect."""
+    msg = e.args[0] if e.args else str(e)
+    m = re.search(r"name '([^']+)' is not defined", msg)
+    if m:
+        var = m.group(1)
+        return f"Unknown variable '{var}'"
+    # Fallback if Python formats NameError differently for some reason
+    return "Unknown variable"
+
+
 def _eval_expr(src: str, ns: Dict[str, Any]) -> Any:
     """Compile and evaluate a safe *expression*."""
     try:
@@ -138,7 +150,7 @@ def _eval_expr(src: str, ns: Dict[str, Any]) -> Any:
         return eval(code, {"__builtins__": {}, **_SAFE_FUNCS}, ns)
     except NameError as e:
         # Normalize to EvalError for tests
-        raise EvalError(str(e), src)
+        raise EvalError(_pretty_name_error_message(e), src)
     except Exception as e:  # pragma: no cover - unexpected runtime error
         raise EvalError(f"{type(e).__name__}: {e}", src)
 
@@ -190,7 +202,7 @@ def evaluate(expr: str, state: Optional[Dict[str, Any]] = None, event: Optional[
         # Check for assignment nodes
         has_assignment = any(isinstance(n, (ast.Assign, ast.AugAssign)) for n in ast.walk(tree))
         if not has_assignment:
-            # It's not an assignment; keep the original EvalError (e.g., undefined variable)
+            # It's not an assignment; keep the original EvalError (e.g., unknown variable)
             raise err
 
         # Execute the (aug)assignment and sync back to state
