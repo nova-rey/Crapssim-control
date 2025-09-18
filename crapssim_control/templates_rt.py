@@ -168,14 +168,18 @@ def diff_bets(current_bets: Dict[str, Dict], desired_bets: Dict[str, Dict]) -> L
     """
     Compute idempotent actions to reconcile from current -> desired.
 
-    - If desired has bet with amount A:
-        - if current missing or amount != A -> "set" to A
-    - If current has bet that's absent in desired -> "clear"
-    - Amount <= 0 is treated as absent
+    Policy:
+      - If a bet exists with a different amount, emit **clear** then **set**.
+      - If a bet exists but is absent in desired, emit **clear**.
+      - If a bet is absent but desired, emit **set**.
+      - Amount <= 0 is treated as absent.
+
+    Ordering:
+      - All **clears first**, alphabetically by bet_type
+      - Then all **sets**, alphabetically by bet_type
     """
     actions: List[Dict] = []
 
-    # Normalize to simple amount maps
     def _amt(dct: Optional[Dict]) -> int:
         if not dct:
             return 0
@@ -187,23 +191,34 @@ def diff_bets(current_bets: Dict[str, Dict], desired_bets: Dict[str, Dict]) -> L
     current = {k: _amt(v) for k, v in (current_bets or {}).items()}
     desired = {k: _amt(v) for k, v in (desired_bets or {}).items()}
 
-    # set / update
-    for k, amt in desired.items():
-        if amt > 0 and current.get(k) != amt:
-            action = {"action": "set", "bet_type": k, "amount": amt}
-            # pass through working flag if present
+    clears: List[Dict] = []
+    sets: List[Dict] = []
+
+    # Handle updates / removals
+    for k, cur_amt in current.items():
+        des_amt = desired.get(k, 0)
+        if des_amt <= 0:
+            # present -> absent: clear
+            clears.append({"action": "clear", "bet_type": k})
+        elif des_amt != cur_amt:
+            # amount change: clear then set
+            clears.append({"action": "clear", "bet_type": k})
+            set_action = {"action": "set", "bet_type": k, "amount": des_amt}
             wf = (desired_bets.get(k) or {}).get("working_on_comeout")
             if isinstance(wf, bool):
-                action["working_on_comeout"] = wf
-            actions.append(action)
+                set_action["working_on_comeout"] = wf
+            sets.append(set_action)
+        # else equal -> no-op
 
-    # clear
-    for k, amt in current.items():
-        if k not in desired or desired.get(k, 0) <= 0:
-            actions.append({"action": "clear", "bet_type": k})
+    # Handle creations (present in desired, missing in current)
+    for k, des_amt in desired.items():
+        if des_amt > 0 and k not in current:
+            set_action = {"action": "set", "bet_type": k, "amount": des_amt}
+            wf = (desired_bets.get(k) or {}).get("working_on_comeout")
+            if isinstance(wf, bool):
+                set_action["working_on_comeout"] = wf
+            sets.append(set_action)
 
-    # Stable ordering (deterministic): clears first (alpha), then sets (alpha)
-    clears = [a for a in actions if a["action"] == "clear"]
-    sets = [a for a in actions if a["action"] == "set"]
+    # Stable deterministic ordering
     actions = sorted(clears, key=lambda a: a["bet_type"]) + sorted(sets, key=lambda a: a["bet_type"])
     return actions
