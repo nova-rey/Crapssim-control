@@ -8,23 +8,21 @@ from .templates import render_template
 from .eval import evaluate as _eval
 
 
-# ----------------------------
-# Helpers
-# ----------------------------
-
-def _rules_bet_for(bet_type: str) -> str:
-    """
-    Convert engine-facing bet_type to the rules-shim 'bet' name if needed.
-    In our tests these are typically identical, so default to identity.
-    """
-    return bet_type
+def _engine_bet_type_for(bet_name: str) -> str:
+    """Map rules bet name -> engine bet_type."""
+    mapping = {
+        "pass": "pass_line",
+        "dont_pass": "dont_pass",
+        # add more mappings here if needed; default is identity
+    }
+    return mapping.get(bet_name, bet_name)
 
 
 def _safe_collect_bets(table_like: Any) -> Dict[str, Any]:
     """
-    Snapshot of a table/player's current bets into a flat dict:
-      - Keys are 'bet_type' or 'bet_type:number'
-      - Values are either amount (float) or {'amount': float}
+    Snapshot of current bets into a dict like:
+      {'pass': 10.0, 'place:6': 12.0, ...}
+    This is only used to diff against desired template output.
     """
     out: Dict[str, Any] = {}
     try:
@@ -36,28 +34,24 @@ def _safe_collect_bets(table_like: Any) -> Dict[str, Any]:
         for b in bets:
             kind = getattr(b, "kind", None) or getattr(b, "bet_type", None) or getattr(b, "bet", None)
             number = getattr(b, "number", None)
-            amount = getattr(b, "amount", None)
-            if kind is None:
-                continue
+            amount = getattr(b, "amount", 0.0)
             key = str(kind) if number in (None, "", 0) else f"{kind}:{number}"
-            out[key] = float(amount) if isinstance(amount, (int, float)) else {"amount": 0.0}
+            out[key] = float(amount) if isinstance(amount, (int, float)) else 0.0
     except Exception:
         pass
     return out
 
 
-def _diff_bets_to_actions(
-    current: Dict[str, Any],
-    desired: Any,  # dict OR list[tuple]
-) -> List[Dict[str, Any]]:
-    """Diff current -> desired into engine actions.
-
-    `desired` can be:
-      - dict like {"pass": 10, "place:6": 12} or {"pass": {"amount": 10}}
-      - list of tuples: [(bet_type, number, amount, opts_dict), ...]
+def _diff_bets_to_actions(current: Dict[str, Any], desired: Any) -> List[Dict[str, Any]]:
     """
-    actions: List[Dict[str, Any]] = []
-
+    Convert desired bets into engine actions, comparing to current.
+    desired can be:
+      - dict: {"pass": 10, "place:6": 12}
+      - list[tuple]: [("pass", None, 10, {}), ("place", 6, 12, {})]
+    We always return actions that include BOTH:
+      - 'bet'      (rules name, e.g. 'pass')
+      - 'bet_type' (engine name, e.g. 'pass_line')
+    """
     def _amt(v: Any) -> Optional[float]:
         if v is None:
             return None
@@ -67,75 +61,57 @@ def _diff_bets_to_actions(
             return float(v["amount"])
         return None
 
-    curr_amt = {k: _amt(v) for k, v in (current or {}).items()}
-
-    targets: List[Dict[str, Any]] = []
+    want: List[Tuple[str, Optional[int], float]] = []
     if isinstance(desired, dict):
         for k, v in desired.items():
-            bet_type = k
-            number = None
+            bet_name = k
+            number: Optional[int] = None
             if isinstance(k, str) and ":" in k:
-                parts = k.split(":", 1)
-                bet_type = parts[0]
+                bet_name, num_str = k.split(":", 1)
                 try:
-                    number = int(parts[1])
+                    number = int(num_str)
                 except (ValueError, TypeError):
-                    number = parts[1]
-            targets.append({
-                "bet_type": bet_type,
-                "bet": _rules_bet_for(bet_type),
-                "number": number,
-                "amount": _amt(v) or 0.0,
-            })
+                    number = None
+            a = _amt(v)
+            if a is not None:
+                want.append((bet_name, number, a))
     elif isinstance(desired, (list, tuple)):
         for tup in desired:
             if not isinstance(tup, (list, tuple)) or len(tup) < 3:
                 continue
-            bet_type = str(tup[0])
+            bet_name = str(tup[0])
             number = tup[1] if len(tup) > 1 else None
             raw_amt = tup[2]
-            amount = float(raw_amt) if isinstance(raw_amt, (int, float)) else 0.0
-            targets.append({
-                "bet_type": bet_type,
-                "bet": _rules_bet_for(bet_type),
-                "number": number,
-                "amount": amount,
-            })
-    else:
-        return actions
+            if isinstance(raw_amt, (int, float)):
+                want.append((bet_name, number, float(raw_amt)))
 
-    for t in targets:
-        key = t["bet_type"] if t["number"] in (None, "", 0) else f'{t["bet_type"]}:{t["number"]}'
-        curr = curr_amt.get(key, curr_amt.get(t["bet_type"]))
-        if curr != t["amount"]:
+    actions: List[Dict[str, Any]] = []
+    curr_amt = dict(current or {})
+    for bet_name, number, amount in want:
+        key = bet_name if number in (None, "", 0) else f"{bet_name}:{number}"
+        if curr_amt.get(key) != amount:
             act: Dict[str, Any] = {
                 "action": "set",
-                "bet_type": t["bet_type"],
-                "bet": t["bet"],
-                "amount": t["amount"],
+                "bet": bet_name,                               # rules name (used by tests in rules.py)
+                "bet_type": _engine_bet_type_for(bet_name),   # engine-facing
+                "amount": amount,
             }
-            if t["number"] not in (None, "", 0):
-                act["number"] = t["number"]
+            if number not in (None, "", 0):
+                act["number"] = number
             actions.append(act)
-
     return actions
 
-
-# ----------------------------
-# Controller
-# ----------------------------
 
 @dataclass
 class _CtrlState:
     vars: Dict[str, Any] = field(default_factory=dict)
-    point: Optional[int] = None  # craps point (4,5,6,8,9,10)
+    point: Optional[int] = None
+    rolls_since_point: int = 0
 
 
 class ControlStrategy:
     """
-    Lightweight rule runner + template applier used by tests.
-
-    Public surface used by tests:
+    Public API used by tests:
       - ControlStrategy(spec, table_cfg=?)
       - update_bets(table_like)
       - handle_event(event_dict, current_bets_dict)
@@ -143,9 +119,14 @@ class ControlStrategy:
       - state_snapshot()
     """
 
-    def __init__(self, spec: Dict[str, Any], ctrl_state: Any | None = None, *, table_cfg: Dict[str, Any] | None = None) -> None:
+    def __init__(
+        self,
+        spec: Dict[str, Any],
+        ctrl_state: Any | None = None,
+        *,
+        table_cfg: Dict[str, Any] | None = None,
+    ) -> None:
         self._spec = spec or {}
-        # prefer explicit table_cfg, else from spec.table, else {}
         self._table_cfg = (table_cfg or self._spec.get("table") or {}).copy()
 
         variables = (self._spec.get("variables") or {}).copy()
@@ -157,9 +138,7 @@ class ControlStrategy:
         if isinstance(ctrl_state, dict):
             self._ctrl.vars.update(ctrl_state)
 
-    # ------------------------
-    # External API
-    # ------------------------
+    # ---------------- External surface ----------------
 
     def update_bets(self, table_like: Any) -> List[Dict[str, Any]]:
         """
@@ -173,22 +152,30 @@ class ControlStrategy:
     def handle_event(self, event: Dict[str, Any], current_bets: Dict[str, Any]) -> List[Dict[str, Any]]:
         """
         Steps:
-          1. Update internal point state when events dictate.
-          2. Run matching rules and collect actions.
-          3. Do NOT auto-apply mode template; templates are applied only if rules say so.
+          1) Update point bookkeeping.
+          2) Auto-apply current mode template on point_established (per tests).
+          3) Evaluate matching rules.
         """
         plan: List[Dict[str, Any]] = []
-
         ev = dict(event or {})
-        ev_type = ev.get("type") or ev.get("event")
+        etype = ev.get("type") or ev.get("event")
+        mode_name = str(self._ctrl.vars.get("mode", "Main"))
 
-        # 1) Update point state
-        if ev_type == "point_established":
+        # 1) Point & roll counters
+        if etype == "point_established":
             self._ctrl.point = int(ev.get("point") or 0) or None
-        elif ev_type in ("seven_out", "puck_off", "seven_out_resolved"):
+            self._ctrl.rolls_since_point = 0
+        elif etype in ("seven_out", "puck_off", "seven_out_resolved"):
             self._ctrl.point = None
+            self._ctrl.rolls_since_point = 0
+        elif etype == "roll" and self._ctrl.point:
+            self._ctrl.rolls_since_point += 1
 
-        # 2) Run matching rules (they may call apply_template)
+        # 2) Auto-apply template on point_established so Aggressive/Main fires immediately
+        if etype == "point_established":
+            plan.extend(self._apply_template(mode_name, current_bets or {}, ev))
+
+        # 3) Run matching rules (they can also call apply_template)
         for rule in (self._spec.get("rules") or []):
             cond = rule.get("on") or {}
             if _event_matches(ev, cond):
@@ -197,43 +184,39 @@ class ControlStrategy:
                     if delta:
                         plan.extend(delta)
 
-        # 3) No implicit template application here (tests expect [] on raw comeout)
         return plan
 
     def after_roll(self, table_like: Any, event: Dict[str, Any]) -> None:
-        """
-        Minimal bookkeeping hook used by EngineAdapter tests.
-        We update point on common outcomes for realism; tests don't require more.
-        """
+        """Minimal hook used by EngineAdapter tests."""
         ev = dict(event or {})
         et = ev.get("type") or ev.get("event")
         if et == "point_established":
             self._ctrl.point = int(ev.get("point") or 0) or None
+            self._ctrl.rolls_since_point = 0
         elif et in ("seven_out", "puck_off", "seven_out_resolved"):
             self._ctrl.point = None
+            self._ctrl.rolls_since_point = 0
+        elif et == "roll" and self._ctrl.point:
+            self._ctrl.rolls_since_point += 1
 
     def state_snapshot(self) -> Dict[str, Any]:
-        """Tiny snapshot for tests that inspect point."""
-        return {"point": self._ctrl.point, "vars": dict(self._ctrl.vars)}
+        """Small snapshot used by tests."""
+        return {
+            "point": self._ctrl.point,
+            "rolls_since_point": self._ctrl.rolls_since_point,
+            "vars": dict(self._ctrl.vars),
+        }
 
-    # ------------------------
-    # Internals
-    # ------------------------
+    # ---------------- Internals ----------------
 
-    def _exec_action(
-        self,
-        action_expr: Any,
-        event: Dict[str, Any],
-        current_bets: Dict[str, Any],
-    ) -> List[Dict[str, Any]]:
+    def _exec_action(self, action_expr: Any, event: Dict[str, Any], current_bets: Dict[str, Any]) -> List[Dict[str, Any]]:
         """
         Supports:
           - "apply_template('ModeName')"
-          - expressions handled by eval.evaluate (e.g., "units += 10", "rolls_since_point = 0")
+          - expression mutations handled by eval.evaluate (e.g., "units += 10", "x = 0")
         """
         if not isinstance(action_expr, str):
             return []
-
         expr = action_expr.strip()
 
         # apply_template('Mode')
@@ -243,23 +226,13 @@ class ControlStrategy:
                 inside = inside[1:-1]
             return self._apply_template(inside, current_bets or {}, event)
 
-        # Otherwise, variable/expression mutation via eval
+        # Otherwise, delegate to expression evaluator
         state = self._build_eval_state()
         _ = _eval(expr, state=state, event=event)
         self._pull_back_from_eval_state(state)
         return []
 
-    def _apply_template(
-        self,
-        name: str,
-        current_bets: Dict[str, Dict],
-        event: Dict[str, Any],
-    ) -> List[Dict[str, Any]]:
-        """
-        Render a template by name and diff against current bets to create actions.
-        Ensures each action carries both 'bet_type' (engine-facing) and 'bet' (rules shim).
-        Supports render_template(...) variants with or without a 'point' parameter.
-        """
+    def _apply_template(self, name: str, current_bets: Dict[str, Dict], event: Dict[str, Any]) -> List[Dict[str, Any]]:
         tmpl_spec = (self._spec.get("modes") or {}).get(name, {}).get("template") or {}
         variables = self._ctrl.vars
 
@@ -268,7 +241,6 @@ class ControlStrategy:
         if table_level is None:
             table_level = int(variables.get("table_level") or 1)
 
-        rendered = None
         try:
             rendered = render_template(tmpl_spec, variables, bubble, table_level, self._ctrl.point)
         except TypeError:
@@ -276,7 +248,7 @@ class ControlStrategy:
 
         return _diff_bets_to_actions(current_bets or {}, rendered or {})
 
-    # ---- eval state plumbing -------------------------------------------------
+    # ---- eval state plumbing
 
     def _build_eval_state(self) -> Dict[str, Any]:
         st: Dict[str, Any] = {}
@@ -292,6 +264,7 @@ class ControlStrategy:
         st["event"] = None
         st["on_comeout"] = self._ctrl.point in (None, 0, "")
         st["point"] = self._ctrl.point
+        st["rolls_since_point"] = self._ctrl.rolls_since_point
         return st
 
     def _pull_back_from_eval_state(self, st: Dict[str, Any]) -> None:
@@ -302,14 +275,7 @@ class ControlStrategy:
             self._ctrl.vars.update(st["vars"])
 
 
-# ----------------------------
-# Rule matching
-# ----------------------------
-
 def _event_matches(ev: Dict[str, Any], cond: Dict[str, Any]) -> bool:
-    """
-    True iff all key/value pairs in cond appear equal in ev (string/int/float tolerant).
-    """
     if not cond:
         return True
     for k, want in cond.items():
