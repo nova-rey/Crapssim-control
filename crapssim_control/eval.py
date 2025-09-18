@@ -256,7 +256,7 @@ def eval_bool(expr: Any, state: Optional[Dict[str, Any]] = None, event: Optional
         return bool(expr)
     if isinstance(expr, str):
         s = expr.strip()
-        # if this is a quoted literal like "'no'" tests pass the string as an expression
+        # quoted literal like "'no'" should short-circuit without eval
         if (s.startswith("'") and s.endswith("'")) or (s.startswith('"') and s.endswith('"')):
             lit = s[1:-1].strip().lower()
             if lit in {"false", "no", "off"}:
