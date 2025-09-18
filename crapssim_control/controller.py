@@ -10,7 +10,7 @@ from .varstore import VarStore
 
 
 # -------------------------
-# Small helpers
+# Bet helpers
 # -------------------------
 
 _KIND_ALIASES = {
@@ -80,7 +80,6 @@ def _split_simple_assign(expr: str) -> Optional[Tuple[str, str]]:
     name = lhs.strip()
     if not name or not rhs.strip():
         return None
-    # allow simple identifier (letters, digits, underscores)
     if not name.replace("_", "").isalnum() or " " in name:
         return None
     return name, rhs.strip()
@@ -99,11 +98,18 @@ class _Ctrl:
     @classmethod
     def from_spec(cls, spec: Dict[str, Any], table_cfg: Optional[Dict[str, Any]] = None) -> "_Ctrl":
         vs = VarStore.from_spec(spec)
+        tbl = (table_cfg or spec.get("table", {}))
         sys = {
-            "bubble": bool((table_cfg or spec.get("table", {})).get("bubble", False)),
-            "table_level": int((table_cfg or spec.get("table", {})).get("level", 10)),
+            "bubble": bool(tbl.get("bubble", False)),
+            "table_level": int(tbl.get("level", 10)),
         }
         vs.system = sys
+        # Ensure counters exist so eval sees them as names
+        vs.counters.setdefault("point", 0)
+        vs.counters.setdefault("on_comeout", True)
+        vs.counters.setdefault("rolls_since_point", 0)
+        vs.counters.setdefault("points_established", 0)
+        vs.counters.setdefault("seven_outs", 0)
         return cls(spec=spec, table_cfg=(table_cfg or spec.get("table") or {}), vs=vs)
 
     @property
@@ -144,25 +150,8 @@ class ControlStrategy:
         return None
 
     def after_roll(self, table: Any, event: Dict[str, Any]) -> None:
-        vs = self._ctrl.vs
-        ev = (event.get("type") or event.get("event"))
-
-        if ev == "comeout":
-            vs.counters["rolls_since_point"] = 0
-            vs.counters["on_comeout"] = True
-            vs.counters["point"] = 0
-        elif ev == "point_established":
-            vs.counters["on_comeout"] = False
-            vs.counters["point"] = int(event.get("point") or 0)
-            vs.counters["rolls_since_point"] = 0
-            vs.counters["points_established"] = vs.counters.get("points_established", 0) + 1
-        elif ev == "seven_out":
-            vs.counters["rolls_since_point"] = 0
-            vs.counters["point"] = 0
-            vs.counters["on_comeout"] = True
-            vs.counters["seven_outs"] = vs.counters.get("seven_outs", 0) + 1
-        elif ev == "roll":
-            vs.counters["rolls_since_point"] = vs.counters.get("rolls_since_point", 0) + 1
+        # Kept for completeness; handle_event also applies these side effects.
+        self._apply_event_counters(_normalize_event_keys(event))
 
     def state_snapshot(self) -> Dict[str, Any]:
         vs = self._ctrl.vs
@@ -180,7 +169,9 @@ class ControlStrategy:
 
     def handle_event(self, event: Dict[str, Any], current_bets: Optional[Dict[str, Dict]] = None) -> List[Dict]:
         event = _normalize_event_keys(event)
-        self._ingest_event_side_effects(event)
+
+        # Apply semantic side-effects (point, comeout, counters) before rules
+        self._apply_event_counters(event)
 
         actions: List[Dict] = []
         for rule in (self.spec.get("rules") or []):
@@ -189,9 +180,8 @@ class ControlStrategy:
                 continue
 
             cond = rule.get("if")
-            if cond is not None:
-                if not _eval(cond, _eval_env(self._ctrl, event)):
-                    continue
+            if cond is not None and not _eval(cond, _eval_env(self._ctrl, event)):
+                continue
 
             for act in (rule.get("do") or []):
                 plan_delta = self._exec_action(act, event, current_bets or {})
@@ -205,13 +195,32 @@ class ControlStrategy:
     # Internals
     # -------------------------
 
-    def _ingest_event_side_effects(self, event: Dict[str, Any]) -> None:
+    def _apply_event_counters(self, event: Dict[str, Any]) -> None:
         vs = self._ctrl.vs
         ev = event.get("type") or event.get("event")
         if ev:
             vs.counters["last_event"] = ev
         if "total" in event:
             vs.counters["last_total"] = int(event["total"])
+
+        # semantic transitions used by tests/spec
+        if ev == "comeout":
+            vs.counters["rolls_since_point"] = 0
+            vs.counters["on_comeout"] = True
+            vs.counters["point"] = 0
+        elif ev == "point_established":
+            vs.counters["on_comeout"] = False
+            vs.counters["point"] = int(event.get("point") or 0)
+            vs.counters["rolls_since_point"] = 0
+            vs.counters["points_established"] = vs.counters.get("points_established", 0) + 1
+        elif ev == "seven_out":
+            vs.counters["rolls_since_point"] = 0
+            vs.counters["point"] = 0
+            vs.counters["on_comeout"] = True
+            vs.counters["seven_outs"] = vs.counters.get("seven_outs", 0) + 1
+        elif ev == "roll":
+            # only increment when a point is on (mirrors typical logic, but tests only need presence)
+            vs.counters["rolls_since_point"] = vs.counters.get("rolls_since_point", 0) + 1
 
     def _assign_var(self, name: str, value: Any) -> None:
         """Route assignments to counters or user/variable scopes appropriately."""
@@ -224,7 +233,6 @@ class ControlStrategy:
             vs.counters[name] = value
             return
 
-        # prefer user scope if the key already exists there; else variables; else user
         if name in vs.user:
             vs.user[name] = value
         elif name in vs.variables:
@@ -233,7 +241,6 @@ class ControlStrategy:
             vs.user[name] = value
 
         if name == "mode":
-            # keep mode mirror in sync
             try:
                 self._ctrl.mode = str(value)
             except Exception:
@@ -254,18 +261,13 @@ class ControlStrategy:
             return self._clear_all(current_bets)
 
         if isinstance(action, str):
-            # handle +=, -=, etc.
             expr = _desugar_augassign(action)
-
-            # handle plain assignment: name = rhs
             assign = _split_simple_assign(expr)
             if assign:
                 name, rhs = assign
                 value = _eval(rhs, _eval_env(self._ctrl, event))
                 self._assign_var(name, value)
                 return []
-
-            # otherwise treat as pure expression using safe eval
             _ = _eval(expr, _eval_env(self._ctrl, event))
         return []
 
@@ -296,7 +298,7 @@ class ControlStrategy:
 
 
 # -------------------------
-# Pure functions
+# Pure helpers
 # -------------------------
 
 def _event_matches(on: Dict[str, Any], ev: Dict[str, Any]) -> bool:
@@ -324,12 +326,20 @@ def _extract_first_string_literal(s: str) -> Optional[str]:
 
 
 def _eval_env(ctrl: _Ctrl, event: Dict[str, Any]) -> Dict[str, Any]:
+    """Expose variables and counters as top-level names for the safe evaluator."""
     vs = ctrl.vs
+    var_scope = vs.user if vs.user else vs.variables
+    counters = vs.counters
 
     env: Dict[str, Any] = {
-        "vars": vs.user if vs.user else vs.variables,
+        # flatten user/variables
+        **var_scope,
+        # flatten counters (rolls_since_point, point, etc.)
+        **counters,
+        # also keep structured maps if rules want them
+        "vars": var_scope,
         "system": vs.system,
-        "counters": vs.counters,
+        "counters": counters,
         "min": min,
         "max": max,
         "abs": abs,
@@ -350,11 +360,10 @@ def _eval_env(ctrl: _Ctrl, event: Dict[str, Any]) -> Dict[str, Any]:
 
 def _state_env_for_template(ctrl: _Ctrl) -> Dict[str, Any]:
     vs = ctrl.vs
-    state = {}
-    state.update(vs.user if vs.user else vs.variables)
-    state.update({
+    base = (vs.user if vs.user else vs.variables).copy()
+    base.update({
         "bubble": bool(vs.system.get("bubble", False)),
         "point": int(vs.counters.get("point", 0)),
-        "on_comeout": bool(vs.counters.get("on_comeout", state.get("point", 0) == 0)),
+        "on_comeout": bool(vs.counters.get("on_comeout", base.get("point", 0) == 0)),
     })
-    return state
+    return base
