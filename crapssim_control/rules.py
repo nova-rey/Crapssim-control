@@ -7,12 +7,17 @@ from .templates import render_template  # spec-time renderer
 
 
 def _kind_number(bet_type: str) -> Tuple[str | None, int | None]:
-    """Map bet_type → (bet, number) pairs expected by tests."""
-    if bet_type == "pass_line":
+    """
+    Map template bet_type strings to the (bet, number) tuples expected by tests.
+    Accept both 'pass' and 'pass_line' as Pass Line;
+    map 'place_6' → ('place', 6), etc.
+    """
+    bt = bet_type.strip().lower()
+    if bt in ("pass", "pass_line"):
         return ("pass", None)
-    if bet_type.startswith("place_"):
+    if bt.startswith("place_"):
         try:
-            return ("place", int(bet_type.split("_", 1)[1]))
+            return ("place", int(bt.split("_", 1)[1]))
         except Exception:
             return (None, None)
     return (None, None)
@@ -56,8 +61,8 @@ def _normalize_template_output_to_intents(bets_obj: Any) -> List[Tuple[str | Non
     """
     Accept either:
       • dict {bet_type: amount} OR {bet_type: {'amount': X}}
-      • list/tuple of action dicts: [{"action":"set","bet_type":"pass_line","amount":10}, ...]
-      • list/tuple of triplets: [("set","pass_line",10), ...]
+      • list/tuple of action dicts: [{"action":"set","bet_type":"pass","amount":10}, ...]
+      • list/tuple of triplets: [("set","pass",10), ...]
     and return tuple intents: (bet, number, "set", amount)
     """
     intents: List[Tuple[str | None, int | None, str, float]] = []
