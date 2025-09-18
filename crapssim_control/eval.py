@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import Any, Dict, Optional
 import ast
 
-__all__ = ["evaluate", "eval_num", "eval_bool", "EvalError"]
+__all__ = ["evaluate", "safe_eval", "eval_num", "eval_bool", "EvalError"]
 
 
 class EvalError(Exception):
@@ -146,7 +146,15 @@ def evaluate(expr: str, state: Optional[Dict[str, Any]] = None, event: Optional[
         return None
 
 
-# --- Back-compat helpers used throughout the codebase/tests -------------------
+# --- Back-compat helpers used by legacy modules/tests ------------------------
+
+def safe_eval(expr: str, state: Optional[Dict[str, Any]] = None, event: Optional[Dict[str, Any]] = None) -> Any:
+    """
+    Back-compat shim: legacy code imports `safe_eval` from here.
+    It simply delegates to `evaluate` with the same security policy.
+    """
+    return evaluate(expr, state=state, event=event)
+
 
 def eval_num(expr: str, state: Optional[Dict[str, Any]] = None, event: Optional[Dict[str, Any]] = None) -> float:
     """
