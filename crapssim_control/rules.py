@@ -1,10 +1,5 @@
 """
-rules.py -- Batch 15: rule runner (kept backward-compatible)
-
-Exports:
-  - run_rules_for_event(spec, ctrl_state_like_dict, event, current_bets, table_cfg) -> actions
-  - render_template(template, state, event, table_cfg) -> desired_bets
-    (this thin wrapper proxies to templates_rt.render_template for back-compat)
+rules.py -- Batch 15 shim: run_rules_for_event + render_template (back-compat)
 """
 
 from __future__ import annotations
@@ -15,36 +10,67 @@ from .templates_rt import render_template as rt_render_template
 
 
 def render_template(template: Dict, state: Dict, event: Dict, table_cfg: Dict | None = None) -> Dict[str, Dict]:
-    """
-    Back-compat wrapper used by older callers/tests.
-    """
-    # We don't need ctrl state here; templates_rt is pure.
     return rt_render_template(template, state, event, table_cfg or {})
+
+
+def _extract_vars_mode(ctrl_state: Any) -> tuple[Dict[str, Any], Any]:
+    """
+    Accept either a dict-like state or a VarStore-like object with `.variables` and optional `.mode`.
+    Returns (vars_dict, mode_value_or_None).
+    """
+    # dict-like
+    if hasattr(ctrl_state, "get"):
+        v = dict(ctrl_state.get("vars") or ctrl_state.get("variables") or {})
+        mode = v.get("mode", ctrl_state.get("mode"))
+        return v, mode
+    # object-like (VarStore)
+    vars_obj = getattr(ctrl_state, "variables", None)
+    v = dict(vars_obj) if isinstance(vars_obj, dict) else {}
+    mode = v.get("mode", getattr(ctrl_state, "mode", None))
+    return v, mode
+
+
+def _normalize_event(ev: Dict[str, Any]) -> Dict[str, Any]:
+    """Allow callers to pass {'event': 'comeout'}; we normalize to include 'type' alias."""
+    ev = dict(ev or {})
+    if "event" in ev and "type" not in ev:
+        ev["type"] = ev["event"]
+    if "type" in ev and "event" not in ev:
+        ev["event"] = ev["type"]
+    return ev
 
 
 def run_rules_for_event(
     spec: Dict[str, Any],
-    ctrl_state: Dict[str, Any],
+    ctrl_state: Any,
     event: Dict[str, Any],
     current_bets: Dict[str, Dict] | None = None,
     table_cfg: Dict[str, Any] | None = None,
 ) -> List[Dict]:
-    """
-    Back-compat API: execute rules for one event given an external control state dict.
-
-    ctrl_state is expected to have keys like: vars, mode, point, on_comeout, rolls_since_point
-    We instantiate a temporary ControlStrategy, transplant state, run once, then return plan.
-    """
     cs = ControlStrategy(spec, table_cfg=table_cfg or spec.get("table") or {})
-    # transplant incoming control-ish fields
-    s = cs._ctrl  # internal but intentional for this shim
-    s.vars = dict(ctrl_state.get("vars") or {})
-    s.mode = ctrl_state.get("mode")
-    s.point = ctrl_state.get("point")
-    s.on_comeout = bool(ctrl_state.get("on_comeout", False))
-    s.rolls_since_point = int(ctrl_state.get("rolls_since_point", 0))
 
-    plan = cs.handle_event(event or {}, current_bets or {})
-    # push back the updates so caller can persist
-    ctrl_state.update(cs.state_snapshot())
+    # Transplant state from caller
+    s = cs._ctrl  # intentional internal access for this shim
+    v, mode = _extract_vars_mode(ctrl_state)
+    s.vars = v
+    s.mode = mode
+    # best-effort flags if present (dict-like or attr-style)
+    def _get(name: str, default=None):
+        if hasattr(ctrl_state, "get"):
+            return ctrl_state.get(name, default)
+        return getattr(ctrl_state, name, default)
+
+    s.point = _get("point", None)
+    s.on_comeout = bool(_get("on_comeout", False))
+    s.rolls_since_point = int(_get("rolls_since_point", 0))
+
+    ev = _normalize_event(event)
+
+    plan = cs.handle_event(ev, current_bets or {})
+    # push back updates for callers that persist ctrl_state dicts
+    try:
+        if hasattr(ctrl_state, "update"):  # dict-like
+            ctrl_state.update(cs.state_snapshot())
+    except Exception:
+        pass
     return plan
