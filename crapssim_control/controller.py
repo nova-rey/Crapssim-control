@@ -94,6 +94,7 @@ class _Ctrl:
     spec: Dict[str, Any]
     table_cfg: Dict[str, Any]
     vs: VarStore = field(default_factory=lambda: VarStore({}, {}, {}))
+    _vars_overlay: Dict[str, Any] = field(default_factory=dict)
 
     @classmethod
     def from_spec(cls, spec: Dict[str, Any], table_cfg: Optional[Dict[str, Any]] = None) -> "_Ctrl":
@@ -123,6 +124,22 @@ class _Ctrl:
         else:
             self.vs.variables["mode"] = m
 
+    # Support for rules.run_rules_for_event() which sets s.vars = v
+    @property
+    def vars(self) -> Dict[str, Any]:
+        # overlay wins (used for eval), backing store is vs.user/variables
+        base = self.vs.user if self.vs.user else self.vs.variables
+        out = dict(base)
+        out.update(self._vars_overlay)
+        return out
+
+    @vars.setter
+    def vars(self, v: Dict[str, Any]) -> None:
+        self._vars_overlay = dict(v or {})
+        # also sync into backing store so later snapshots/assignments persist
+        base = self.vs.user if self.vs.user else self.vs.variables
+        base.update(self._vars_overlay)
+
 
 # -------------------------
 # Public Strategy
@@ -150,14 +167,14 @@ class ControlStrategy:
         return None
 
     def after_roll(self, table: Any, event: Dict[str, Any]) -> None:
-        # Kept for completeness; handle_event also applies these side effects.
+        # Keep counters consistent if someone calls this; handle_event already applies side effects.
         self._apply_event_counters(_normalize_event_keys(event))
 
     def state_snapshot(self) -> Dict[str, Any]:
         vs = self._ctrl.vs
         return {
             "mode": self._ctrl.mode,
-            "vars": (vs.user if vs.user else vs.variables).copy(),
+            "vars": self._ctrl.vars.copy(),
             "point": int(vs.counters.get("point", 0)),
             "on_comeout": bool(vs.counters.get("on_comeout", True if int(vs.counters.get("point", 0)) == 0 else False)),
             "rolls_since_point": int(vs.counters.get("rolls_since_point", 0)),
@@ -170,7 +187,7 @@ class ControlStrategy:
     def handle_event(self, event: Dict[str, Any], current_bets: Optional[Dict[str, Dict]] = None) -> List[Dict]:
         event = _normalize_event_keys(event)
 
-        # Apply semantic side-effects (point, comeout, counters) before rules
+        # Apply semantic side-effects (point, comeout, most counters) before rules
         self._apply_event_counters(event)
 
         actions: List[Dict] = []
@@ -219,8 +236,8 @@ class ControlStrategy:
             vs.counters["on_comeout"] = True
             vs.counters["seven_outs"] = vs.counters.get("seven_outs", 0) + 1
         elif ev == "roll":
-            # only increment when a point is on (mirrors typical logic, but tests only need presence)
-            vs.counters["rolls_since_point"] = vs.counters.get("rolls_since_point", 0) + 1
+            # Do NOT auto-increment rolls_since_point here; rules take care of it.
+            pass
 
     def _assign_var(self, name: str, value: Any) -> None:
         """Route assignments to counters or user/variable scopes appropriately."""
@@ -233,11 +250,14 @@ class ControlStrategy:
             vs.counters[name] = value
             return
 
-        if name in vs.user:
+        base = self._ctrl.vars  # includes overlay
+        # write-through to backing store
+        if name in vs.user or (vs.user and name in base):
             vs.user[name] = value
-        elif name in vs.variables:
+        elif name in vs.variables or name in base:
             vs.variables[name] = value
         else:
+            # default to user scope
             vs.user[name] = value
 
         if name == "mode":
@@ -328,11 +348,11 @@ def _extract_first_string_literal(s: str) -> Optional[str]:
 def _eval_env(ctrl: _Ctrl, event: Dict[str, Any]) -> Dict[str, Any]:
     """Expose variables and counters as top-level names for the safe evaluator."""
     vs = ctrl.vs
-    var_scope = vs.user if vs.user else vs.variables
+    var_scope = ctrl.vars  # honor transplanted state from rules shim
     counters = vs.counters
 
     env: Dict[str, Any] = {
-        # flatten user/variables
+        # flatten variables
         **var_scope,
         # flatten counters (rolls_since_point, point, etc.)
         **counters,
@@ -360,7 +380,7 @@ def _eval_env(ctrl: _Ctrl, event: Dict[str, Any]) -> Dict[str, Any]:
 
 def _state_env_for_template(ctrl: _Ctrl) -> Dict[str, Any]:
     vs = ctrl.vs
-    base = (vs.user if vs.user else vs.variables).copy()
+    base = ctrl.vars.copy()
     base.update({
         "bubble": bool(vs.system.get("bubble", False)),
         "point": int(vs.counters.get("point", 0)),
