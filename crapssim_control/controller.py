@@ -60,10 +60,32 @@ class ControlStrategy:
         return st
 
     @staticmethod
+    def _extract_amount(val: Any) -> float:
+        """
+        Accept either a raw number or a dict like {'amount': 10}.
+        Anything else coerces to 0.0 (defensive).
+        """
+        if isinstance(val, (int, float)):
+            return float(val)
+        if isinstance(val, dict) and "amount" in val:
+            inner = val["amount"]
+            if isinstance(inner, (int, float)):
+                return float(inner)
+            try:
+                return float(inner)
+            except Exception:
+                return 0.0
+        try:
+            return float(val)
+        except Exception:
+            return 0.0
+
+    @staticmethod
     def _normalize_plan(plan_obj: Any) -> List[Dict[str, Any]]:
         """
         Accept either:
-          • dict {bet_type: amount}  → [{'action':'set','bet_type':..., 'amount':...}]
+          • dict {bet_type: amount}  or {bet_type: {'amount': X}}
+                → [{'action':'set','bet_type':..., 'amount':...}]
           • list/tuple of dicts      → pass through
           • list/tuple of triplets   → [('set','pass_line',10), ...] → dicts
         """
@@ -71,16 +93,19 @@ class ControlStrategy:
 
         if isinstance(plan_obj, dict):
             for bet_type, amount in plan_obj.items():
-                out.append({"action": "set", "bet_type": str(bet_type), "amount": float(amount)})
+                out.append({"action": "set", "bet_type": str(bet_type), "amount": ControlStrategy._extract_amount(amount)})
             return out
 
         if isinstance(plan_obj, (list, tuple)):
             for item in plan_obj:
                 if isinstance(item, dict):
+                    # if provided as {'action':'set','bet_type':'x','amount':{...}} normalize amount too
+                    if "amount" in item:
+                        item = {**item, "amount": ControlStrategy._extract_amount(item["amount"])}
                     out.append(item)
                 elif isinstance(item, (list, tuple)) and len(item) >= 3:
                     action, bet_type, amount = item[0], item[1], item[2]
-                    out.append({"action": str(action), "bet_type": str(bet_type), "amount": float(amount)})
+                    out.append({"action": str(action), "bet_type": str(bet_type), "amount": ControlStrategy._extract_amount(amount)})
             return out
 
         return out
@@ -155,7 +180,6 @@ class ControlStrategy:
     def after_roll(self, table: Any, event: Dict[str, Any]) -> None:
         """
         Adapter calls this after each roll. For smoke tests we keep it minimal:
-        - bump our counters if the event is a regular roll while a point is on
         - reset on seven_out
         """
         ev = event.get("event") or event.get("type")
@@ -163,9 +187,4 @@ class ControlStrategy:
             self.point = None
             self.rolls_since_point = 0
             self.on_comeout = True
-        elif ev in ("roll", None):
-            if self.point:
-                # avoid double counting; only increment if adapter didn't already
-                # (safe no-op in most smoke paths)
-                self.rolls_since_point = max(self.rolls_since_point, 0)
         return None

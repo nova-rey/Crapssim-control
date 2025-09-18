@@ -34,10 +34,28 @@ def _get_bubble_and_level(spec: Dict[str, Any], vs: Any) -> Tuple[bool, int]:
     return bool(bubble), int(table_level)
 
 
+def _extract_amount(val: Any) -> float:
+    """Accept raw number or {'amount': X}."""
+    if isinstance(val, (int, float)):
+        return float(val)
+    if isinstance(val, dict) and "amount" in val:
+        inner = val["amount"]
+        if isinstance(inner, (int, float)):
+            return float(inner)
+        try:
+            return float(inner)
+        except Exception:
+            return 0.0
+    try:
+        return float(val)
+    except Exception:
+        return 0.0
+
+
 def _normalize_template_output_to_intents(bets_obj: Any) -> List[Tuple[str | None, int | None, str, float]]:
     """
     Accept either:
-      • dict {bet_type: amount}
+      • dict {bet_type: amount} OR {bet_type: {'amount': X}}
       • list/tuple of action dicts: [{"action":"set","bet_type":"pass_line","amount":10}, ...]
       • list/tuple of triplets: [("set","pass_line",10), ...]
     and return tuple intents: (bet, number, "set", amount)
@@ -48,7 +66,7 @@ def _normalize_template_output_to_intents(bets_obj: Any) -> List[Tuple[str | Non
     if isinstance(bets_obj, dict):
         for bet_type, amount in bets_obj.items():
             bet, number = _kind_number(str(bet_type))
-            intents.append((bet, number, "set", float(amount)))
+            intents.append((bet, number, "set", _extract_amount(amount)))
         return intents
 
     # list/tuple form
@@ -59,17 +77,17 @@ def _normalize_template_output_to_intents(bets_obj: Any) -> List[Tuple[str | Non
                 if item.get("action") != "set":
                     continue
                 bt = item.get("bet_type")
-                amt = item.get("amount", 0.0)
+                amt = _extract_amount(item.get("amount", 0.0))
                 bet, number = _kind_number(str(bt))
-                intents.append((bet, number, "set", float(amt)))
+                intents.append((bet, number, "set", amt))
                 continue
             # tuple/list triplet
             if isinstance(item, (list, tuple)) and len(item) >= 3:
-                action, bt, amt = item[0], item[1], item[2]
+                action, bt, amt = item[0], item[1], _extract_amount(item[2])
                 if action != "set":
                     continue
                 bet, number = _kind_number(str(bt))
-                intents.append((bet, number, "set", float(amt)))
+                intents.append((bet, number, "set", amt))
         return intents
 
     # Unknown type → nothing
