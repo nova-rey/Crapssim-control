@@ -3,6 +3,7 @@
 from __future__ import annotations
 from typing import Any, Dict, Optional
 import ast
+from math import floor, ceil  # allowed pure helpers
 
 __all__ = ["evaluate", "safe_eval", "eval_num", "eval_bool", "EvalError"]
 
@@ -75,6 +76,8 @@ _SAFE_FUNCS = {
     "round": round,
     "int": int,
     "float": float,
+    "floor": floor,
+    "ceil": ceil,
 }
 
 
@@ -112,7 +115,11 @@ def _eval_expr(src: str, ns: Dict[str, Any]) -> Any:
 
     _assert_allowed(tree, _ALLOWED_EXPR_NODES)
     code = compile(tree, "<safe-eval>", "eval")
-    return eval(code, {"__builtins__": {}, **_SAFE_FUNCS}, ns)
+    try:
+        return eval(code, {"__builtins__": {}, **_SAFE_FUNCS}, ns)
+    except NameError as e:
+        # Normalize to EvalError for tests
+        raise EvalError(str(e), src)
 
 
 def evaluate(expr: str, state: Optional[Dict[str, Any]] = None, event: Optional[Dict[str, Any]] = None) -> Any:
@@ -122,15 +129,17 @@ def evaluate(expr: str, state: Optional[Dict[str, Any]] = None, event: Optional[
     - If `expr` is an expression: returns its value (no state mutation).
     - If `expr` is assignment/augassign: executes it and returns None (mutates `state`).
     - Strictly blocks attributes, subscripts, loops, imports, etc.
-    - Allows only calls to SAFE_FUNCS (min, max, abs, round, int, float).
+    - Allows only calls to SAFE_FUNCS (min, max, abs, round, int, float, floor, ceil).
 
-    `event` is merged read-only into the namespace (state wins on conflicts).
+    Namespace precedence: state first, then event overlays (event wins).
     """
     ns: Dict[str, Any] = {}
     state = state or {}
+    # state first...
+    ns.update(state)
+    # ...then event overlays take precedence
     if event:
         ns.update(event)
-    ns.update(state)
 
     try:
         result = _eval_expr(expr, ns)
@@ -149,22 +158,22 @@ def evaluate(expr: str, state: Optional[Dict[str, Any]] = None, event: Optional[
 # --- Back-compat helpers used by legacy modules/tests ------------------------
 
 def safe_eval(expr: str, state: Optional[Dict[str, Any]] = None, event: Optional[Dict[str, Any]] = None) -> Any:
-    """
-    Back-compat shim: legacy code imports `safe_eval` from here.
-    It simply delegates to `evaluate` with the same security policy.
-    """
+    """Back-compat shim delegating to `evaluate`."""
     return evaluate(expr, state=state, event=event)
 
 
-def eval_num(expr: str, state: Optional[Dict[str, Any]] = None, event: Optional[Dict[str, Any]] = None) -> float:
-    """
-    Evaluate a numeric expression only (no statements). Returns float.
-    """
+def _merge_ns(state: Optional[Dict[str, Any]], event: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     ns: Dict[str, Any] = {}
-    if event:
-        ns.update(event)
     if state:
         ns.update(state)
+    if event:
+        ns.update(event)  # event wins
+    return ns
+
+
+def eval_num(expr: str, state: Optional[Dict[str, Any]] = None, event: Optional[Dict[str, Any]] = None) -> float:
+    """Evaluate a numeric expression only (no statements). Returns float."""
+    ns = _merge_ns(state, event)
     val = _eval_expr(expr, ns)
     try:
         return float(val)
@@ -172,14 +181,18 @@ def eval_num(expr: str, state: Optional[Dict[str, Any]] = None, event: Optional[
         raise EvalError("Expression did not produce a number", expr)
 
 
+_FALSEY_STRS = {"false", "no", "off", "0", "f", "n"}
+_TRUTHY_STRS = {"true", "yes", "on", "1", "t", "y"}
+
+
 def eval_bool(expr: str, state: Optional[Dict[str, Any]] = None, event: Optional[Dict[str, Any]] = None) -> bool:
-    """
-    Evaluate a boolean expression only (no statements). Returns bool(val).
-    """
-    ns: Dict[str, Any] = {}
-    if event:
-        ns.update(event)
-    if state:
-        ns.update(state)
+    """Evaluate a boolean expression only (no statements). Returns bool with friendly string coercion."""
+    ns = _merge_ns(state, event)
     val = _eval_expr(expr, ns)
+    if isinstance(val, str):
+        s = val.strip().lower()
+        if s in _FALSEY_STRS:
+            return False
+        if s in _TRUTHY_STRS:
+            return True
     return bool(val)
