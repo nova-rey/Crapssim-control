@@ -107,13 +107,13 @@ def _template_to_intents(spec: Dict[str, Any], vs: Any, mode_name: str) -> List[
     mode = modes.get(mode_name) or {}
     tmpl = mode.get("template") or {}
 
-    # Build state for expression evaluation: system first, then user/variables (user wins).
+    # --- IMPORTANT FIX ---
+    # Build state for expression evaluation with correct precedence:
+    # system + variables + user (user wins).
     state: Dict[str, Any] = {}
     state.update(getattr(vs, "system", {}) or {})
-    user = getattr(vs, "user", None)
-    if user is None:
-        user = getattr(vs, "variables", {}) or {}
-    state.update(user)
+    state.update(getattr(vs, "variables", {}) or {})
+    state.update(getattr(vs, "user", {}) or {})
 
     bubble, table_level = _get_bubble_and_level(spec, vs)
     # spec-time templates.render_template requires (template, state, bubble, table_level)
