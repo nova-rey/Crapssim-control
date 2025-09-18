@@ -4,14 +4,21 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "crapssim-control"
-version = "0.1.0a0"
-description = "Runtime that executes conditional JSON craps strategies on top of CrapsSim."
+version = "0.1.0"
+description = "Control strategy layer for CrapsSim."
 readme = "README.md"
-authors = [{name="Rey & Nova"}]
-requires-python = ">=3.9"
+requires-python = ">=3.11"
 dependencies = [
-  "crapssim>=0.1.0",   # adjust if your engine publishes under a different name
+  "crapssim>=0.3.1",
 ]
 
-[tool.pytest.ini_options]
-pythonpath = ["."]
+[tool.setuptools]
+# If you later add a MANIFEST.in, setuptools will respect it.
+
+[tool.setuptools.packages.find]
+include = ["crapssim_control*"]
+exclude = ["tests*", "specs*"]
+
+[tool.setuptools.package-data]
+# If you ship data inside the package folder, list it here.
+crapssim_control = ["**/*.yml", "**/*.yaml", "**/*.json", "**/*.md"]
