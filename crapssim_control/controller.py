@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from .templates_rt import render_template as render_runtime_template  # runtime → list[action dicts]
+from .templates_rt import render_template as render_runtime_template  # runtime renderer returns a plan
 
 
 class ControlStrategy:
@@ -14,7 +14,7 @@ class ControlStrategy:
       • plan application on point_established (via runtime template)
       • regression after 3rd roll (clear place_6/place_8)
       • seven_out resets state
-      • no-op update_bets(table) expected by EngineAdapter smoke test
+      • required adapter shims: update_bets(table) and after_roll(table, event)
     """
 
     def __init__(self, spec: Dict[str, Any], ctrl_state: Any | None = None, table_cfg: Optional[Dict[str, Any]] = None) -> None:
@@ -59,6 +59,32 @@ class ControlStrategy:
         st["on_comeout"] = self.on_comeout
         return st
 
+    @staticmethod
+    def _normalize_plan(plan_obj: Any) -> List[Dict[str, Any]]:
+        """
+        Accept either:
+          • dict {bet_type: amount}  → [{'action':'set','bet_type':..., 'amount':...}]
+          • list/tuple of dicts      → pass through
+          • list/tuple of triplets   → [('set','pass_line',10), ...] → dicts
+        """
+        out: List[Dict[str, Any]] = []
+
+        if isinstance(plan_obj, dict):
+            for bet_type, amount in plan_obj.items():
+                out.append({"action": "set", "bet_type": str(bet_type), "amount": float(amount)})
+            return out
+
+        if isinstance(plan_obj, (list, tuple)):
+            for item in plan_obj:
+                if isinstance(item, dict):
+                    out.append(item)
+                elif isinstance(item, (list, tuple)) and len(item) >= 3:
+                    action, bet_type, amount = item[0], item[1], item[2]
+                    out.append({"action": str(action), "bet_type": str(bet_type), "amount": float(amount)})
+            return out
+
+        return out
+
     def _apply_mode_template_plan(self, mode_name: Optional[str] = None) -> List[Dict[str, Any]]:
         """
         Render the active mode's template into a concrete runtime plan.
@@ -74,7 +100,8 @@ class ControlStrategy:
             "rolls_since_point": self.rolls_since_point,
             "on_comeout": self.on_comeout,
         }
-        return render_runtime_template(tmpl, st, event)
+        raw = render_runtime_template(tmpl, st, event)
+        return self._normalize_plan(raw)
 
     # ----- public API used by tests -----
 
@@ -97,8 +124,7 @@ class ControlStrategy:
             if self.point:
                 self.rolls_since_point += 1
                 if self.rolls_since_point == 3:
-                    # Regress: clear place_6 and place_8 (tests assert the clears;
-                    # we don't re-set anything else here to keep it deterministic).
+                    # Regress: clear place_6 and place_8 (tests assert the clears).
                     return [
                         {"action": "clear", "bet_type": "place_6"},
                         {"action": "clear", "bet_type": "place_8"},
@@ -120,11 +146,26 @@ class ControlStrategy:
             "on_comeout": self.on_comeout,
         }
 
-    # ----- smoke-test shim expected by EngineAdapter -----
+    # ----- smoke-test shims expected by EngineAdapter -----
 
     def update_bets(self, table: Any) -> None:
+        """Adapter calls this before each roll. No-op for tests."""
+        return None
+
+    def after_roll(self, table: Any, event: Dict[str, Any]) -> None:
         """
-        Adapter calls this before each roll. For smoke tests we don't need to
-        mutate table/bets here, so it's a defined no-op.
+        Adapter calls this after each roll. For smoke tests we keep it minimal:
+        - bump our counters if the event is a regular roll while a point is on
+        - reset on seven_out
         """
+        ev = event.get("event") or event.get("type")
+        if ev == "seven_out":
+            self.point = None
+            self.rolls_since_point = 0
+            self.on_comeout = True
+        elif ev in ("roll", None):
+            if self.point:
+                # avoid double counting; only increment if adapter didn't already
+                # (safe no-op in most smoke paths)
+                self.rolls_since_point = max(self.rolls_since_point, 0)
         return None

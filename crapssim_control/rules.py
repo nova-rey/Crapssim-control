@@ -3,11 +3,11 @@ from __future__ import annotations
 from typing import Any, Dict, List, Tuple
 
 from .eval import evaluate
-from .templates import render_template  # spec-time: returns {bet_type: amount}
+from .templates import render_template  # spec-time renderer
 
 
 def _kind_number(bet_type: str) -> Tuple[str | None, int | None]:
-    """Map template bet_type → (bet, number) pairs expected by tests."""
+    """Map bet_type → (bet, number) pairs expected by tests."""
     if bet_type == "pass_line":
         return ("pass", None)
     if bet_type.startswith("place_"):
@@ -29,11 +29,51 @@ def _get_bubble_and_level(spec: Dict[str, Any], vs: Any) -> Tuple[bool, int]:
         if bubble is None:
             bubble = bool(tbl.get("bubble", False))
         if table_level is None:
-            # some specs use "level", others "table_level"
             table_level = int(tbl.get("table_level", tbl.get("level", 10)))
 
-    # final safety
     return bool(bubble), int(table_level)
+
+
+def _normalize_template_output_to_intents(bets_obj: Any) -> List[Tuple[str | None, int | None, str, float]]:
+    """
+    Accept either:
+      • dict {bet_type: amount}
+      • list/tuple of action dicts: [{"action":"set","bet_type":"pass_line","amount":10}, ...]
+      • list/tuple of triplets: [("set","pass_line",10), ...]
+    and return tuple intents: (bet, number, "set", amount)
+    """
+    intents: List[Tuple[str | None, int | None, str, float]] = []
+
+    # dict form
+    if isinstance(bets_obj, dict):
+        for bet_type, amount in bets_obj.items():
+            bet, number = _kind_number(str(bet_type))
+            intents.append((bet, number, "set", float(amount)))
+        return intents
+
+    # list/tuple form
+    if isinstance(bets_obj, (list, tuple)):
+        for item in bets_obj:
+            # dict item
+            if isinstance(item, dict):
+                if item.get("action") != "set":
+                    continue
+                bt = item.get("bet_type")
+                amt = item.get("amount", 0.0)
+                bet, number = _kind_number(str(bt))
+                intents.append((bet, number, "set", float(amt)))
+                continue
+            # tuple/list triplet
+            if isinstance(item, (list, tuple)) and len(item) >= 3:
+                action, bt, amt = item[0], item[1], item[2]
+                if action != "set":
+                    continue
+                bet, number = _kind_number(str(bt))
+                intents.append((bet, number, "set", float(amt)))
+        return intents
+
+    # Unknown type → nothing
+    return intents
 
 
 def _template_to_intents(spec: Dict[str, Any], vs: Any, mode_name: str) -> List[Tuple]:
@@ -53,14 +93,10 @@ def _template_to_intents(spec: Dict[str, Any], vs: Any, mode_name: str) -> List[
     state.update(user)
 
     bubble, table_level = _get_bubble_and_level(spec, vs)
-    # templates.render_template requires (template, state, bubble, table_level)
-    bets = render_template(tmpl, state, bubble, table_level)  # {bet_type: amount}
+    # spec-time templates.render_template requires (template, state, bubble, table_level)
+    bets_obj = render_template(tmpl, state, bubble, table_level)
 
-    out: List[Tuple] = []
-    for bet_type, amount in bets.items():
-        bet, number = _kind_number(bet_type)
-        out.append((bet, number, "set", float(amount)))
-    return out
+    return _normalize_template_output_to_intents(bets_obj)
 
 
 def run_rules_for_event(
