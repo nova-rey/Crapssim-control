@@ -22,13 +22,6 @@ _KIND_ALIASES = {
 }
 
 def _bet_type_to_kind_number(bt: str) -> Tuple[str, Optional[int]]:
-    """
-    Map normalized bet_type strings to (kind, number).
-    Examples:
-      'place_6'   -> ('place', 6)
-      'lay_10'    -> ('lay', 10)
-      'pass_line' -> ('pass', None)
-    """
     if bt in _KIND_ALIASES:
         return _KIND_ALIASES[bt]
     if "_" in bt:
@@ -42,7 +35,6 @@ def _bet_type_to_kind_number(bt: str) -> Tuple[str, Optional[int]]:
 
 
 def _ensure_clears_for_sets(actions: List[Dict]) -> List[Dict]:
-    """Ensure a clear exists for every set; if missing, insert it just before the set."""
     out: List[Dict] = []
     for a in actions:
         if a.get("action") == "set":
@@ -57,7 +49,6 @@ def _ensure_clears_for_sets(actions: List[Dict]) -> List[Dict]:
 
 
 def _normalize_event_keys(ev: Dict[str, Any]) -> Dict[str, Any]:
-    """Make sure both 'event' and 'type' keys exist and match."""
     evn = dict(ev or {})
     if "event" not in evn and "type" in evn:
         evn["event"] = evn["type"]
@@ -67,19 +58,32 @@ def _normalize_event_keys(ev: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _desugar_augassign(expr: str) -> str:
-    """
-    Turn 'x += 1' into 'x = x + 1' (and friends) so our safe eval (mode='eval') can parse it.
-    Only supports a simple identifier on the LHS.
-    """
     s = expr.strip()
     ops = [("+=", "+"), ("-=", "-"), ("*=", "*"), ("/=", "/"), ("//=", "//"), ("%=", "%")]
     for op, sym in ops:
         if op in s:
             lhs, rhs = s.split(op, 1)
             name = lhs.strip()
-            if name.replace("_", "").isalnum():  # basic guard; we expect a simple name
+            if name.replace("_", "").isalnum():
                 return f"{name} = {name} {sym} ({rhs.strip()})"
     return expr
+
+
+def _split_simple_assign(expr: str) -> Optional[Tuple[str, str]]:
+    """Return ('name', 'rhs') for 'name = rhs' if it's a simple single-target assignment."""
+    s = expr.strip()
+    if "==" in s or ":=" in s:
+        return None
+    if "=" not in s:
+        return None
+    lhs, rhs = s.split("=", 1)
+    name = lhs.strip()
+    if not name or not rhs.strip():
+        return None
+    # allow simple identifier (letters, digits, underscores)
+    if not name.replace("_", "").isalnum() or " " in name:
+        return None
+    return name, rhs.strip()
 
 
 # -------------------------
@@ -102,14 +106,12 @@ class _Ctrl:
         vs.system = sys
         return cls(spec=spec, table_cfg=(table_cfg or spec.get("table") or {}), vs=vs)
 
-    # convenience mirrors for tests / external shims
     @property
     def mode(self) -> str:
         return str(self.vs.user.get("mode") or self.vs.variables.get("mode") or "Main")
 
     @mode.setter
     def mode(self, m: str) -> None:
-        # prefer user scope; fall back to variables for legacy tests
         if "mode" in self.vs.user:
             self.vs.user["mode"] = m
         else:
@@ -122,7 +124,6 @@ class _Ctrl:
 
 class ControlStrategy:
     """
-    Runtime that executes a SPEC's rules and templates to produce bet actions.
     Public surface (used by tests/adapter):
       - update_bets(table)
       - after_roll(table, event)
@@ -164,7 +165,6 @@ class ControlStrategy:
             vs.counters["rolls_since_point"] = vs.counters.get("rolls_since_point", 0) + 1
 
     def state_snapshot(self) -> Dict[str, Any]:
-        """Provide a minimal snapshot used by tests."""
         vs = self._ctrl.vs
         return {
             "mode": self._ctrl.mode,
@@ -179,10 +179,6 @@ class ControlStrategy:
     # -------------------------
 
     def handle_event(self, event: Dict[str, Any], current_bets: Optional[Dict[str, Dict]] = None) -> List[Dict]:
-        """
-        Evaluate rules for the given event and return a plan (list of actions).
-        Accepts either {'type': ...} or {'event': ...}.
-        """
         event = _normalize_event_keys(event)
         self._ingest_event_side_effects(event)
 
@@ -202,7 +198,6 @@ class ControlStrategy:
                 if plan_delta:
                     actions.extend(plan_delta)
 
-        # Deterministic clear-then-set
         actions = _ensure_clears_for_sets(actions)
         return actions
 
@@ -218,12 +213,38 @@ class ControlStrategy:
         if "total" in event:
             vs.counters["last_total"] = int(event["total"])
 
+    def _assign_var(self, name: str, value: Any) -> None:
+        """Route assignments to counters or user/variable scopes appropriately."""
+        vs = self._ctrl.vs
+        counter_keys = {
+            "point", "on_comeout", "rolls_since_point",
+            "points_established", "seven_outs", "last_event", "last_total"
+        }
+        if name in counter_keys:
+            vs.counters[name] = value
+            return
+
+        # prefer user scope if the key already exists there; else variables; else user
+        if name in vs.user:
+            vs.user[name] = value
+        elif name in vs.variables:
+            vs.variables[name] = value
+        else:
+            vs.user[name] = value
+
+        if name == "mode":
+            # keep mode mirror in sync
+            try:
+                self._ctrl.mode = str(value)
+            except Exception:
+                pass
+
     def _exec_action(self, action: Any, event: Dict[str, Any], current_bets: Dict[str, Dict]) -> List[Dict]:
         """
         Execute a single action:
           - "apply_template('ModeName')"
           - "clear_bets()"
-          - variable expressions: "units = 10", "units += 5", "mode = 'X'", etc.
+          - variable expressions, including assignments and augmented assignments
         """
         if isinstance(action, str) and action.strip().startswith("apply_template"):
             mode_name = _extract_first_string_literal(action) or self._ctrl.mode
@@ -232,15 +253,20 @@ class ControlStrategy:
         if isinstance(action, str) and action.strip().startswith("clear_bets"):
             return self._clear_all(current_bets)
 
-        # Variable update: support augmented assignment
         if isinstance(action, str):
+            # handle +=, -=, etc.
             expr = _desugar_augassign(action)
+
+            # handle plain assignment: name = rhs
+            assign = _split_simple_assign(expr)
+            if assign:
+                name, rhs = assign
+                value = _eval(rhs, _eval_env(self._ctrl, event))
+                self._assign_var(name, value)
+                return []
+
+            # otherwise treat as pure expression using safe eval
             _ = _eval(expr, _eval_env(self._ctrl, event))
-            # keep mode mirror in sync if user assigns to it
-            if expr.replace(" ", "").startswith("mode="):
-                m = _extract_first_string_literal(expr)
-                if m:
-                    self._ctrl.mode = m
         return []
 
     def _apply_template(self, mode_name: str, event: Dict[str, Any], current_bets: Dict[str, Dict]) -> List[Dict]:
@@ -274,7 +300,6 @@ class ControlStrategy:
 # -------------------------
 
 def _event_matches(on: Dict[str, Any], ev: Dict[str, Any]) -> bool:
-    """All key/value pairs in `on` must match `ev`."""
     for k, v in on.items():
         if ev.get(k) != v:
             return False
@@ -299,14 +324,6 @@ def _extract_first_string_literal(s: str) -> Optional[str]:
 
 
 def _eval_env(ctrl: _Ctrl, event: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Build a safe environment for rule expressions.
-    Expose:
-      - vars: mutable user variables (prefer user scope if present)
-      - system: table/system flags (bubble, table_level)
-      - counters: derived counters (point, on_comeout, rolls_since_point, etc.)
-      - mode: proxy object reflecting current mode (stringifiable)
-    """
     vs = ctrl.vs
 
     env: Dict[str, Any] = {
