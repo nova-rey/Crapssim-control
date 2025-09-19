@@ -1,0 +1,41 @@
+meta:
+  version: 0
+  name: Martingale Pass (Example)
+table:
+  bubble: false
+  level: 10
+
+variables:
+  units: 10        # current pass-line unit size
+  base: 10         # base unit to reset to on a win
+  mode: Main
+
+modes:
+  Main:
+    template:
+      pass: "units"     # pass-line bet mirrors `units`
+
+rules:
+  # On each comeout, (re)apply the template (ensures pass-line bet is set)
+  - on:
+      event: comeout
+    do:
+      - "apply_template('Main')"
+
+  # If the pass bet loses, bump units by base (simple martingale step)
+  - on:
+      event: bet_resolved
+      bet: pass
+      result: lose
+    do:
+      - "units += base"
+      - "apply_template('Main')"
+
+  # If the pass bet wins, reset units to base
+  - on:
+      event: bet_resolved
+      bet: pass
+      result: win
+    do:
+      - "units = base"
+      - "apply_template('Main')"
