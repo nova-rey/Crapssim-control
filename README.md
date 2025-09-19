@@ -119,3 +119,6 @@ License
 MIT (see LICENSE)
 
 —
+
+**Project policies & release process:** see [`docs/POLICY.md`](docs/POLICY.md) and [`CHANGELOG.md`](CHANGELOG.md).
+—

@@ -26,4 +26,21 @@ All notable changes to this project will be documented here.
 - Batch 5: Live tuning hooks and granular telemetry.
 
 
-⸻
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+
+## [0.1.0] – 2025-09-19
+### Added
+- First public-ready V1: strategy spec validator, rules engine glue, CLI (`crapssim-ctl`).
+- YAML or JSON spec loading, strict validation with friendly errors/warnings.
+- Basic `run` wrapper around CrapsSim (when installed) with result summary.
+- Documentation: `README.md`, `SPEC.md`.
+
+### Changed
+- CLI and logging polish (Batch 18): consistent error text, `-v / -vv` verbosity.
+
+### Deferred (post-V1)
+- Batch 4/5 “feature-flagged” extras (table presets & advanced odds helpers).
