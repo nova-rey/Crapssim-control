@@ -25,21 +25,16 @@ def _good_minimal_spec():
     }
 
 
-def test_cli_run_engine_missing(monkeypatch):
-    # Force CrapsSim import to fail inside the subprocess by masking the package
-    # (Putting None in sys.modules causes import to raise ModuleNotFoundError)
+def test_cli_run_engine_missing():
+    # When crapsim isn't available, CLI should print a friendly error and exit 2.
     spec = _good_minimal_spec()
     path = _write_temp_spec(spec)
 
-    # We can't monkeypatch the child process directly, so rely on the CLI's own
-    # try/except around the crapsim import to surface a friendly message.
-    # Just run it and assert the error output + non-zero code.
     res = subprocess.run(
         [sys.executable, "-m", "crapssim_control", "run", path, "--rolls", "3"],
         capture_output=True,
         text=True,
     )
-    # When crapsim isn't installed, CLI prints a stable error and returns 2
     assert res.returncode == 2
     assert "engine not available" in res.stderr.lower()
     assert "pip install crapssim" in res.stderr.lower()
@@ -49,11 +44,11 @@ def test_cli_run_engine_missing(monkeypatch):
 def test_cli_run_smoke_when_engine_present():
     spec = _good_minimal_spec()
     path = _write_temp_spec(spec)
+    # IMPORTANT: global flags like -v must come before the subcommand
     res = subprocess.run(
-        [sys.executable, "-m", "crapssim_control", "run", path, "--rolls", "5", "-v"],
+        [sys.executable, "-m", "crapssim_control", "-v", "run", path, "--rolls", "5"],
         capture_output=True,
         text=True,
     )
-    # Should succeed and print a RESULT line to stdout
     assert res.returncode == 0
     assert "result:" in res.stdout.lower()
