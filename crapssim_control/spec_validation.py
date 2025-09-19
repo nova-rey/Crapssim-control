@@ -1,147 +1,204 @@
-# crapssim_control/spec_validation.py
-"""
-Compatibility layer so tests can import:
-  - validate_spec(spec) -> List[str]  (empty list means valid)
-  - is_valid_spec(spec) -> bool
-  - assert_valid_spec(spec) -> None or raises SpecValidationError(errors=list[str])
-  - SpecValidationError
+from __future__ import annotations
 
-We delegate to spec_validate.validate_spec(...) which returns (ok, errors, warnings),
-then normalize wording and add a few explicit checks to match tests' expected strings.
-"""
+from typing import Any, Dict, List, Tuple, Optional
 
-from typing import Any, Dict, List
 
-# Real implementation (tuple-returning)
-from .spec_validate import validate_spec as _validate_tuple  # (ok, errors, warnings)
-
+# -------------------------------------------------
+# Public API
+# -------------------------------------------------
 
 class SpecValidationError(Exception):
-    """Raised by assert_valid_spec when the strategy spec is invalid."""
-    def __init__(self, errors: List[str]) -> None:
-        self.errors = list(errors) if errors else []
-        msg = "Spec validation failed:\n" + "\n".join(self.errors) if self.errors else "Spec validation failed."
-        super().__init__(msg)
-
-
-def _normalize_messages(errors: List[str], spec: Dict[str, Any]) -> List[str]:
-    """
-    Adjust message wording to match tests' expectations.
-    - Replace 'top-level key' with 'section'
-    - If modes missing or empty, add a friendly hint containing 'define at least one mode'
-    """
-    out: List[str] = []
-    for e in errors:
-        e2 = e.replace("top-level key", "section")
-        out.append(e2)
-
-    # Friendly hint if modes missing or empty (tests look for 'define at least one mode')
-    modes = spec.get("modes", None)
-    if modes is None or (isinstance(modes, dict) and len(modes) == 0):
-        hint = "You must define at least one mode."
-        if not any("define at least one mode" in s for s in out):
-            out.append(hint)
-
-    return out
-
-
-def _post_checks(spec: Dict[str, Any], messages: List[str]) -> List[str]:
-    """
-    Add/standardize a few messages the tests assert on explicitly, in case the
-    underlying validator is looser or phrases them differently.
-    """
-    errs = list(messages)
-
-    # A) Each mode must have a 'template'
-    modes = spec.get("modes")
-    if isinstance(modes, dict):
-        for name, mode in modes.items():
-            if not isinstance(mode, dict) or "template" not in mode:
-                msg = f"modes['{name}'] is missing required key 'template'"
-                if msg not in errs:
-                    errs.append(msg)
-
-    # B) Template value shapes: allow number/string or {"amount": <num>}; otherwise error string must include phrase
-    if isinstance(modes, dict):
-        for mode in modes.values():
-            tmpl = mode.get("template") if isinstance(mode, dict) else None
-            if isinstance(tmpl, dict):
-                for bet_key, val in tmpl.items():
-                    # allow scalar (int/float/str)
-                    if isinstance(val, (int, float, str)):
-                        continue
-                    # allow dict with 'amount'
-                    if isinstance(val, dict):
-                        if "amount" in val:
-                            continue
-                        # build message with required phrase; tests check substring only
-                        phrase = "must be a number/string or an object with 'amount'"
-                        msg = f"template['{bet_key}'] {phrase}"
-                        if not any(phrase in e for e in errs):
-                            errs.append(msg)
-                    else:
-                        phrase = "must be a number/string or an object with 'amount'"
-                        msg = f"template['{bet_key}'] {phrase}"
-                        if not any(phrase in e for e in errs):
-                            errs.append(msg)
-
-    # C) Rules: on.event must be a string; do[*] must be strings
-    rules = spec.get("rules")
-    if isinstance(rules, list):
-        for rule in rules:
-            if not isinstance(rule, dict):
-                continue
-            on = rule.get("on", {})
-            if isinstance(on, dict) and "event" in on and not isinstance(on.get("event"), str):
-                msg = "on.event must be a string"
-                if msg not in errs:
-                    errs.append(msg)
-
-            do_list = rule.get("do", [])
-            if isinstance(do_list, list):
-                for idx, instr in enumerate(do_list):
-                    if not isinstance(instr, str):
-                        msg = f"do[{idx}] must be a string"
-                        if msg not in errs:
-                            errs.append(msg)
-
-    return errs
-
-
-def validate_spec(spec: Dict[str, Any]) -> List[str]:
-    """
-    Validate the spec and return a LIST of error strings (empty list means valid).
-    We run the underlying tuple validator and then apply normalizations and post-checks.
-    """
-    ok, errors, _warnings = _validate_tuple(spec)  # type: ignore[call-arg]
-    normed = _normalize_messages(list(errors or []), spec)
-    # Run post-checks even if ok==True, so we can add stricter messages the tests expect.
-    final_errs = _post_checks(spec, normed)
-
-    # If the underlying validator said ok and we didn't add any new errors, return [].
-    if ok and not final_errs:
-        return []
-    return final_errs
+    def __init__(self, errors: List[str]):
+        super().__init__("; ".join(errors))
+        self.errors = errors
 
 
 def is_valid_spec(spec: Dict[str, Any]) -> bool:
-    """True when the spec passes validation (i.e., validate_spec(...) returns [])."""
     return len(validate_spec(spec)) == 0
 
 
 def assert_valid_spec(spec: Dict[str, Any]) -> None:
-    """
-    Raise SpecValidationError with .errors (list[str]) if validation fails.
-    Otherwise return None.
-    """
-    errors = validate_spec(spec)
-    if errors:
-        raise SpecValidationError(errors)
+    errs = validate_spec(spec)
+    if errs:
+        raise SpecValidationError(errs)
 
 
-__all__ = [
-    "validate_spec",
-    "assert_valid_spec",
-    "is_valid_spec",
-    "SpecValidationError",
-]
+def validate_spec(spec: Dict[str, Any]) -> List[str]:
+    """
+    Return a flat list of 'hard' validation errors.
+    (Existing tests expect exactly this signature and behavior.)
+    """
+    errors: List[str] = []
+
+    # Required top-level sections
+    for key in ("table", "modes", "rules"):
+        if key not in spec:
+            errors.append(f"Missing required section: '{key}'")
+
+    # variables is optional but if present must be a dict
+    if "variables" in spec and not isinstance(spec["variables"], dict):
+        errors.append("variables must be an object")
+
+    # table
+    if "table" in spec and isinstance(spec["table"], dict):
+        t = spec["table"]
+        if "bubble" in t and not isinstance(t["bubble"], bool):
+            errors.append("table.bubble must be a boolean")
+        if "level" in t:
+            if not _is_number(t["level"]):
+                errors.append("table.level must be a number")
+            elif float(t["level"]) <= 0:
+                errors.append("table.level must be > 0")
+    elif "table" in spec:
+        errors.append("table must be an object")
+
+    # modes
+    if "modes" in spec:
+        modes = spec["modes"]
+        if not isinstance(modes, dict) or not modes:
+            errors.append("You must define at least one mode.")
+        else:
+            for mname, mval in modes.items():
+                if not isinstance(mval, dict):
+                    errors.append(f"modes['{mname}'] must be an object")
+                    continue
+                if "template" not in mval:
+                    errors.append(f"modes['{mname}'] is missing required key 'template'")
+                    continue
+                tmpl = mval["template"]
+                if not isinstance(tmpl, dict):
+                    errors.append(f"modes['{mname}'].template must be an object")
+                    continue
+                # template values may be:
+                # - number (amount),
+                # - string (variable reference),
+                # - object with at least 'amount' number
+                for k, v in tmpl.items():
+                    if isinstance(v, (int, float)):
+                        continue
+                    if isinstance(v, str):
+                        continue
+                    if isinstance(v, dict):
+                        amt = v.get("amount")
+                        if _is_number(amt):
+                            continue
+                    errors.append(
+                        "template values must be a number/string or an object with 'amount'"
+                    )
+
+    # rules
+    if "rules" in spec:
+        rules = spec["rules"]
+        if not isinstance(rules, list):
+            errors.append("rules must be an array")
+        else:
+            for i, r in enumerate(rules):
+                if not isinstance(r, dict):
+                    errors.append(f"rules[{i}] must be an object")
+                    continue
+                on = r.get("on")
+                do = r.get("do")
+                if not isinstance(on, dict):
+                    errors.append(f"rules[{i}].on must be an object")
+                else:
+                    ev = on.get("event")
+                    if not isinstance(ev, str):
+                        errors.append("on.event must be a string")
+                if not isinstance(do, list):
+                    errors.append(f"rules[{i}].do must be an array")
+                else:
+                    for j, step in enumerate(do):
+                        if not isinstance(step, str):
+                            errors.append(f"do[{j}] must be a string")
+
+    # OPTIONAL: table_rules (Batch 2)
+    if "table_rules" in spec and spec.get("table_rules"):
+        errors.extend(_validate_table_rules_block(spec["table_rules"]))
+
+    return errors
+
+
+# -------------------------------------------------
+# Private helpers
+# -------------------------------------------------
+
+def _validate_table_rules_block(tr: Any) -> List[str]:
+    """
+    Validate shape of the optional `table_rules` block.
+    We are lenient: we only error on shape/type problems.
+    Semantics are handled by table_rules.validate_table_rules at runtime.
+    """
+    errs: List[str] = []
+    if not isinstance(tr, dict):
+        return ["table_rules must be an object"]
+
+    # enforcement
+    enf = tr.get("enforcement")
+    if enf is not None and enf not in ("warning", "strict"):
+        errs.append("table_rules.enforcement must be 'warning' or 'strict'")
+
+    # profile (optional string)
+    prof = tr.get("profile")
+    if prof is not None and not isinstance(prof, str):
+        errs.append("table_rules.profile must be a string")
+
+    # max
+    max_blk = tr.get("max")
+    if max_blk is not None and not isinstance(max_blk, dict):
+        errs.append("table_rules.max must be an object")
+    else:
+        if isinstance(max_blk, dict):
+            for k in ("pass", "place", "field"):
+                v = max_blk.get(k)
+                if v is not None and not _is_number(v):
+                    errs.append(f"table_rules.max.{k} must be a number")
+            odds = max_blk.get("odds")
+            if odds is not None:
+                if not isinstance(odds, dict):
+                    errs.append("table_rules.max.odds must be an object")
+                else:
+                    typ = odds.get("type")
+                    if typ is not None and typ not in ("3_4_5x", "flat"):
+                        errs.append("table_rules.max.odds.type must be '3_4_5x' or 'flat'")
+                    if typ == "flat":
+                        mult = odds.get("multiplier")
+                        if mult is not None and not _is_number(mult):
+                            errs.append("table_rules.max.odds.multiplier must be a number")
+
+    # increments
+    inc_blk = tr.get("increments")
+    if inc_blk is not None and not isinstance(inc_blk, dict):
+        errs.append("table_rules.increments must be an object")
+    else:
+        if isinstance(inc_blk, dict):
+            for k in ("pass", "field"):
+                v = inc_blk.get(k)
+                if v is not None and not _is_number(v):
+                    errs.append(f"table_rules.increments.{k} must be a number")
+            place = inc_blk.get("place")
+            if place is not None and not isinstance(place, dict):
+                errs.append("table_rules.increments.place must be an object")
+            elif isinstance(place, dict):
+                for pt, inc in place.items():
+                    if not _is_number(inc):
+                        errs.append(f"table_rules.increments.place.{pt} must be a number")
+
+    # allow
+    allow_blk = tr.get("allow")
+    if allow_blk is not None and not isinstance(allow_blk, dict):
+        errs.append("table_rules.allow must be an object")
+    else:
+        if isinstance(allow_blk, dict):
+            for k, v in allow_blk.items():
+                if not isinstance(v, bool):
+                    errs.append(f"table_rules.allow.{k} must be a boolean")
+
+    return errs
+
+
+def _is_number(x: Any) -> bool:
+    try:
+        float(x)
+        return True
+    except Exception:
+        return False

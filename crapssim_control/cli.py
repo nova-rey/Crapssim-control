@@ -8,10 +8,8 @@ import sys
 from pathlib import Path
 from typing import Any, Dict
 
-from . import __version__
 from .spec_validation import validate_spec
 from .logging_utils import setup_logging
-from .flags import ensure_meta_flags, set_flag
 
 # Optional YAML support
 try:
@@ -47,25 +45,9 @@ def _normalize_validate_result(res):
     return ok, hard_errs, []
 
 
-def _print_failed(errors: list[str]) -> None:
-    """
-    Standardized failure block to stderr, plus legacy-friendly aliases
-    for certain messages that older tests expect.
-    """
-    print("failed validation:", file=sys.stderr)
-    needs_modes_alias = False
-    for e in errors:
-        print(f"- {e}", file=sys.stderr)
-        if "Missing required section: 'modes'" in e:
-            needs_modes_alias = True
-    # Legacy-friendly alias line for tests expecting this exact wording
-    if needs_modes_alias:
-        print("- modes section is required", file=sys.stderr)
-
-
 def _cmd_validate(args: argparse.Namespace) -> int:
     """
-    Output contract (tests rely on this):
+    Keep output format compatible with tests:
       - success -> stdout contains 'OK:' and path
       - failure -> stderr starts with 'failed validation:' and lists bullets
     """
@@ -76,29 +58,38 @@ def _cmd_validate(args: argparse.Namespace) -> int:
         print(f"failed validation:\n- Could not load spec: {e}", file=sys.stderr)
         return 2
 
-    # Record flags if provided (no behavior change; just serialize into the spec)
-    ensure_meta_flags(spec)
-    if args.hot_table:
-        set_flag(spec, "hot_table", True)
-    if args.guardrails:
-        set_flag(spec, "guardrails", True)
-
     res = validate_spec(spec)  # compatible with both return styles
     ok, hard_errs, soft_warns = _normalize_validate_result(res)
     if ok and not hard_errs:
+        # Also run table_rules validation (optional block) but do not fail here;
+        # the CLI 'run' subcommand decides strictness.
+        try:
+            from .table_rules import validate_table_rules
+            tr_res = validate_table_rules(spec)
+            # If there are shape errors in table_rules, treat them as "hard" here too:
+            if tr_res.errors:
+                print("failed validation:", file=sys.stderr)
+                for e in tr_res.errors:
+                    print(f"- {e}", file=sys.stderr)
+                return 2
+        except Exception:
+            # Swallow – table_rules is optional and shouldn't break baseline validation
+            pass
+
         print(f"OK: {spec_path}")
-        if soft_warns and args.verbose:
-            for w in soft_warns:
-                print(f"warn: {w}")
         return 0
 
-    _print_failed(hard_errs)
+    # failed -- print consistent message block to stderr
+    print("failed validation:", file=sys.stderr)
+    for e in hard_errs:
+        print(f"- {e}", file=sys.stderr)
     return 2
 
 
 def _cmd_run(args: argparse.Namespace) -> int:
     """
-    Simple runner around CrapsSim + our strategy.
+    Simple runner around CrapsSim + our strategy. This is intentionally
+    lightweight and resilient: if CrapsSim isn't available, we inform the user.
     """
     setup_logging(args.verbose)
     log = logging.getLogger("crapssim-ctl")
@@ -111,25 +102,43 @@ def _cmd_run(args: argparse.Namespace) -> int:
         print(f"failed: Could not load spec: {e}", file=sys.stderr)
         return 2
 
-    # Persist flags from CLI (no behavior change yet; just serializing)
-    ensure_meta_flags(spec)
-    if args.hot_table:
-        set_flag(spec, "hot_table", True)
-    if args.guardrails:
-        set_flag(spec, "guardrails", True)
-
     # Validate spec (hard errors stop)
     res = validate_spec(spec)
     ok, hard_errs, soft_warns = _normalize_validate_result(res)
     if not ok or hard_errs:
-        _print_failed(hard_errs)
+        print("failed validation:", file=sys.stderr)
+        for e in hard_errs:
+            print(f"- {e}", file=sys.stderr)
         return 2
+
+    # Validate (optional) table_rules block and honor enforcement mode
+    rules_errors: list[str] = []
+    try:
+        from .table_rules import validate_table_rules
+        tr_res = validate_table_rules(spec)
+        rules_errors = tr_res.errors
+        for w in tr_res.warnings:
+            log.warning("table_rules: %s", w)
+
+        enforcement = (tr_res.rules.get("enforcement") if tr_res.rules else "warning") or "warning"
+        if rules_errors:
+            if enforcement == "strict":
+                print("failed validation:", file=sys.stderr)
+                for e in rules_errors:
+                    print(f"- {e}", file=sys.stderr)
+                return 2
+            else:
+                for e in rules_errors:
+                    log.warning("table_rules (non-strict): %s", e)
+    except Exception as e:
+        # If anything goes sideways here, log it but do not fail the run
+        log.debug("table_rules check skipped/failed: %s", e)
 
     if soft_warns:
         for w in soft_warns:
             log.warning("spec warning: %s", w)
 
-    # Import CrapsSim lazily
+    # Import CrapsSim lazily to avoid hard dependency in test-only flows
     try:
         from crapssim.table import Table
         from crapssim.player import Player
@@ -191,9 +200,6 @@ def _build_parser() -> argparse.ArgumentParser:
     # validate
     p_val = sub.add_parser("validate", help="Validate a strategy spec (JSON or YAML)")
     p_val.add_argument("spec", help="Path to spec file")
-    # Feature flags (hard-off by default)
-    p_val.add_argument("--hot-table", action="store_true", help="Enable experimental hot-table scaling (OFF by default)")
-    p_val.add_argument("--guardrails", action="store_true", help="Enable experimental guardrails (OFF by default)")
     p_val.set_defaults(func=_cmd_validate)
 
     # run
@@ -203,9 +209,6 @@ def _build_parser() -> argparse.ArgumentParser:
     p_run.add_argument("--bubble", action="store_true", help="Force bubble table")
     p_run.add_argument("--level", type=int, help="Override table level (min bet)")
     p_run.add_argument("--seed", type=int, help="Seed RNG for reproducibility")
-    # Feature flags (hard-off by default)
-    p_run.add_argument("--hot-table", action="store_true", help="Enable experimental hot-table scaling (OFF by default)")
-    p_run.add_argument("--guardrails", action="store_true", help="Enable experimental guardrails (OFF by default)")
     p_run.set_defaults(func=_cmd_run)
 
     return parser
