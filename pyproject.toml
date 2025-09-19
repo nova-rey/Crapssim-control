@@ -22,3 +22,6 @@ exclude = ["tests*", "specs*"]
 [tool.setuptools.package-data]
 # If you ship data inside the package folder, list it here.
 crapssim_control = ["**/*.yml", "**/*.yaml", "**/*.json", "**/*.md"]
+
+[project.scripts]
+crapssim-ctl = "crapssim_control.cli:main"
