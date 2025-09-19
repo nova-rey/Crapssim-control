@@ -130,7 +130,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
     # Import CrapsSim lazily to avoid hard dependency in test-only flows
     try:
         from crapssim.table import Table
-        from crapssim.player import Player
+        from crapssim import Player Player
         from crapssim.dice import Dice
     except Exception as e:  # pragma: no cover
         log.error("CrapsSim engine not available: %s", e)
