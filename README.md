@@ -1,49 +1,121 @@
 # Crapssim-Control
 
-**Runtime for conditional craps strategies.**
+A small control layer and CLI to define, validate, and run Craps betting strategies
+against the CrapsSim engine.
 
-Crapssim-Control is a small Python library that executes rule-based strategy specs (JSON) on top of [CrapsSim](https://github.com/skent259/crapssim). It enables conditional logic (martingale, regression, mode switching) that the static v1 exporter cannot express.
+- Validate a strategy spec (JSON **or** YAML).
+- Run a simulation with your spec and get a quick result line.
+- Keep your spec readable with variables, modes (templates), and rules.
 
-—
+## Install
 
-## Features
+```bash
+pip install -e .
+# (Optional engine for ‘run’): 
+pip install “git+https://github.com/skent259/crapssim.git”
 
-- Event-driven rule engine (comeout, point established, rolls, seven-out, bet resolved, shooter change).
-- Variable store with safe expression evaluation.
-- Mode + template system for declarative bet layouts.
-- Bet legalization consistent with real craps tables (bubble and standard).
-- Odds support (Pass, Don’t Pass, Come, Don’t Come).
-- Structured tests (pytest) and CI integration.
-- Compatible with JSON specs exported from **crapssim-compiler** (Node-RED builder).
+CLI
 
-—
+The tool installs as crapssim-ctl and can also be launched via python -m crapssim_control.
 
-## Example
+crapssim-ctl -h
 
-Strategy spec (JSON):
+Validate a spec
 
-```json
+crapssim-ctl validate path/to/spec.json
+# or
+python -m crapssim_control validate path/to/spec.yaml
+
+Success prints to stdout:
+
+OK: path/to/spec.json
+
+Failures print to stderr:
+
+failed validation:
+- Missing required section: ‘modes’
+- You must define at least one mode.
+
+Use -v/-vv for more verbose logging (mostly relevant to run):
+
+crapssim-ctl -v validate examples/minimal.json
+
+Run a quick simulation
+
+Requires the CrapsSim engine.
+
+crapssim-ctl -v run examples/minimal.json —rolls 200 —seed 123
+
+Output (stdout) ends with a summary line:
+
+RESULT: rolls=200 bankroll=1012.00
+
+If the CrapsSim engine isn’t installed or available, you’ll get a helpful error:
+
+failed: CrapsSim engine not available (pip install crapssim).
+
+Spec format (quick tour)
+
+A spec is a JSON or YAML object with:
+	•	meta (optional): name, version
+	•	table: { bubble: bool, level: int }
+	•	variables: named values used in templates/rules (e.g. units, mode)
+	•	modes: named templates mapping bet types to stake/objects
+	•	rules: list of rule objects { “on”: {...}, “do”: [ ... ] }
+
+Example (JSON):
+
 {
-  “meta”: { “version”: 0, “name”: “RegressionDemo” },
-  “table”: { “bubble”: false, “level”: 10 },
-
-  “variables”: { “units”: 5, “mode”: “Aggressive”, “rolls_since_point”: 0 },
-
+  “meta”: {“version”: 0, “name”: “Minimal”},
+  “table”: {“bubble”: false, “level”: 10},
+  “variables”: {“units”: 10, “mode”: “Main”},
   “modes”: {
-    “Aggressive”: {
+    “Main”: {
       “template”: {
-        “pass”: “units”,
-        “place”: { “6”: “units*2”, “8”: “units*2” }
+        “pass”: “units”
       }
-    },
-    “Regressed”: {
-      “template”: { “pass”: “units”, “place”: { “6”: “units”, “8”: “units” } }
     }
   },
-
   “rules”: [
-    { “on”: { “event”: “point_established” }, “do”: [“rolls_since_point = 0”, “apply_template(‘Aggressive’)”] },
-    { “on”: { “event”: “roll” }, “do”: [“rolls_since_point += 1”] },
-    { “on”: { “event”: “roll” }, “if”: “rolls_since_point >= 3”, “do”: [“mode = ‘Regressed’”, “apply_template(mode)”] }
+    {“on”: {“event”: “comeout”}, “do”: [“apply_template(‘Main’)”]}
   ]
 }
+
+The same in YAML (optional):
+
+meta: {version: 0, name: Minimal}
+table: {bubble: false, level: 10}
+variables: {units: 10, mode: Main}
+modes:
+  Main:
+    template:
+      pass: units
+rules:
+  - on: {event: comeout}
+    do: [“apply_template(‘Main’)”]
+
+See SPEC.md for the full schema and examples.
+
+Logging & verbosity
+	•	-v sets INFO level logs, -vv sets DEBUG.
+	•	Validation messages follow a fixed format so they’re easy to parse.
+	•	Run’s logs (INFO/DEBUG) go to stderr; the final RESULT: line goes to stdout.
+
+Examples
+	•	examples/minimal.json
+	•	examples/minimal.yaml
+
+Policy & rules sanity checks
+
+We maintain a short checklist of common table policies we aim to respect in specs/rules.
+See docs/RULES_CHECKLIST.md.
+
+Roadmap
+	•	V1: ✅
+	•	Batch 4 & 5 (feature flagged levers + live tuning hooks): post-V1, per plan.
+
+License
+
+MIT (see LICENSE)
+
+—
