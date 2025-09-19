@@ -1,0 +1,39 @@
+{
+  "meta": { "name": "6/8 Regress After 3 Rolls (example)", "version": 0 },
+  "table": { "bubble": false, "level": 10, "odds_policy": "3-4-5x" },
+  "variables": { "units": 10, "mode": "Aggressive", "rolls_since_point": 0, "point": null },
+  "modes": {
+    "Aggressive": {
+      "template": {
+        "pass_line": "units",
+        "place_6": 6,
+        "place_8": 6,
+        "place_5": 5
+      }
+    },
+    "Regressed": {
+      "template": {
+        "pass_line": "units"
+      }
+    }
+  },
+  "rules": [
+    { "on": { "event": "comeout" }, "do": [ "rolls_since_point = 0" ] },
+
+    { "on": { "event": "point_established" },
+      "do": [
+        "point = point",
+        "rolls_since_point = 0",
+        "apply_template('Aggressive')"
+      ] },
+
+    { "on": { "event": "roll" },
+      "do": [
+        "rolls_since_point += 1",
+        "if rolls_since_point >= 3: apply_template('Regressed')"
+      ] },
+
+    { "on": { "event": "seven_out" },
+      "do": [ "point = None", "rolls_since_point = 0" ] }
+  ]
+}

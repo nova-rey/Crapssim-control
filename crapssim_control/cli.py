@@ -1,92 +1,121 @@
-# crapssim_control/cli.py
+"""
+Simple CLI to run a Craps strategy spec with the CrapsSim engine.
+
+Usage (after pip install -e .):
+  crapssim-ctl --spec examples/martingale_pass.json --rolls 200
+
+This stays out of the test path and doesn’t change library behavior.
+"""
 from __future__ import annotations
 
 import argparse
 import json
+import pathlib
 import sys
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
-from .controller import ControlStrategy
-from .spec import validate_spec
+try:
+    import crapssim as cs  # Engine
+except Exception as e:  # pragma: no cover - CLI only
+    cs = None
+    _ENGINE_IMPORT_ERR = e
+else:
+    _ENGINE_IMPORT_ERR = None
+
+from .controller import ControlStrategy  # our strategy driver
+from .engine_adapter import EngineAdapter
+from .spec_validation import assert_valid_spec
 
 
-def _load_spec(path: str) -> Dict[str, Any]:
-    with open(path, "r", encoding="utf-8") as f:
+def _load_spec(path: str | pathlib.Path) -> Dict[str, Any]:
+    p = pathlib.Path(path)
+    if not p.exists():
+        raise FileNotFoundError(f"Spec file not found: {p}")
+
+    # JSON only (no extra deps). If you want YAML later, feel free to add PyYAML.
+    with p.open("r", encoding="utf-8") as f:
         return json.load(f)
 
 
-def _cmd_validate(args: argparse.Namespace) -> int:
-    spec = _load_spec(args.spec)
-    ok, errors = validate_spec(spec)
-    if ok:
-        print("OK: spec is valid.")
-        return 0
-    else:
-        msg = "Failed validation: " + "; ".join(errors) if errors else "Failed validation."
-        print(msg, file=sys.stderr)
-        return 2
+def _build_table(bubble: bool, level: int, seed: Optional[int]) -> Any:
+    """
+    Build a minimal CrapsSim table + one player.
+    We keep this tiny and only use stable surface area.
+    """
+    if cs is None:  # pragma: no cover
+        raise RuntimeError(
+            "CrapsSim engine not available. "
+            f"Import error: {_ENGINE_IMPORT_ERR!r}"
+        )
+
+    rng = cs.Random(seed) if seed is not None else cs.Random()
+    rules = cs.TableRules()  # default 3-4-5 odds
+    table = cs.Table(rules=rules, rng=rng, bubble=bubble, min_bet=level)
+    return table
 
 
-def _cmd_run(args: argparse.Namespace) -> int:
-    # Defer import so that validate can run without engine installed
-    try:
-        import crapssim as cs  # type: ignore
-    except Exception:
-        print("Error: CrapsSim engine not available. Install with: pip install crapssim", file=sys.stderr)
-        return 2
+def run_once(spec_path: str, *, rolls: int, bubble: bool, level: int, seed: Optional[int]) -> Dict[str, Any]:
+    spec = _load_spec(spec_path)
+    # Validate (raises with helpful message if not valid)
+    assert_valid_spec(spec)
 
-    spec = _load_spec(args.spec)
-    ok, errs = validate_spec(spec)
-    if not ok:
-        print("Failed validation: " + "; ".join(errs), file=sys.stderr)
-        return 2
+    # Build engine objects
+    table = _build_table(bubble=bubble, level=level, seed=seed)
+    player = cs.Player("You")  # type: ignore[attr-defined]  # pragma: no cover in tests
 
-    # Build engine table/player and run a tiny session
-    table = cs.Table()
-    player = cs.Player()
-    table.add_player(player)
+    table.add_player(player)   # type: ignore[operator]      # pragma: no cover in tests
 
+    # Wire strategy
     strat = ControlStrategy(spec)
+    adapter = EngineAdapter(table, player, strat)
 
-    # Minimal drive loop (shooters argument respected)
-    shooters = int(getattr(args, "shooters", 1) or 1)
-    for _ in range(shooters):
-        table.new_shooter()
-        # One comeout observation so strategies can stage
-        strat.update_bets(table)
-        # Throw a few rolls to smoke-test integration
-        for _ in range(3):
-            table.roll()
-            strat.after_roll(table)
-            strat.update_bets(table)
+    # Warmup: send a comeout to seed any template-on-comeout rules
+    if hasattr(strat, "handle_event"):
+        strat.handle_event({"type": "comeout"}, current_bets={})
 
-    # Exit cleanly
+    # Play N rolls with our adapter (no external engine loop needed)
+    adapter.play(shooters=1, max_rolls=rolls)
+
+    # Summarize
+    bankroll = getattr(player, "bankroll", None)
+    stats = {
+        "rolls": rolls,
+        "final_bankroll": float(bankroll) if bankroll is not None else None,
+        "bubble": bubble,
+        "table_level": level,
+        "seed": seed,
+    }
+    return stats
+
+
+def main(argv: Optional[list[str]] = None) -> int:  # pragma: no cover - CLI entry
+    parser = argparse.ArgumentParser(
+        prog="crapssim-ctl",
+        description="Run a Craps strategy spec with the CrapsSim engine."
+    )
+    parser.add_argument("--spec", required=True, help="Path to a JSON spec file.")
+    parser.add_argument("--rolls", type=int, default=200, help="Number of rolls to run (default: 200).")
+    parser.add_argument("--bubble", action="store_true", help="Run on a bubble table (default: False).")
+    parser.add_argument("--level", type=int, default=10, help="Table minimum in dollars (default: 10).")
+    parser.add_argument("--seed", type=int, default=None, help="Random seed for reproducibility.")
+
+    args = parser.parse_args(argv)
+
+    try:
+        result = run_once(
+            args.spec,
+            rolls=args.rolls,
+            bubble=args.bubble,
+            level=args.level,
+            seed=args.seed,
+        )
+    except Exception as e:
+        print(f"[crapssim-ctl] Error: {e}", file=sys.stderr)
+        return 1
+
+    print(json.dumps(result, indent=2))
     return 0
 
 
-def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="crapssim_control")
-    sub = p.add_subparsers(dest="cmd", required=True)
-
-    # validate
-    pv = sub.add_parser("validate", help="Validate a strategy spec JSON")
-    pv.add_argument("spec", help="Path to strategy spec JSON")
-    pv.set_defaults(func=_cmd_validate)
-
-    # run (engine smoke)
-    pr = sub.add_parser("run", help="Run a short smoke test with CrapsSim engine")
-    pr.add_argument("spec", help="Path to strategy spec JSON")
-    pr.add_argument("--shooters", type=int, default=1, help="Number of shooters to simulate (default: 1)")
-    pr.set_defaults(func=_cmd_run)
-
-    return p
-
-
-def main(argv: Any = None) -> int:
-    parser = build_parser()
-    args = parser.parse_args(argv)
-    return args.func(args)
-
-
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(main())
