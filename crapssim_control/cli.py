@@ -100,9 +100,8 @@ def _cmd_validate(args: argparse.Namespace) -> int:
 
 def _cmd_run(args: argparse.Namespace) -> int:
     """
-    Simple runner around CrapsSim + our strategy. This is intentionally
-    lightweight and resilient: if CrapsSim isn't available or incompatible,
-    we inform the user and exit 2 (as tests expect).
+    Simple runner around CrapsSim + our strategy. If CrapsSim isn't available
+    or is incompatible, print a single standardized message and exit 2.
     """
     setup_logging(args.verbose)
     log = logging.getLogger("crapssim-ctl")
@@ -129,12 +128,12 @@ def _cmd_run(args: argparse.Namespace) -> int:
             log.warning("spec warning: %s", w)
 
     # ---- Safe CrapsSim imports & wrappers ----------------------------------
-    # Standard message helper (keeps phrasing identical everywhere)
     def _engine_unavailable(reason: str | Exception = "missing or incompatible engine") -> int:
+        # Standardized phrase so tests always match this text.
         msg = "CrapsSim engine not available (pip install crapssim)."
-        # Include reason in logs for humans, but keep user-facing stderr minimal
         log.error("%s Reason: %s", msg, reason)
         print(f"failed: {msg}", file=sys.stderr)
+        sys.stderr.flush()
         return 2
 
     # Import Player
@@ -230,11 +229,13 @@ def _cmd_run(args: argparse.Namespace) -> int:
     dice = _Dice(seed=seed) if _Dice is not None else None
     table = _make_table(bubble=bubble, level=level, dice=dice)
     if table is None:
-        return 2
+        # Ensure the standardized message is printed even if constructor returned None silently
+        return _engine_unavailable("Table construction failed")
 
     player = _make_player(table)
     if player is None:
-        return 2
+        # Ensure the standardized message is printed even if creation returned None silently
+        return _engine_unavailable("Player creation/attach failed")
 
     strat = ControlStrategy(spec)
     adapter = EngineAdapter(table, player, strat)
