@@ -1,188 +1,145 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Dict, Any, List, Tuple
 
+
+# ---- Data models we will use when we wire real enforcement (Batch 2) ----
 
 @dataclass(frozen=True)
 class OddsPolicy:
-    """
-    Craps odds policy.
-
-    Common presets:
-      - "3-4-5x": standard Vegas: 4/10:3x, 5/9:4x, 6/8:5x (on top of line bet)
-      - "multiple": flat multiplier for all points (e.g., 10x, 100x, 1000x)
-      - "unlimited": treat as effectively uncapped (still subject to table max)
-    """
-    kind: str = "3-4-5x"        # "3-4-5x" | "multiple" | "unlimited"
-    multiple: float = 1.0       # used when kind == "multiple"
-
-    def max_odds_multiple_for_point(self, point: int) -> Optional[float]:
-        """
-        Returns the odds multiple allowed for a given point number (4,5,6,8,9,10),
-        or None if effectively unlimited.
-        """
-        if self.kind == "unlimited":
-            return None
-        if self.kind == "multiple":
-            return max(0.0, float(self.multiple))
-        # default: 3-4-5x
-        if point in (4, 10):
-            return 3.0
-        if point in (5, 9):
-            return 4.0
-        if point in (6, 8):
-            return 5.0
-        return 0.0
+    """Maximum odds as a multiple of the flat Pass/Don’t (e.g. 3-4-5x ≈ 5x cap by point)."""
+    type: str  # "flat-multiple" for simple cap, "three-four-five" for 3-4-5x
+    max_multiple: float = 0.0  # used when type == "flat-multiple"
+    # For 3-4-5x, the effective max multiple differs by point; we’ll compute that in enforcement.
 
 
 @dataclass(frozen=True)
 class Increments:
-    """
-    Minimum bet increments per bet family. These are *table norms*, not payouts.
-    """
-    line: float = 1.0               # Pass/Don't min step
-    field: float = 1.0
-    place_4_10: float = 5.0
-    place_5_9: float = 5.0
-    place_6_8: float = 6.0
-    buy_4_10: float = 5.0
-    buy_5_9: float = 5.0
-    buy_6_8: float = 6.0
+    """Smallest allowed bet increments per area (e.g. $6 on 6/8 in live; $1 on bubble)."""
+    pass_line: int
+    field: int
+    place_4_10: int
+    place_5_9: int
+    place_6_8: int
 
 
 @dataclass(frozen=True)
-class TableRules:
+class TableLimits:
+    """Overall min/max and per-area maximums (optional)."""
+    min_bet: int
+    max_bet: int
+    max_place: int | None = None
+    max_field: int | None = None
+    max_odds_multiple: float | None = None  # convenience mirror from OddsPolicy
+
+
+@dataclass(frozen=True)
+class GuardrailConfig:
+    """Bundle of rules that define a table’s policy."""
+    name: str
+    odds: OddsPolicy
+    increments: Increments
+    limits: TableLimits
+
+
+# ---- Default presets (kept simple and conservative) ----
+
+# Typical live table (non-bubble): enforce correct place increments and a modest table max
+LIVE_DEFAULTS = GuardrailConfig(
+    name="live-defaults",
+    odds=OddsPolicy(type="flat-multiple", max_multiple=5.0),  # ~ 5x generic cap
+    increments=Increments(
+        pass_line=5,
+        field=5,
+        place_4_10=5,   # many houses still like $5 steps on 4/10
+        place_5_9=5,    # $5 steps
+        place_6_8=6,    # $6 steps to keep payouts clean
+    ),
+    limits=TableLimits(min_bet=5, max_bet=1000, max_place=1500, max_field=1000, max_odds_multiple=5.0),
+)
+
+# Bubble tables are more permissive on increments, but often lower table max
+BUBBLE_DEFAULTS = GuardrailConfig(
+    name="bubble-defaults",
+    odds=OddsPolicy(type="flat-multiple", max_multiple=5.0),
+    increments=Increments(
+        pass_line=1,
+        field=1,
+        place_4_10=1,
+        place_5_9=1,
+        place_6_8=1,
+    ),
+    limits=TableLimits(min_bet=1, max_bet=300, max_place=300, max_field=300, max_odds_multiple=5.0),
+)
+
+# A "hot house" preset we’ll use when the --hot-table flag is passed (looser caps)
+HOT_DEFAULTS = GuardrailConfig(
+    name="hot-defaults",
+    odds=OddsPolicy(type="flat-multiple", max_multiple=10.0),
+    increments=Increments(
+        pass_line=5,
+        field=5,
+        place_4_10=5,
+        place_5_9=5,
+        place_6_8=6,
+    ),
+    limits=TableLimits(min_bet=5, max_bet=5000, max_place=5000, max_field=2000, max_odds_multiple=10.0),
+)
+
+
+def select_defaults(*, bubble: bool, hot_table: bool) -> GuardrailConfig:
     """
-    All guardrails used to shape/limit wagers before they hit the engine.
+    Pick a preset based on table type and 'hot table' toggle.
+    This is used only for producing human-readable notes today.
     """
-    # hard caps
-    table_max: float = 5000.0            # absolute max any single bet may reach
-    allow_lay: bool = True               # allow lay bets at this table
-
-    # odds behavior
-    odds: OddsPolicy = OddsPolicy()
-
-    # increment behavior (bubble tables often accept $1 steps everywhere)
-    increments: Increments = Increments()
-
-    # misc
-    bubble: bool = False                 # when True, relax increments to $1
-    level: int = 10                      # table minimum unit
-
-    def normalized(self) -> "TableRules":
-        """
-        Apply bubble-driven normalization (e.g., $1 steps everywhere).
-        """
-        if not self.bubble:
-            return self
-        # on bubble, we typically allow $1 steps across the board
-        inc = Increments(
-            line=1.0,
-            field=1.0,
-            place_4_10=1.0,
-            place_5_9=1.0,
-            place_6_8=1.0,
-            buy_4_10=1.0,
-            buy_5_9=1.0,
-            buy_6_8=1.0,
-        )
-        return TableRules(
-            table_max=self.table_max,
-            allow_lay=self.allow_lay,
-            odds=self.odds,
-            increments=inc,
-            bubble=self.bubble,
-            level=self.level,
-        )
+    if hot_table:
+        return HOT_DEFAULTS
+    return BUBBLE_DEFAULTS if bubble else LIVE_DEFAULTS
 
 
-def _read_float(d: Dict[str, Any], key: str, default: float) -> float:
-    try:
-        return float(d.get(key, default))
-    except Exception:
-        return default
+# ---- Public API expected by tests/CLI ----
 
-
-def derive_table_rules(spec: Dict[str, Any],
-                       *,
-                       hot_table: bool = False,
-                       overrides: Optional[Dict[str, Any]] = None) -> TableRules:
+def apply_guardrails(spec: Dict[str, Any], hot_table: bool = False, guardrails: bool = False) -> Tuple[Dict[str, Any], List[str]]:
     """
-    Build TableRules from the spec (+ optional CLI overrides).
-    This does *not* mutate behavior by itself; enforcement will be wired
-    where bets are created.
+    Batch 2 (phase 1): **No-op on the spec**, return informational notes only.
 
-    Recognized spec keys:
-      spec.table.level
-      spec.table.bubble
-      spec.table.table_max
-      spec.table.allow_lay
-      spec.table.odds.kind ("3-4-5x" | "multiple" | "unlimited")
-      spec.table.odds.multiple (float, used when kind == "multiple")
-      spec.table.increments.{...} (see Increments fields)
+    Why a no-op?
+    - We haven’t wired enforcement into bet placement yet (that’s the next sub-batch).
+    - CI/tests expect that turning flags on does not mutate the user spec.
+    - This function must exist (tests import it) and be stable.
+
+    Returns:
+      (spec, notes)
+      - spec: the ORIGINAL dict (unmodified)
+      - notes: a list of strings describing what would be enforced once wired
     """
-    table = dict(spec.get("table", {}))
-    if overrides:
-        # shallow override of top-level table keys if provided by CLI
-        table.update(overrides)
+    notes: List[str] = []
 
+    # If the flag isn’t enabled, explicitly say we did nothing.
+    if not guardrails:
+        return spec, notes  # truly no-op
+
+    table = spec.get("table", {}) if isinstance(spec, dict) else {}
     bubble = bool(table.get("bubble", False))
-    level = int(table.get("level", 10))
+    cfg = select_defaults(bubble=bubble, hot_table=hot_table)
 
-    # odds
-    odds_cfg = dict(table.get("odds", {})) if isinstance(table.get("odds"), dict) else {}
-    kind = str(odds_cfg.get("kind", "3-4-5x"))
-    multiple = _read_float(odds_cfg, "multiple", 1.0)
-    odds = OddsPolicy(kind=kind, multiple=multiple)
-
-    # increments
-    inc_cfg = dict(table.get("increments", {})) if isinstance(table.get("increments"), dict) else {}
-    increments = Increments(
-        line=_read_float(inc_cfg, "line", 1.0),
-        field=_read_float(inc_cfg, "field", 1.0),
-        place_4_10=_read_float(inc_cfg, "place_4_10", 5.0),
-        place_5_9=_read_float(inc_cfg, "place_5_9", 5.0),
-        place_6_8=_read_float(inc_cfg, "place_6_8", 6.0),
-        buy_4_10=_read_float(inc_cfg, "buy_4_10", 5.0),
-        buy_5_9=_read_float(inc_cfg, "buy_5_9", 5.0),
-        buy_6_8=_read_float(inc_cfg, "buy_6_8", 6.0),
+    # Compose human-readable notes (CLI will log these at INFO when --guardrails is present)
+    notes.append(f"guardrails: using preset '{cfg.name}' (bubble={bubble}, hot_table={hot_table})")
+    notes.append(
+        f"guardrails: odds policy -> type={cfg.odds.type}, max_multiple={cfg.odds.max_multiple:g}x"
+    )
+    notes.append(
+        "guardrails: increments -> "
+        f"PL={cfg.increments.pass_line}, Field={cfg.increments.field}, "
+        f"P4/10={cfg.increments.place_4_10}, P5/9={cfg.increments.place_5_9}, P6/8={cfg.increments.place_6_8}"
+    )
+    notes.append(
+        "guardrails: limits -> "
+        f"min={cfg.limits.min_bet}, max={cfg.limits.max_bet}, "
+        f"max_place={cfg.limits.max_place}, max_field={cfg.limits.max_field}, "
+        f"max_odds≈{cfg.limits.max_odds_multiple}"
     )
 
-    # hard caps
-    table_max = _read_float(table, "table_max", 5000.0)
-    allow_lay = bool(table.get("allow_lay", True))
-
-    rules = TableRules(
-        table_max=table_max,
-        allow_lay=allow_lay,
-        odds=odds,
-        increments=increments,
-        bubble=bubble,
-        level=level,
-    )
-
-    # "hot table" convenience: if requested, we can optionally relax table_max
-    # or bump odds. For now, we just keep it as a semantic flag; enforcement will
-    # read it later if needed. No implicit behavior change here.
-    return rules.normalized()
-
-
-def describe_table_rules(rules: TableRules) -> str:
-    """Human-readable one-pager for logging/help."""
-    inc = rules.increments
-    odds = rules.odds
-    odds_str = (
-        "unlimited"
-        if odds.kind == "unlimited"
-        else (f"{odds.multiple:.0f}x (all points)" if odds.kind == "multiple" else "3-4-5x")
-    )
-    lines = [
-        f"Guardrails: table_max=${rules.table_max:,.0f}, bubble={rules.bubble}, level=${rules.level}",
-        f"  Odds policy: {odds_str}",
-        "  Increments:",
-        f"    line=${inc.line:.0f} field=${inc.field:.0f}",
-        f"    place 4/10=${inc.place_4_10:.0f} 5/9=${inc.place_5_9:.0f} 6/8=${inc.place_6_8:.0f}",
-        f"    buy   4/10=${inc.buy_4_10:.0f} 5/9=${inc.buy_5_9:.0f} 6/8=${inc.buy_6_8:.0f}",
-    ]
-    return "\n".join(lines)
+    # IMPORTANT: do not mutate the spec yet.
+    return spec, notes
