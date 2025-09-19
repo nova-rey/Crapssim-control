@@ -6,7 +6,7 @@ import logging
 import random
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List
 
 from .spec_validation import validate_spec
 from .logging_utils import setup_logging
@@ -66,7 +66,11 @@ def _cmd_validate(args: argparse.Namespace) -> int:
     if getattr(args, "guardrails", False):
         try:
             from .guardrails import apply_guardrails  # lazy import
-            _spec2, note_lines = apply_guardrails(spec, hot_table=getattr(args, "hot_table", False), guardrails=True)
+            _spec2, note_lines = apply_guardrails(
+                spec,
+                hot_table=getattr(args, "hot_table", False),
+                guardrails=True,
+            )
             notes.extend(note_lines)
         except Exception:
             # Notes are optional; do not fail validation because of them
@@ -187,7 +191,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p_val.add_argument("spec", help="Path to spec file")
     # pass-through flags used for planning/notes (no enforcement yet)
     p_val.add_argument("--hot-table", action="store_true", dest="hot_table",
-                       help="Plan with "hot table" defaults (no behavior change yet)")
+                       help='Plan with "hot table" defaults (no behavior change yet)')
     p_val.add_argument("--guardrails", action="store_true",
                        help="Print guardrail planning notes (no behavior change yet)")
     p_val.set_defaults(func=_cmd_validate)
