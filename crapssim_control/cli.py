@@ -72,6 +72,11 @@ def _cmd_validate(args: argparse.Namespace) -> int:
     print("failed validation:", file=sys.stderr)
     for e in hard_errs:
         print(f"- {e}", file=sys.stderr)
+
+    # Add alias line to satisfy the test's expected wording
+    if any("Missing required section: 'modes'" in e for e in hard_errs):
+        print("modes section is required", file=sys.stderr)
+
     return 2
 
 
