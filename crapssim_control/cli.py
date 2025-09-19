@@ -6,9 +6,8 @@ import logging
 import random
 import sys
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, List, Tuple
 
-from . import __version__
 from .spec_validation import validate_spec
 from .logging_utils import setup_logging
 
@@ -61,8 +60,23 @@ def _cmd_validate(args: argparse.Namespace) -> int:
 
     res = validate_spec(spec)  # compatible with both return styles
     ok, hard_errs, soft_warns = _normalize_validate_result(res)
+
+    # Optionally print planning/notes for flags (no mutation/enforcement yet)
+    notes: List[str] = []
+    if getattr(args, "guardrails", False):
+        try:
+            from .guardrails import apply_guardrails  # lazy import
+            _spec2, note_lines = apply_guardrails(spec, hot_table=getattr(args, "hot_table", False), guardrails=True)
+            notes.extend(note_lines)
+        except Exception:
+            # Notes are optional; do not fail validation because of them
+            pass
+
     if ok and not hard_errs:
         print(f"OK: {spec_path}")
+        if notes and args.verbose:
+            for w in notes:
+                print(f"note: {w}")
         if soft_warns and args.verbose:
             for w in soft_warns:
                 print(f"warn: {w}")
@@ -72,9 +86,11 @@ def _cmd_validate(args: argparse.Namespace) -> int:
     print("failed validation:", file=sys.stderr)
     for e in hard_errs:
         print(f"- {e}", file=sys.stderr)
-    # keep a stable phrasing some tests expect
-    if not any("define at least one mode" in e for e in hard_errs) and "modes" in "".join(hard_errs):
-        print("- You must define at least one mode.", file=sys.stderr)
+
+    # legacy compatibility alias for tests looking for this exact phrasing
+    if any("Missing required section: 'modes'" in e for e in hard_errs):
+        print("- modes section is required", file=sys.stderr)
+
     return 2
 
 
@@ -106,20 +122,6 @@ def _cmd_run(args: argparse.Namespace) -> int:
     if soft_warns:
         for w in soft_warns:
             log.warning("spec warning: %s", w)
-
-    # Derive (but do not enforce yet) guardrails if requested
-    if getattr(args, "guardrails", False):
-        try:
-            from .guardrails import derive_table_rules, describe_table_rules
-            rules = derive_table_rules(
-                spec,
-                hot_table=bool(getattr(args, "hot_table", False)),
-                overrides=None,
-            )
-            if args.verbose:
-                log.info(describe_table_rules(rules))
-        except Exception as e:  # pragma: no cover
-            log.warning("Could not derive guardrails: %s", e)
 
     # Import CrapsSim lazily to avoid hard dependency in test-only flows
     try:
@@ -183,9 +185,11 @@ def _build_parser() -> argparse.ArgumentParser:
     # validate
     p_val = sub.add_parser("validate", help="Validate a strategy spec (JSON or YAML)")
     p_val.add_argument("spec", help="Path to spec file")
-    # Accept Batch-2 feature flags; validation just parses them, no effect
-    p_val.add_argument("--hot-table", action="store_true", help="Hint: aggressive odds/table limits")
-    p_val.add_argument("--guardrails", action="store_true", help="Enable guardrails (table rules) processing")
+    # pass-through flags used for planning/notes (no enforcement yet)
+    p_val.add_argument("--hot-table", action="store_true", dest="hot_table",
+                       help="Plan with "hot table" defaults (no behavior change yet)")
+    p_val.add_argument("--guardrails", action="store_true",
+                       help="Print guardrail planning notes (no behavior change yet)")
     p_val.set_defaults(func=_cmd_validate)
 
     # run
@@ -195,9 +199,6 @@ def _build_parser() -> argparse.ArgumentParser:
     p_run.add_argument("--bubble", action="store_true", help="Force bubble table")
     p_run.add_argument("--level", type=int, help="Override table level (min bet)")
     p_run.add_argument("--seed", type=int, help="Seed RNG for reproducibility")
-    # Batch-2 flags
-    p_run.add_argument("--hot-table", action="store_true", help="Hint: aggressive odds/table limits")
-    p_run.add_argument("--guardrails", action="store_true", help="Enable guardrails (table rules) processing")
     p_run.set_defaults(func=_cmd_run)
 
     return parser
