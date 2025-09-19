@@ -3,6 +3,7 @@ import sys
 import subprocess
 import tempfile
 from pathlib import Path
+import importlib
 import pytest
 
 
@@ -13,7 +14,7 @@ def _write_temp_spec(spec: dict) -> str:
 
 
 def _good_minimal_spec():
-    # Matches shape used in validate tests; enough for CLI run to parse & validate
+    # Minimal, valid shape for both validate and run
     return {
         "meta": {"version": 0, "name": "Test"},
         "table": {"bubble": False, "level": 10},
@@ -25,8 +26,30 @@ def _good_minimal_spec():
     }
 
 
+def _engine_available() -> bool:
+    """
+    Return True only if CrapsSim is installed with the exact submodules
+    the CLI needs: table.Table, player.Player, dice.Dice.
+    """
+    try:
+        tbl = importlib.import_module("crapssim.table")
+        ply = importlib.import_module("crapssim.player")
+        dce = importlib.import_module("crapssim.dice")
+        # sanity check attributes
+        getattr(tbl, "Table")
+        getattr(ply, "Player")
+        getattr(dce, "Dice")
+        return True
+    except Exception:
+        return False
+
+
 def test_cli_run_engine_missing():
-    # When crapsim isn't available, CLI should print a friendly error and exit 2.
+    # When crapsim isn't available (or is incomplete), CLI should print a friendly
+    # error and exit 2.
+    if _engine_available():
+        pytest.skip("Engine present; this case is covered by the smoke test below.")
+
     spec = _good_minimal_spec()
     path = _write_temp_spec(spec)
 
@@ -40,11 +63,11 @@ def test_cli_run_engine_missing():
     assert "pip install crapssim" in res.stderr.lower()
 
 
-@pytest.mark.skipif(pytest.importorskip("crapssim", reason="CrapsSim not installed") is None, reason="Skipped: CrapsSim not installed")
+@pytest.mark.skipif(not _engine_available(), reason="CrapsSim (table/player/dice) not fully available")
 def test_cli_run_smoke_when_engine_present():
     spec = _good_minimal_spec()
     path = _write_temp_spec(spec)
-    # IMPORTANT: global flags like -v must come before the subcommand
+    # Global flags must precede the subcommand
     res = subprocess.run(
         [sys.executable, "-m", "crapssim_control", "-v", "run", path, "--rolls", "5"],
         capture_output=True,
