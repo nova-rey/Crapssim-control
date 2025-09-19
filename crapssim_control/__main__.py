@@ -3,7 +3,7 @@ Module entrypoint so tests can run:
 
   python -m crapssim_control validate path/to/spec.json
 
-We keep this self-contained and defer all non-validate usage to the CLI.
+We keep this self-contained and defer other args to the CLI.
 """
 from __future__ import annotations
 
@@ -14,7 +14,6 @@ import sys
 from typing import Any, Dict, List
 
 from .spec_validation import validate_spec
-from . import __version__  # optional, but nice to have
 from . import cli as _cli  # for fallback to the run CLI
 
 
@@ -49,10 +48,9 @@ def _cmd_validate(argv: List[str]) -> int:
     return 0
 
 
-def main(argv: List[str] | None = None) -> int:  # pragma: no cover (simple dispatcher)
+def main(argv: List[str] | None = None) -> int:  # pragma: no cover
     argv = list(sys.argv[1:] if argv is None else argv)
     if not argv:
-        # If no subcommand, show a tiny help that hints at validate or fallback CLI
         print(
             "Usage:\n"
             "  python -m crapssim_control validate <spec.json>\n"
@@ -65,7 +63,7 @@ def main(argv: List[str] | None = None) -> int:  # pragma: no cover (simple disp
     if cmd == "validate":
         return _cmd_validate(argv[1:])
 
-    # Fallback: treat as args for the run CLI (keeps behavior flexible)
+    # Fallback: treat the rest as args for the run CLI
     return _cli.main(argv)
 
 
