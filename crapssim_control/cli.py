@@ -154,7 +154,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
         print(f"failed: {msg}", file=sys.stderr)
         return 2
 
-    def _engine_unavailable(e: Exception) -> int:
+    def _engine_unavailable(e: Exception | str) -> int:
         # Standardized phrase so tests match on 'engine not available'
         msg = f"CrapsSim engine not available: {e}"
         log.error(msg)
@@ -163,19 +163,15 @@ def _cmd_run(args: argparse.Namespace) -> int:
 
     def _make_table(*, bubble: bool, level: int, dice) -> Any | None:
         """Create Table while tolerating kwargs older vanilla doesn't accept."""
-        # Try full signature first
         try:
             return _VanillaTable(bubble=bubble, level=level, dice=dice)
         except TypeError:
-            # Drop bubble
             try:
                 return _VanillaTable(level=level, dice=dice)
             except TypeError:
-                # Drop level (older builds)
                 try:
                     return _VanillaTable(dice=dice)
                 except TypeError:
-                    # Some very old builds accept no kwargs
                     try:
                         return _VanillaTable()
                     except Exception as e:
@@ -190,10 +186,9 @@ def _cmd_run(args: argparse.Namespace) -> int:
         Create/attach a Player across vanilla variants:
           1) Preferred: table.add_player(bankroll=1000, name="Strategy")
           2) Fallbacks: add_player(bankroll=1000), Player(name=...) + add_player(player)
-          3) Legacy: Player(table, bankroll, name=...)  (older signature)
-        On failure: standardize to 'engine not available' and return None.
+          3) Legacy: Player(table, bankroll, name=...)
+        On failure: standardize to 'engine not available'.
         """
-        # Path 1: add_player with kwargs
         addp = getattr(table, "add_player", None)
         if callable(addp):
             try:
@@ -203,7 +198,6 @@ def _cmd_run(args: argparse.Namespace) -> int:
                     return addp(bankroll=1000)
                 except Exception:
                     pass
-        # Path 2: construct Player(name=...) then add
         try:
             p = Player(name="Strategy")
             if callable(addp):
@@ -213,11 +207,9 @@ def _cmd_run(args: argparse.Namespace) -> int:
                 except Exception:
                     pass
         except Exception:
-            p = None  # continue to legacy constructor
-
-        # Path 3: legacy Player(table, bankroll, name=...)
+            p = None  # proceed to legacy ctor
         try:
-            p = Player(table, 1000, name="Strategy")  # older signature
+            p = Player(table, 1000, name="Strategy")
             return p
         except Exception as e:
             _engine_unavailable(e)
@@ -243,10 +235,14 @@ def _cmd_run(args: argparse.Namespace) -> int:
     dice = _Dice(seed=seed) if _Dice is not None else None
     table = _make_table(bubble=bubble, level=level, dice=dice)
     if table is None:
+        # Ensure stderr has the expected phrase on this path
+        _engine_unavailable("missing or incompatible Table")
         return 2
 
     player = _make_player(table)
     if player is None:
+        # Ensure stderr has the expected phrase on this path
+        _engine_unavailable("missing or incompatible Player")
         return 2
 
     strat = ControlStrategy(spec)
