@@ -133,8 +133,9 @@ def _cmd_run(args: argparse.Namespace) -> int:
     try:
         from crapssim import Player  # re-exported by vanilla
     except Exception as e:  # pragma: no cover
-        log.error("CrapsSim engine not available: %s", e)
-        print("failed: CrapsSim engine not available (pip install crapssim).", file=sys.stderr)
+        msg = f"CrapsSim engine not available: {e}"
+        log.error(msg)
+        print(f"failed: {msg}", file=sys.stderr)
         return 2
 
     # Import Table and Dice, but guard for partial/incompatible installs
@@ -148,23 +149,41 @@ def _cmd_run(args: argparse.Namespace) -> int:
         _Dice = None  # type: ignore
 
     if _VanillaTable is None or _Dice is None:
-        log.error("CrapsSim engine not available or incomplete.")
-        print("failed: CrapsSim engine not available (pip install crapssim).", file=sys.stderr)
+        msg = "CrapsSim engine not available (pip install crapssim)."
+        log.error(msg)
+        print(f"failed: {msg}", file=sys.stderr)
+        return 2
+
+    def _engine_unavailable(e: Exception) -> int:
+        # Standardized phrase so tests match on 'engine not available'
+        msg = f"CrapsSim engine not available: {e}"
+        log.error(msg)
+        print(f"failed: {msg}", file=sys.stderr)
         return 2
 
     def _make_table(*, bubble: bool, level: int, dice) -> Any | None:
         """Create Table while tolerating kwargs older vanilla doesn't accept."""
-        clean = {"level": level, "dice": dice}
+        # Try full signature first
         try:
-            return _VanillaTable(bubble=bubble, **clean)  # newer signatures
+            return _VanillaTable(bubble=bubble, level=level, dice=dice)
         except TypeError:
-            # Fallback for vanilla that doesn't accept 'bubble'
+            # Drop bubble
             try:
-                return _VanillaTable(**clean)
-            except TypeError as e:
-                log.error("CrapsSim engine incompatible: %s", e)
-                print(f"failed: CrapsSim engine incompatible: {e}", file=sys.stderr)
-                return None
+                return _VanillaTable(level=level, dice=dice)
+            except TypeError:
+                # Drop level (older builds)
+                try:
+                    return _VanillaTable(dice=dice)
+                except TypeError:
+                    # Some very old builds accept no kwargs
+                    try:
+                        return _VanillaTable()
+                    except Exception as e:
+                        _engine_unavailable(e)
+                        return None
+        except Exception as e:
+            _engine_unavailable(e)
+            return None
     # ------------------------------------------------------------------------
 
     # Strategy + adapter
@@ -183,10 +202,9 @@ def _cmd_run(args: argparse.Namespace) -> int:
     if seed is not None:
         random.seed(seed)
 
-    dice = _Dice(seed=seed)
+    dice = _Dice(seed=seed) if _Dice is not None else None
     table = _make_table(bubble=bubble, level=level, dice=dice)
     if table is None:
-        # _make_table already printed a friendly message
         return 2
 
     player = Player(name="Strategy")
