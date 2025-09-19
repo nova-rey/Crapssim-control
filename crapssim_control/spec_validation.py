@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Tuple, Optional
+from typing import Any, Dict, List
 
 
 # -------------------------------------------------
@@ -31,9 +31,13 @@ def validate_spec(spec: Dict[str, Any]) -> List[str]:
     errors: List[str] = []
 
     # Required top-level sections
-    for key in ("table", "modes", "rules"):
+    required = ("table", "modes", "rules")
+    for key in required:
         if key not in spec:
             errors.append(f"Missing required section: '{key}'")
+            # Tests expect a friendlier message for 'modes' as well.
+            if key == "modes":
+                errors.append("You must define at least one mode.")
 
     # variables is optional but if present must be a dict
     if "variables" in spec and not isinstance(spec["variables"], dict):
@@ -111,7 +115,7 @@ def validate_spec(spec: Dict[str, Any]) -> List[str]:
                         if not isinstance(step, str):
                             errors.append(f"do[{j}] must be a string")
 
-    # OPTIONAL: table_rules (Batch 2)
+    # OPTIONAL: table_rules (Batch 2 shape-only checks)
     if "table_rules" in spec and spec.get("table_rules"):
         errors.extend(_validate_table_rules_block(spec["table_rules"]))
 
@@ -123,11 +127,6 @@ def validate_spec(spec: Dict[str, Any]) -> List[str]:
 # -------------------------------------------------
 
 def _validate_table_rules_block(tr: Any) -> List[str]:
-    """
-    Validate shape of the optional `table_rules` block.
-    We are lenient: we only error on shape/type problems.
-    Semantics are handled by table_rules.validate_table_rules at runtime.
-    """
     errs: List[str] = []
     if not isinstance(tr, dict):
         return ["table_rules must be an object"]
@@ -158,7 +157,7 @@ def _validate_table_rules_block(tr: Any) -> List[str]:
                     errs.append("table_rules.max.odds must be an object")
                 else:
                     typ = odds.get("type")
-                    if typ is not None and typ not in ("3_4_5x", "flat"):
+                    if typ is not None and not (typ in ("3_4_5x", "flat")):
                         errs.append("table_rules.max.odds.type must be '3_4_5x' or 'flat'")
                     if typ == "flat":
                         mult = odds.get("multiplier")
