@@ -1,0 +1,58 @@
+{
+  "meta": { "version": 0, "name": "IronCross CSC" },
+  "table": { "bubble": false, "level": 10 },
+
+  "variables": {
+    "mode": "Active",
+    "pass_amt": 5,
+    "field_amt": 5,
+    "place5_amt": 10,
+    "place6_amt": 12,
+    "place8_amt": 12
+  },
+
+  "modes": {
+    "Active": {
+      "template": {
+        "pass": "pass_amt"
+      }
+    }
+  },
+
+  "rules": [
+    /* --- Comeout: make a Pass Line bet --- */
+    {
+      "on": { "event": "comeout" },
+      "do": [ "apply_template('Active')" ]
+    },
+
+    /* --- When point is established: set up the Iron Cross scaffold --- */
+    {
+      "on": { "event": "point_on" },
+      "do": [
+        "place_5 = place5_amt",
+        "place_6 = place6_amt",
+        "place_8 = place8_amt"
+      ]
+    },
+
+    /*
+      Iron Cross fields every roll (1-roll bet).
+      We re-add a Field bet at the start of each non-comeout roll.
+      Event name here matches our EventStream semantics; if your run logs show
+      a different per-roll event (e.g. 'roll' or 'dice_rolled'), swap the key.
+    */
+    {
+      "on": { "event": "pre_roll" },
+      "do": [
+        "if not is_comeout(): field = field_amt"
+      ]
+    },
+
+    /* --- On seven-out, everything clears automatically; next comeout will re-apply --- */
+    {
+      "on": { "event": "seven_out" },
+      "do": []
+    }
+  ]
+}
