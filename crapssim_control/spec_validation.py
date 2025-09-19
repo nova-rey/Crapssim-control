@@ -10,7 +10,7 @@ We delegate to spec_validate.validate_spec(...) which returns (ok, errors, warni
 then normalize wording and add a few explicit checks to match tests' expected strings.
 """
 
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List
 
 # Real implementation (tuple-returning)
 from .spec_validate import validate_spec as _validate_tuple  # (ok, errors, warnings)
@@ -76,7 +76,6 @@ def _post_checks(spec: Dict[str, Any], messages: List[str]) -> List[str]:
                             continue
                         # build message with required phrase; tests check substring only
                         phrase = "must be a number/string or an object with 'amount'"
-                        # include the bet key to be helpful
                         msg = f"template['{bet_key}'] {phrase}"
                         if not any(phrase in e for e in errs):
                             errs.append(msg)
@@ -86,7 +85,7 @@ def _post_checks(spec: Dict[str, Any], messages: List[str]) -> List[str]:
                         if not any(phrase in e for e in errs):
                             errs.append(msg)
 
-    # C) Rules: on.event must be a string
+    # C) Rules: on.event must be a string; do[*] must be strings
     rules = spec.get("rules")
     if isinstance(rules, list):
         for rule in rules:
@@ -97,6 +96,14 @@ def _post_checks(spec: Dict[str, Any], messages: List[str]) -> List[str]:
                 msg = "on.event must be a string"
                 if msg not in errs:
                     errs.append(msg)
+
+            do_list = rule.get("do", [])
+            if isinstance(do_list, list):
+                for idx, instr in enumerate(do_list):
+                    if not isinstance(instr, str):
+                        msg = f"do[{idx}] must be a string"
+                        if msg not in errs:
+                            errs.append(msg)
 
     return errs
 
