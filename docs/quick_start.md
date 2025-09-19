@@ -24,7 +24,7 @@ python3 —version
 
 Download the CSC source code:
 
-git clone https://github.com/<your-org>/Crapssim-control.git
+git clone https://github.com/nova-rey/Crapssim-control.git
 cd Crapssim-control
 
 

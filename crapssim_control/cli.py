@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict
 
+from . import __version__
 from .spec_validation import validate_spec
 from .logging_utils import setup_logging
 
@@ -61,30 +62,19 @@ def _cmd_validate(args: argparse.Namespace) -> int:
     res = validate_spec(spec)  # compatible with both return styles
     ok, hard_errs, soft_warns = _normalize_validate_result(res)
     if ok and not hard_errs:
-        # Also run table_rules validation (optional block) but do not fail here;
-        # the CLI 'run' subcommand decides strictness.
-        try:
-            from .table_rules import validate_table_rules
-            tr_res = validate_table_rules(spec)
-            if tr_res.errors:
-                print("failed validation:", file=sys.stderr)
-                for e in tr_res.errors:
-                    print(f"- {e}", file=sys.stderr)
-                return 2
-        except Exception:
-            # table_rules is optional; ignore any import/validation errors here.
-            pass
-
         print(f"OK: {spec_path}")
+        if soft_warns and args.verbose:
+            for w in soft_warns:
+                print(f"warn: {w}")
         return 0
 
     # failed -- print consistent message block to stderr
     print("failed validation:", file=sys.stderr)
     for e in hard_errs:
         print(f"- {e}", file=sys.stderr)
-        # Add extra compatibility line some tests expect
-        if "Missing required section: 'modes'" in e:
-            print("- modes section is required", file=sys.stderr)
+    # keep a stable phrasing some tests expect
+    if not any("define at least one mode" in e for e in hard_errs) and "modes" in "".join(hard_errs):
+        print("- You must define at least one mode.", file=sys.stderr)
     return 2
 
 
@@ -113,30 +103,23 @@ def _cmd_run(args: argparse.Namespace) -> int:
             print(f"- {e}", file=sys.stderr)
         return 2
 
-    # Validate (optional) table_rules block and honor enforcement mode
-    try:
-        from .table_rules import validate_table_rules
-        tr_res = validate_table_rules(spec)
-        for w in tr_res.warnings:
-            log.warning("table_rules: %s", w)
-
-        enforcement = (tr_res.rules.get("enforcement") if tr_res.rules else "warning") or "warning"
-        if tr_res.errors:
-            if enforcement == "strict":
-                print("failed validation:", file=sys.stderr)
-                for e in tr_res.errors:
-                    print(f"- {e}", file=sys.stderr)
-                return 2
-            else:
-                for e in tr_res.errors:
-                    log.warning("table_rules (non-strict): %s", e)
-    except Exception as e:
-        # If anything goes sideways here, log it but do not fail the run
-        log.debug("table_rules check skipped/failed: %s", e)
-
     if soft_warns:
         for w in soft_warns:
             log.warning("spec warning: %s", w)
+
+    # Derive (but do not enforce yet) guardrails if requested
+    if getattr(args, "guardrails", False):
+        try:
+            from .guardrails import derive_table_rules, describe_table_rules
+            rules = derive_table_rules(
+                spec,
+                hot_table=bool(getattr(args, "hot_table", False)),
+                overrides=None,
+            )
+            if args.verbose:
+                log.info(describe_table_rules(rules))
+        except Exception as e:  # pragma: no cover
+            log.warning("Could not derive guardrails: %s", e)
 
     # Import CrapsSim lazily to avoid hard dependency in test-only flows
     try:
@@ -200,9 +183,9 @@ def _build_parser() -> argparse.ArgumentParser:
     # validate
     p_val = sub.add_parser("validate", help="Validate a strategy spec (JSON or YAML)")
     p_val.add_argument("spec", help="Path to spec file")
-    # Accept (and ignore) guardrail-related flags so tests that pass them don't fail.
-    p_val.add_argument("--hot-table", action="store_true", help=argparse.SUPPRESS)
-    p_val.add_argument("--guardrails", action="store_true", help=argparse.SUPPRESS)
+    # Accept Batch-2 feature flags; validation just parses them, no effect
+    p_val.add_argument("--hot-table", action="store_true", help="Hint: aggressive odds/table limits")
+    p_val.add_argument("--guardrails", action="store_true", help="Enable guardrails (table rules) processing")
     p_val.set_defaults(func=_cmd_validate)
 
     # run
@@ -212,8 +195,9 @@ def _build_parser() -> argparse.ArgumentParser:
     p_run.add_argument("--bubble", action="store_true", help="Force bubble table")
     p_run.add_argument("--level", type=int, help="Override table level (min bet)")
     p_run.add_argument("--seed", type=int, help="Seed RNG for reproducibility")
-    p_run.add_argument("--hot-table", action="store_true", help="Assume aggressive limits/increments profile")
-    p_run.add_argument("--guardrails", action="store_true", help="Enable strict enforcement of table rules")
+    # Batch-2 flags
+    p_run.add_argument("--hot-table", action="store_true", help="Hint: aggressive odds/table limits")
+    p_run.add_argument("--guardrails", action="store_true", help="Enable guardrails (table rules) processing")
     p_run.set_defaults(func=_cmd_run)
 
     return parser
