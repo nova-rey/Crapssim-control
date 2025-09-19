@@ -11,6 +11,7 @@ from typing import Any, Dict
 from . import __version__
 from .spec_validation import validate_spec
 from .logging_utils import setup_logging
+from .flags import ensure_meta_flags, set_flag
 
 # Optional YAML support
 try:
@@ -48,7 +49,7 @@ def _normalize_validate_result(res):
 
 def _cmd_validate(args: argparse.Namespace) -> int:
     """
-    Keep output format compatible with tests:
+    Output contract (tests rely on this):
       - success -> stdout contains 'OK:' and path
       - failure -> stderr starts with 'failed validation:' and lists bullets
     """
@@ -59,6 +60,13 @@ def _cmd_validate(args: argparse.Namespace) -> int:
         print(f"failed validation:\n- Could not load spec: {e}", file=sys.stderr)
         return 2
 
+    # Record flags if provided (no behavior change; just serialize into the spec)
+    ensure_meta_flags(spec)
+    if args.hot_table:
+        set_flag(spec, "hot_table", True)
+    if args.guardrails:
+        set_flag(spec, "guardrails", True)
+
     res = validate_spec(spec)  # compatible with both return styles
     ok, hard_errs, soft_warns = _normalize_validate_result(res)
     if ok and not hard_errs:
@@ -68,22 +76,15 @@ def _cmd_validate(args: argparse.Namespace) -> int:
                 print(f"warn: {w}")
         return 0
 
-    # failed -- print consistent message block to stderr
     print("failed validation:", file=sys.stderr)
     for e in hard_errs:
         print(f"- {e}", file=sys.stderr)
-
-    # Add alias line to satisfy the test's expected wording
-    if any("Missing required section: 'modes'" in e for e in hard_errs):
-        print("modes section is required", file=sys.stderr)
-
     return 2
 
 
 def _cmd_run(args: argparse.Namespace) -> int:
     """
-    Simple runner around CrapsSim + our strategy. This is intentionally
-    lightweight and resilient: if CrapsSim isn't available, we inform the user.
+    Simple runner around CrapsSim + our strategy.
     """
     setup_logging(args.verbose)
     log = logging.getLogger("crapssim-ctl")
@@ -95,6 +96,13 @@ def _cmd_run(args: argparse.Namespace) -> int:
         log.error("Could not load spec: %s", e)
         print(f"failed: Could not load spec: {e}", file=sys.stderr)
         return 2
+
+    # Persist flags from CLI (no behavior change yet; just serializing)
+    ensure_meta_flags(spec)
+    if args.hot_table:
+        set_flag(spec, "hot_table", True)
+    if args.guardrails:
+        set_flag(spec, "guardrails", True)
 
     # Validate spec (hard errors stop)
     res = validate_spec(spec)
@@ -109,7 +117,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
         for w in soft_warns:
             log.warning("spec warning: %s", w)
 
-    # Import CrapsSim lazily to avoid hard dependency in test-only flows
+    # Import CrapsSim lazily
     try:
         from crapssim.table import Table
         from crapssim.player import Player
@@ -171,6 +179,9 @@ def _build_parser() -> argparse.ArgumentParser:
     # validate
     p_val = sub.add_parser("validate", help="Validate a strategy spec (JSON or YAML)")
     p_val.add_argument("spec", help="Path to spec file")
+    # Feature flags (hard-off by default)
+    p_val.add_argument("--hot-table", action="store_true", help="Enable experimental hot-table scaling (OFF by default)")
+    p_val.add_argument("--guardrails", action="store_true", help="Enable experimental guardrails (OFF by default)")
     p_val.set_defaults(func=_cmd_validate)
 
     # run
@@ -180,6 +191,9 @@ def _build_parser() -> argparse.ArgumentParser:
     p_run.add_argument("--bubble", action="store_true", help="Force bubble table")
     p_run.add_argument("--level", type=int, help="Override table level (min bet)")
     p_run.add_argument("--seed", type=int, help="Seed RNG for reproducibility")
+    # Feature flags (hard-off by default)
+    p_run.add_argument("--hot-table", action="store_true", help="Enable experimental hot-table scaling (OFF by default)")
+    p_run.add_argument("--guardrails", action="store_true", help="Enable experimental guardrails (OFF by default)")
     p_run.set_defaults(func=_cmd_run)
 
     return parser
