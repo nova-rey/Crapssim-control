@@ -129,16 +129,21 @@ def _cmd_run(args: argparse.Namespace) -> int:
             log.warning("spec warning: %s", w)
 
     # ---- Safe CrapsSim imports & wrappers ----------------------------------
-    # Import Player directly (if this fails, engine is not available)
-    try:
-        from crapssim import Player  # re-exported by vanilla
-    except Exception as e:  # pragma: no cover
-        msg = f"CrapsSim engine not available: {e}"
-        log.error(msg)
+    # Standard message helper (keeps phrasing identical everywhere)
+    def _engine_unavailable(reason: str | Exception = "missing or incompatible engine") -> int:
+        msg = "CrapsSim engine not available (pip install crapssim)."
+        # Include reason in logs for humans, but keep user-facing stderr minimal
+        log.error("%s Reason: %s", msg, reason)
         print(f"failed: {msg}", file=sys.stderr)
         return 2
 
-    # Import Table and Dice, but guard for partial/incompatible installs
+    # Import Player
+    try:
+        from crapssim import Player  # re-exported by vanilla
+    except Exception as e:  # pragma: no cover
+        return _engine_unavailable(e)
+
+    # Import Table and Dice
     try:
         from crapssim import Table as _VanillaTable  # type: ignore
     except Exception:
@@ -149,17 +154,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
         _Dice = None  # type: ignore
 
     if _VanillaTable is None or _Dice is None:
-        msg = "CrapsSim engine not available (pip install crapssim)."
-        log.error(msg)
-        print(f"failed: {msg}", file=sys.stderr)
-        return 2
-
-    def _engine_unavailable(e: Exception | str) -> int:
-        # Standardized phrase so tests match on 'engine not available'
-        msg = f"CrapsSim engine not available: {e}"
-        log.error(msg)
-        print(f"failed: {msg}", file=sys.stderr)
-        return 2
+        return _engine_unavailable("Table/Dice import failed")
 
     def _make_table(*, bubble: bool, level: int, dice) -> Any | None:
         """Create Table while tolerating kwargs older vanilla doesn't accept."""
@@ -235,14 +230,10 @@ def _cmd_run(args: argparse.Namespace) -> int:
     dice = _Dice(seed=seed) if _Dice is not None else None
     table = _make_table(bubble=bubble, level=level, dice=dice)
     if table is None:
-        # Ensure stderr has the expected phrase on this path
-        _engine_unavailable("missing or incompatible Table")
         return 2
 
     player = _make_player(table)
     if player is None:
-        # Ensure stderr has the expected phrase on this path
-        _engine_unavailable("missing or incompatible Player")
         return 2
 
     strat = ControlStrategy(spec)
