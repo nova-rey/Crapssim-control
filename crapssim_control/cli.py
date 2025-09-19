@@ -101,7 +101,8 @@ def _cmd_validate(args: argparse.Namespace) -> int:
 def _cmd_run(args: argparse.Namespace) -> int:
     """
     Simple runner around CrapsSim + our strategy. This is intentionally
-    lightweight and resilient: if CrapsSim isn't available, we inform the user.
+    lightweight and resilient: if CrapsSim isn't available or incompatible,
+    we inform the user and exit 2 (as tests expect).
     """
     setup_logging(args.verbose)
     log = logging.getLogger("crapssim-ctl")
@@ -127,15 +128,44 @@ def _cmd_run(args: argparse.Namespace) -> int:
         for w in soft_warns:
             log.warning("spec warning: %s", w)
 
-    # Import CrapsSim lazily to avoid hard dependency in test-only flows
+    # ---- Safe CrapsSim imports & wrappers ----------------------------------
+    # Import Player directly (if this fails, engine is not available)
     try:
-        from crapssim.table import Table
-        from crapssim import Player
-        from crapssim.dice import Dice
+        from crapssim import Player  # re-exported by vanilla
     except Exception as e:  # pragma: no cover
         log.error("CrapsSim engine not available: %s", e)
         print("failed: CrapsSim engine not available (pip install crapssim).", file=sys.stderr)
         return 2
+
+    # Import Table and Dice, but guard for partial/incompatible installs
+    try:
+        from crapssim import Table as _VanillaTable  # type: ignore
+    except Exception:
+        _VanillaTable = None  # type: ignore
+    try:
+        from crapssim.dice import Dice as _Dice  # type: ignore
+    except Exception:
+        _Dice = None  # type: ignore
+
+    if _VanillaTable is None or _Dice is None:
+        log.error("CrapsSim engine not available or incomplete.")
+        print("failed: CrapsSim engine not available (pip install crapssim).", file=sys.stderr)
+        return 2
+
+    def _make_table(*, bubble: bool, level: int, dice) -> Any | None:
+        """Create Table while tolerating kwargs older vanilla doesn't accept."""
+        clean = {"level": level, "dice": dice}
+        try:
+            return _VanillaTable(bubble=bubble, **clean)  # newer signatures
+        except TypeError:
+            # Fallback for vanilla that doesn't accept 'bubble'
+            try:
+                return _VanillaTable(**clean)
+            except TypeError as e:
+                log.error("CrapsSim engine incompatible: %s", e)
+                print(f"failed: CrapsSim engine incompatible: {e}", file=sys.stderr)
+                return None
+    # ------------------------------------------------------------------------
 
     # Strategy + adapter
     try:
@@ -153,8 +183,12 @@ def _cmd_run(args: argparse.Namespace) -> int:
     if seed is not None:
         random.seed(seed)
 
-    dice = Dice(seed=seed)
-    table = Table(bubble=bubble, level=level, dice=dice)
+    dice = _Dice(seed=seed)
+    table = _make_table(bubble=bubble, level=level, dice=dice)
+    if table is None:
+        # _make_table already printed a friendly message
+        return 2
+
     player = Player(name="Strategy")
     table.add_player(player)
 
@@ -189,7 +223,7 @@ def _build_parser() -> argparse.ArgumentParser:
     # validate
     p_val = sub.add_parser("validate", help="Validate a strategy spec (JSON or YAML)")
     p_val.add_argument("spec", help="Path to spec file")
-    # pass-through flags used for planning/notes (no enforcement yet)
+    # pass-through flags used for planning/notes (no behavior change yet)
     p_val.add_argument("--hot-table", action="store_true", dest="hot_table",
                        help='Plan with "hot table" defaults (no behavior change yet)')
     p_val.add_argument("--guardrails", action="store_true",
