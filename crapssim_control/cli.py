@@ -6,7 +6,7 @@ import logging
 import random
 import sys
 from pathlib import Path
-from typing import Any, Dict, Tuple
+from typing import Any, Dict
 
 from . import __version__
 from .spec_validation import validate_spec
@@ -30,6 +30,22 @@ def _load_spec_file(path: str | Path) -> Dict[str, Any]:
     return json.loads(text or "{}")
 
 
+def _normalize_validate_result(res):
+    """
+    Accept either:
+      • (ok: bool, hard_errs: list[str], soft_warns: list[str])
+      • hard_errs: list[str]
+    Return (ok, hard_errs, soft_warns)
+    """
+    if isinstance(res, tuple) and len(res) == 3:
+        ok, hard_errs, soft_warns = res
+        return bool(ok), list(hard_errs), list(soft_warns)
+    # legacy: just a list of hard errors
+    hard_errs = list(res) if isinstance(res, (list, tuple)) else [str(res)]
+    ok = len(hard_errs) == 0
+    return ok, hard_errs, []
+
+
 def _cmd_validate(args: argparse.Namespace) -> int:
     """
     Keep output format compatible with tests:
@@ -43,7 +59,8 @@ def _cmd_validate(args: argparse.Namespace) -> int:
         print(f"failed validation:\n- Could not load spec: {e}", file=sys.stderr)
         return 2
 
-    ok, hard_errs, soft_warns = validate_spec(spec, return_tuple=True)  # type: ignore[arg-type]
+    res = validate_spec(spec)  # compatible with both return styles
+    ok, hard_errs, soft_warns = _normalize_validate_result(res)
     if ok and not hard_errs:
         print(f"OK: {spec_path}")
         if soft_warns and args.verbose:
@@ -55,7 +72,6 @@ def _cmd_validate(args: argparse.Namespace) -> int:
     print("failed validation:", file=sys.stderr)
     for e in hard_errs:
         print(f"- {e}", file=sys.stderr)
-    # non-zero exit
     return 2
 
 
@@ -76,7 +92,8 @@ def _cmd_run(args: argparse.Namespace) -> int:
         return 2
 
     # Validate spec (hard errors stop)
-    ok, hard_errs, soft_warns = validate_spec(spec, return_tuple=True)  # type: ignore[arg-type]
+    res = validate_spec(spec)
+    ok, hard_errs, soft_warns = _normalize_validate_result(res)
     if not ok or hard_errs:
         print("failed validation:", file=sys.stderr)
         for e in hard_errs:
@@ -124,8 +141,6 @@ def _cmd_run(args: argparse.Namespace) -> int:
     rolls = int(args.rolls or 1000)
     log.info("Starting run: rolls=%s bubble=%s level=%s seed=%s", rolls, bubble, level, seed)
 
-    # kick off with a comeout event to allow template placement
-    # (EngineAdapter handles roll loop; we just tell it how many shooters/rolls)
     adapter.play(rolls=rolls)
 
     # Summarize results
