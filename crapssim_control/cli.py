@@ -184,6 +184,44 @@ def _cmd_run(args: argparse.Namespace) -> int:
         except Exception as e:
             _engine_unavailable(e)
             return None
+
+    def _make_player(table) -> Any | None:
+        """
+        Create/attach a Player across vanilla variants:
+          1) Preferred: table.add_player(bankroll=1000, name="Strategy")
+          2) Fallbacks: add_player(bankroll=1000), Player(name=...) + add_player(player)
+          3) Legacy: Player(table, bankroll, name=...)  (older signature)
+        On failure: standardize to 'engine not available' and return None.
+        """
+        # Path 1: add_player with kwargs
+        addp = getattr(table, "add_player", None)
+        if callable(addp):
+            try:
+                return addp(bankroll=1000, name="Strategy")
+            except TypeError:
+                try:
+                    return addp(bankroll=1000)
+                except Exception:
+                    pass
+        # Path 2: construct Player(name=...) then add
+        try:
+            p = Player(name="Strategy")
+            if callable(addp):
+                try:
+                    addp(p)
+                    return p
+                except Exception:
+                    pass
+        except Exception:
+            p = None  # continue to legacy constructor
+
+        # Path 3: legacy Player(table, bankroll, name=...)
+        try:
+            p = Player(table, 1000, name="Strategy")  # older signature
+            return p
+        except Exception as e:
+            _engine_unavailable(e)
+            return None
     # ------------------------------------------------------------------------
 
     # Strategy + adapter
@@ -207,8 +245,9 @@ def _cmd_run(args: argparse.Namespace) -> int:
     if table is None:
         return 2
 
-    player = Player(name="Strategy")
-    table.add_player(player)
+    player = _make_player(table)
+    if player is None:
+        return 2
 
     strat = ControlStrategy(spec)
     adapter = EngineAdapter(table, player, strat)
