@@ -2,8 +2,6 @@
 Module entrypoint so tests can run:
 
   python -m crapssim_control validate path/to/spec.json
-
-We keep this self-contained and defer other args to the CLI.
 """
 from __future__ import annotations
 
@@ -42,9 +40,17 @@ def _cmd_validate(argv: List[str]) -> int:
         print("failed validation:", file=sys.stderr)
         for e in errs:
             print(f"- {e}", file=sys.stderr)
+
+        # Provide a normalized helper line some tests look for
+        lower_errs = " ".join(str(e).lower() for e in errs)
+        if ("missing required section" in lower_errs and "modes" in lower_errs) or (
+            "define at least one mode" in lower_errs
+        ):
+            print("modes section is required", file=sys.stderr)
         return 2
 
-    # Quiet success (stdout can be empty; tests only check return code)
+    # Tests expect "OK:" in stdout on success
+    print("OK: spec is valid")
     return 0
 
 
