@@ -3,13 +3,17 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import random
 import sys
+import traceback
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple, Optional
 
-from .spec_validation import validate_spec
 from .logging_utils import setup_logging
+from .spec_validation import validate_spec
+
+log = logging.getLogger("crapssim-ctl")
 
 # Optional YAML support
 try:
@@ -18,6 +22,8 @@ except Exception:  # pragma: no cover
     yaml = None
 
 
+# ------------------------------- Helpers ------------------------------------ #
+
 def _load_spec_file(path: str | Path) -> Dict[str, Any]:
     p = Path(path)
     text = p.read_text(encoding="utf-8")
@@ -25,7 +31,6 @@ def _load_spec_file(path: str | Path) -> Dict[str, Any]:
         if yaml is None:
             raise RuntimeError("PyYAML not installed; cannot read YAML specs.")
         return yaml.safe_load(text) or {}
-    # default JSON
     return json.loads(text or "{}")
 
 
@@ -39,15 +44,26 @@ def _normalize_validate_result(res):
     if isinstance(res, tuple) and len(res) == 3:
         ok, hard_errs, soft_warns = res
         return bool(ok), list(hard_errs), list(soft_warns)
-    # legacy: just a list of hard errors
     hard_errs = list(res) if isinstance(res, (list, tuple)) else [str(res)]
     ok = len(hard_errs) == 0
     return ok, hard_errs, []
 
 
+def _engine_unavailable(reason: str | Exception = "missing or incompatible engine") -> int:
+    """
+    Standardized failure for tests, but now without hiding the real traceback.
+    """
+    msg = "CrapsSim engine not available (pip install crapssim)."
+    log.error("%s Reason: %s", msg, reason)
+    print(f"failed: {msg}", file=sys.stderr)
+    return 2
+
+
+# ------------------------------ Commands ------------------------------------ #
+
 def _cmd_validate(args: argparse.Namespace) -> int:
     """
-    Keep output format compatible with tests:
+    Output:
       - success -> stdout contains 'OK:' and path
       - failure -> stderr starts with 'failed validation:' and lists bullets
     """
@@ -58,10 +74,9 @@ def _cmd_validate(args: argparse.Namespace) -> int:
         print(f"failed validation:\n- Could not load spec: {e}", file=sys.stderr)
         return 2
 
-    res = validate_spec(spec)  # compatible with both return styles
+    res = validate_spec(spec)
     ok, hard_errs, soft_warns = _normalize_validate_result(res)
 
-    # Optionally print planning/notes for flags (no mutation/enforcement yet)
     notes: List[str] = []
     if getattr(args, "guardrails", False):
         try:
@@ -73,7 +88,6 @@ def _cmd_validate(args: argparse.Namespace) -> int:
             )
             notes.extend(note_lines)
         except Exception:
-            # Notes are optional; do not fail validation because of them
             pass
 
     if ok and not hard_errs:
@@ -86,189 +100,180 @@ def _cmd_validate(args: argparse.Namespace) -> int:
                 print(f"warn: {w}")
         return 0
 
-    # failed -- print consistent message block to stderr
     print("failed validation:", file=sys.stderr)
     for e in hard_errs:
         print(f"- {e}", file=sys.stderr)
-
-    # legacy compatibility alias for tests looking for this exact phrasing
     if any("Missing required section: 'modes'" in e for e in hard_errs):
         print("- modes section is required", file=sys.stderr)
-
     return 2
 
 
-def _cmd_run(args: argparse.Namespace) -> int:
-    """
-    Simple runner around CrapsSim + our strategy. If CrapsSim isn't available
-    or is incompatible, print a single standardized message and exit 2.
-    """
-    setup_logging(args.verbose)
-    log = logging.getLogger("crapssim-ctl")
+def _smart_seed(seed: Optional[int]) -> None:
+    if seed is not None:
+        random.seed(seed)
+        try:
+            import numpy as _np  # type: ignore
+            _np.random.seed(seed)
+        except Exception:
+            pass
 
-    # Load spec
+
+def _run_table_rolls(table: Any, rolls: int) -> Tuple[bool, str]:
+    """
+    Try several ways to drive the Table for N rolls.
+    Returns (ok, detail). Never raises.
+    """
+    # 1) table.play(rolls=...)
+    if hasattr(table, "play"):
+        try:
+            table.play(rolls=rolls)
+            return True, "table.play(rolls=...)"
+        except Exception as e:
+            log.debug("table.play failed: %s", e)
+
+    # 2) table.run(rolls)  or  table.run(rolls=...)
+    if hasattr(table, "run"):
+        try:
+            table.run(rolls)  # type: ignore[arg-type]
+            return True, "table.run(rolls)"
+        except TypeError:
+            try:
+                table.run(rolls=rolls)
+                return True, "table.run(rolls=...)"
+            except Exception as e:
+                log.debug("table.run failed: %s", e)
+        except Exception as e:
+            log.debug("table.run failed: %s", e)
+
+    # 3) Manual loop: table.roll()
+    if hasattr(table, "roll"):
+        try:
+            for _ in range(rolls):
+                table.roll()
+            return True, "loop: table.roll()"
+        except Exception as e:
+            log.debug("loop table.roll failed: %s", e)
+
+    # 4) Manual loop with Dice: dice.roll() + table.process_roll/on_roll
     try:
-        spec = _load_spec_file(args.spec)
+        from crapssim.dice import Dice  # type: ignore
+        dice = Dice()
+        process = getattr(table, "process_roll", None) or getattr(table, "on_roll", None)
+        if callable(process):
+            try:
+                for _ in range(rolls):
+                    r = dice.roll()
+                    process(r)
+                return True, "loop: dice.roll() -> table.process_roll/on_roll"
+            except Exception as e:
+                log.debug("loop dice->process failed: %s", e)
     except Exception as e:
-        log.error("Could not load spec: %s", e)
-        print(f"failed: Could not load spec: {e}", file=sys.stderr)
-        return 2
+        log.debug("Dice path unavailable: %s", e)
 
-    # Validate spec (hard errors stop)
-    res = validate_spec(spec)
-    ok, hard_errs, soft_warns = _normalize_validate_result(res)
+    return False, "No compatible run method found"
+
+
+def run(args: argparse.Namespace) -> int:
+    """
+    New run path:
+      1) Load & validate spec
+      2) Attach engine via EngineAdapter (modern strategy attach)
+      3) Drive the table for N rolls using the most compatible method found
+      4) Print a brief result summary
+    """
+    # Load spec (JSON or YAML)
+    spec_path = Path(args.spec)
+    spec = _load_spec_file(spec_path)
+
+    # Validate first (fail fast)
+    ok, hard_errs, soft_warns = _normalize_validate_result(validate_spec(spec))
     if not ok or hard_errs:
         print("failed validation:", file=sys.stderr)
         for e in hard_errs:
             print(f"- {e}", file=sys.stderr)
         return 2
+    for w in soft_warns:
+        log.warning("spec warning: %s", w)
 
-    if soft_warns:
-        for w in soft_warns:
-            log.warning("spec warning: %s", w)
+    # Seed RNGs (Python & NumPy)
+    _smart_seed(args.seed)
 
-    # ---- Safe CrapsSim imports & wrappers ----------------------------------
-    def _engine_unavailable(reason: str | Exception = "missing or incompatible engine") -> int:
-        # Standardized phrase so tests always match this text.
-        msg = "CrapsSim engine not available (pip install crapssim)."
-        log.error("%s Reason: %s", msg, reason)
-        print(f"failed: {msg}", file=sys.stderr)
-        sys.stderr.flush()
-        return 2
-
-    # Import Player
+    # Attach engine (modern adapter handles CrapsSim 0.3+; legacy fallback inside)
     try:
-        from crapssim import Player  # re-exported by vanilla
-    except Exception as e:  # pragma: no cover
+        from crapssim_control.engine_adapter import EngineAdapter
+        adapter = EngineAdapter()
+        attach_result = adapter.attach(spec)  # -> EngineAttachResult
+        table = attach_result.table
+        log.debug("attach meta: %s", attach_result.meta)
+        if os.environ.get("CSC_DEBUG", "0").lower() in ("1", "true", "yes"):
+            print("DEBUG attach_result:", attach_result.meta)
+    except Exception as e:
+        if os.environ.get("CSC_DEBUG", "0").lower() in ("1", "true", "yes"):
+            print("\n--- CSC DEBUG TRACEBACK (attach) ---", flush=True)
+            traceback.print_exc()
+            print("--- END CSC DEBUG ---\n", flush=True)
         return _engine_unavailable(e)
 
-    # Import Table and Dice
+    # Rolls
+    rolls = int(getattr(args, "rolls", None) or spec.get("run", {}).get("rolls", 1000) or 1000)
+    log.info("Starting run: rolls=%s seed=%s", rolls, args.seed)
+
+    # Drive the table
+    ok, used = _run_table_rolls(table, rolls)
+    if not ok:
+        # Surface a helpful error and exit code 2
+        msg = f"Could not run {rolls} rolls. {used}."
+        if os.environ.get("CSC_DEBUG", "0").lower() in ("1", "true", "yes"):
+            print("\n--- CSC DEBUG: run failure ---", msg, "\n", flush=True)
+        return _engine_unavailable(msg)
+
+    # Summarize results (best-effort)
+    bankroll = None
     try:
-        from crapssim import Table as _VanillaTable  # type: ignore
+        players = getattr(table, "players", None)
+        if players and len(players) > 0:
+            p0 = players[0]
+            bankroll = getattr(p0, "bankroll", None)
     except Exception:
-        _VanillaTable = None  # type: ignore
-    try:
-        from crapssim.dice import Dice as _Dice  # type: ignore
-    except Exception:
-        _Dice = None  # type: ignore
+        pass
 
-    if _VanillaTable is None or _Dice is None:
-        return _engine_unavailable("Table/Dice import failed")
-
-    def _make_table(*, bubble: bool, level: int, dice) -> Any | None:
-        """Create Table while tolerating kwargs older vanilla doesn't accept."""
-        try:
-            return _VanillaTable(bubble=bubble, level=level, dice=dice)
-        except TypeError:
-            try:
-                return _VanillaTable(level=level, dice=dice)
-            except TypeError:
-                try:
-                    return _VanillaTable(dice=dice)
-                except TypeError:
-                    try:
-                        return _VanillaTable()
-                    except Exception as e:
-                        _engine_unavailable(e)
-                        return None
-        except Exception as e:
-            _engine_unavailable(e)
-            return None
-
-    def _make_player(table) -> Any | None:
-        """
-        Create/attach a Player across vanilla variants:
-          1) Preferred: table.add_player(bankroll=1000, name="Strategy")
-          2) Fallbacks: add_player(bankroll=1000), Player(name=...) + add_player(player)
-          3) Legacy: Player(table, bankroll, name=...)
-        On failure: standardize to 'engine not available'.
-        """
-        addp = getattr(table, "add_player", None)
-        if callable(addp):
-            try:
-                return addp(bankroll=1000, name="Strategy")
-            except TypeError:
-                try:
-                    return addp(bankroll=1000)
-                except Exception:
-                    pass
-        try:
-            p = Player(name="Strategy")
-            if callable(addp):
-                try:
-                    addp(p)
-                    return p
-                except Exception:
-                    pass
-        except Exception:
-            p = None  # proceed to legacy ctor
-        try:
-            p = Player(table, 1000, name="Strategy")
-            return p
-        except Exception as e:
-            _engine_unavailable(e)
-            return None
-    # ------------------------------------------------------------------------
-
-    # Strategy + adapter
-    try:
-        from .controller import ControlStrategy
-        from .engine_adapter import EngineAdapter
-    except Exception as e:  # pragma: no cover
-        log.error("Internal import error: %s", e)
-        print(f"failed: internal import error: {e}", file=sys.stderr)
-        return 2
-
-    # Build table environment
-    bubble = bool(args.bubble) if args.bubble is not None else bool(spec.get("table", {}).get("bubble", False))
-    level = int(args.level) if args.level is not None else int(spec.get("table", {}).get("level", 10))
-    seed = args.seed
-    if seed is not None:
-        random.seed(seed)
-
-    dice = _Dice(seed=seed) if _Dice is not None else None
-    table = _make_table(bubble=bubble, level=level, dice=dice)
-    if table is None:
-        # Ensure the standardized message is printed even if constructor returned None silently
-        return _engine_unavailable("Table construction failed")
-
-    player = _make_player(table)
-    if player is None:
-        # Ensure the standardized message is printed even if creation returned None silently
-        return _engine_unavailable("Player creation/attach failed")
-
-    strat = ControlStrategy(spec)
-    adapter = EngineAdapter(table, player, strat)
-
-    rolls = int(args.rolls or 1000)
-    log.info("Starting run: rolls=%s bubble=%s level=%s seed=%s", rolls, bubble, level, seed)
-
-    adapter.play(rolls=rolls)
-
-    # Summarize results
-    bankroll = getattr(player, "bankroll", None)
     if bankroll is not None:
-        print(f"RESULT: rolls={rolls} bankroll={bankroll:.2f}")
+        print(f"RESULT: rolls={rolls} bankroll={float(bankroll):.2f}")
     else:
         print(f"RESULT: rolls={rolls}")
 
     return 0
 
 
+# ------------------------------ Parser/Main --------------------------------- #
+
+def _cmd_run(args: argparse.Namespace) -> int:
+    # Delegate to run(); if it throws, print traceback when CSC_DEBUG is set.
+    try:
+        return run(args)
+    except Exception:
+        if os.environ.get("CSC_DEBUG", "0").lower() in ("1", "true", "yes"):
+            print("\n--- CSC DEBUG TRACEBACK ---", flush=True)
+            traceback.print_exc()
+            print("--- END CSC DEBUG ---\n", flush=True)
+        raise
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="crapssim-ctl",
-        description="Crapssim Control - validate specs and run simulations"
+        description="Crapssim Control - validate specs and run simulations",
     )
-    parser.add_argument("-v", "--verbose", action="count", default=0,
-                        help="increase verbosity (use -vv for debug)")
+    parser.add_argument(
+        "-v", "--verbose", action="count", default=0,
+        help="increase verbosity (use -vv for debug)",
+    )
 
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     # validate
     p_val = sub.add_parser("validate", help="Validate a strategy spec (JSON or YAML)")
     p_val.add_argument("spec", help="Path to spec file")
-    # pass-through flags used for planning/notes (no behavior change yet)
     p_val.add_argument("--hot-table", action="store_true", dest="hot_table",
                        help='Plan with "hot table" defaults (no behavior change yet)')
     p_val.add_argument("--guardrails", action="store_true",
@@ -279,23 +284,15 @@ def _build_parser() -> argparse.ArgumentParser:
     p_run = sub.add_parser("run", help="Run a simulation for a given spec")
     p_run.add_argument("spec", help="Path to spec file")
     p_run.add_argument("--rolls", type=int, default=1000, help="Number of rolls")
-    p_run.add_argument("--bubble", action="store_true", help="Force bubble table")
-    p_run.add_argument("--level", type=int, help="Override table level (min bet)")
     p_run.add_argument("--seed", type=int, help="Seed RNG for reproducibility")
     p_run.set_defaults(func=_cmd_run)
 
     return parser
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: List[str] | None = None) -> int:
     if argv is None:
         argv = sys.argv[1:]
-    # Back-compat shim: allow `validate <path>` without requiring subparser in unusual embeddings
-    if argv and argv[0] == "validate":
-        parser = _build_parser()
-        args = parser.parse_args(argv)
-        return args.func(args)
-
     parser = _build_parser()
     args = parser.parse_args(argv)
     setup_logging(args.verbose)
