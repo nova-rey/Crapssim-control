@@ -21,7 +21,7 @@ jobs:
           . .venv/bin/activate
           pip install --upgrade pip wheel
           # Install CrapsSim engine from GitHub (adjust if different)
-          pip install "git+https://github.com/skent259/crapssim.git"
+          # pip install "git+https://github.com/skent259/crapssim.git"
           # Install this package (editable)
           pip install -e .
           # Test runner
