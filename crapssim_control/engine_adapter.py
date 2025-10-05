@@ -1,149 +1,413 @@
-from __future__ import annotations
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+"""
+engine_adapter.py — CrapsSim-Control ↔ CrapsSim bridge
 
-from .events import derive_event
+- Prefers modern CrapsSim (≥0.3.x) Strategy API (crapssim.strategy)
+- Graceful fallback to legacy Players API (crapssim.players) if present
+- Attaches with keyword (strategy=...) to avoid bankroll positional mixups
+- ControlStrategy implements update_bets(self, player) and mutates the player
+  with a minimal Iron Cross (Pass Line on comeout; Place 6/8 + Field when point is ON)
+"""
+
+from dataclasses import dataclass
+from typing import Any, Dict, Optional, Tuple, List
+
+# --- Detect CrapsSim shape ----------------------------------------------------
+
+_HAS_LEGACY_PLAYERS = False
 try:
-    from .adapters.vanilla_bridge import VanillaDriver  # optional
-except Exception:  # pragma: no cover
-    VanillaDriver = None  # type: ignore
+    import crapssim.strategy as cs_strategy  # modern
+except ModuleNotFoundError:
+    cs_strategy = None  # type: ignore
 
-def _bet_sig(bet: Any) -> Tuple:
-    def g(obj, name, default=None):
-        if isinstance(obj, dict):
-            return obj.get(name, default)
-        return getattr(obj, name, default)
-    return (
-        g(bet, "kind"),
-        round(float(g(bet, "amount", 0.0)), 4),
-        g(bet, "point_number", None),
-        round(float(g(bet, "odds", 0.0)), 4),
+try:
+    import crapssim.players as cs_players  # legacy (older CrapsSim)
+    _HAS_LEGACY_PLAYERS = True
+except ModuleNotFoundError:
+    cs_players = None  # type: ignore
+
+try:
+    from crapssim.table import Table
+except Exception as e:  # pragma: no cover
+    raise RuntimeError(
+        "CrapsSim engine not importable: failed to import 'crapssim.table.Table'. "
+        f"Original error: {e}"
+    ) from e
+
+
+# --- Public adapter surface used by the CLI -----------------------------------
+
+@dataclass
+class EngineAttachResult:
+    table: Any
+    controller_player: Any
+    meta: Dict[str, Any]
+
+
+def _resolve_modern_strategy_base() -> Tuple[Optional[type], Optional[type]]:
+    """Probe for modern Strategy base class name differences."""
+    if cs_strategy is None:
+        return None, None
+    StrategyBase = getattr(cs_strategy, "Strategy", None) or getattr(cs_strategy, "BaseStrategy", None)
+    SimplePass = getattr(cs_strategy, "PassLineStrategy", None)
+    return StrategyBase, SimplePass
+
+
+# --------------------------- ControlStrategy (CSC) ----------------------------
+
+def _build_controller_strategy(spec: Dict[str, Any], strategy_base: type) -> Any:
+    """
+    Strategy that MUTATES the provided player in update_bets(player).
+
+    Iron Cross (minimal):
+      - Comeout: Pass Line $10
+      - Point ON: Place 6 & 8 for $12 each + $5 Field
+    """
+    import crapssim.bet as B
+    PassLine = getattr(B, "PassLine", None)
+    Place = getattr(B, "Place", None)
+    Field = getattr(B, "Field", None)
+
+    def _point_value(table):
+        pt = getattr(table, "point", None)
+        if pt is not None and not isinstance(pt, (int, type(None))):
+            pt = getattr(pt, "value", getattr(pt, "number", None))
+        return pt
+
+    # Simple constructors (NO player arg — your Player.add_bet binds ownership)
+    def _mk_pass(amount: int):
+        if not PassLine:
+            return None
+        try:
+            return PassLine(amount=amount)
+        except TypeError:
+            try:
+                return PassLine(amount)
+            except Exception:
+                return None
+
+    def _mk_field(amount: int):
+        if not Field:
+            return None
+        try:
+            return Field(amount=amount)
+        except TypeError:
+            try:
+                return Field(amount)
+            except Exception:
+                return None
+
+    def _mk_place(number: int, amount: int):
+        if not Place:
+            return None
+        # try kwargs then positional
+        for kw in ({"number": number, "amount": amount},
+                   {"amount": amount, "number": number}):
+            try:
+                return Place(**kw)
+            except TypeError:
+                pass
+        for args in ((number, amount),):
+            try:
+                return Place(*args)
+            except Exception:
+                pass
+        return None
+
+    class ControlStrategy(strategy_base):  # type: ignore[misc]
+        def __init__(self, spec_dict: Dict[str, Any]):
+            try:
+                super().__init__()
+            except TypeError:
+                try:
+                    super().__init__(name="CSC-Control")
+                except TypeError:
+                    pass
+            self.name = "CSC-Control"
+            self._spec = spec_dict
+            self._armed = False
+            self._last_point = None
+
+        # ---------- tolerant helpers over player API ----------
+        def _player_add_many(self, player, bets: List[Any]) -> bool:
+            bets = [b for b in bets if b is not None]
+            if not bets:
+                return False
+            fn = getattr(player, "add_strategy_bets", None)
+            if callable(fn):
+                try:
+                    fn(bets)
+                    return True
+                except Exception:
+                    pass
+            ok = False
+            add1 = getattr(player, "add_bet", None)
+            if callable(add1):
+                for b in bets:
+                    try:
+                        add1(b)
+                        ok = True
+                    except Exception:
+                        pass
+                if ok:
+                    return True
+            # last resort: append to public list if present
+            try:
+                lst = getattr(player, "bets", None)
+                if isinstance(lst, list):
+                    lst.extend(b for b in bets if b is not None)
+                    return True
+            except Exception:
+                pass
+            return False
+
+        def _player_clear_bets(self, player) -> bool:
+            for name in ("clear_bets", "clear", "reset_bets"):
+                fn = getattr(player, name, None)
+                if callable(fn):
+                    try:
+                        fn()
+                        return True
+                    except Exception:
+                        continue
+            try:
+                bets = getattr(player, "bets", None)
+                if isinstance(bets, list):
+                    bets[:] = []
+                    return True
+            except Exception:
+                pass
+            return False
+
+        # ============= REQUIRED by Strategy ABC =================
+        # signature must be (self, player) -> None
+        def update_bets(self, player) -> None:
+            table = getattr(player, "table", None)
+            point = _point_value(table) if table is not None else None
+            comeout = point in (None, 0)
+
+            # reset state on comeout/new point
+            if comeout or point != self._last_point:
+                self._armed = False
+                self._last_point = point
+                self._player_clear_bets(player)
+
+            if comeout:
+                # Pass Line $10
+                self._player_add_many(player, [_mk_pass(10)])
+                return
+
+            # Point is ON
+            if not self._armed:
+                # Place 6 & 8 for $12; Field $5
+                self._player_add_many(player, [
+                    _mk_place(6, 12),
+                    _mk_place(8, 12),
+                    _mk_field(5),
+                ])
+                self._armed = True
+
+        def completed(self, player) -> bool:
+            return False
+
+        # optional hooks
+        def reset(self, *a, **k):
+            self._armed, self._last_point = False, None
+
+        def on_shooter_change(self, *a, **k):
+            self.reset()
+
+        def on_comeout(self, *a, **k):
+            return
+
+        def on_point_established(self, *a, **k):
+            return
+
+        def on_point(self, *a, **k):
+            return
+
+        def on_roll(self, *a, **k):
+            return
+
+        def on_seven_out(self, *a, **k):
+            self.reset()
+
+        def apply_template(self, *a, **k):
+            return
+
+        def clear_bets(self, *a, **k):
+            return
+
+    # Make sure any extra abstract names are stubbed
+    abstract = getattr(strategy_base, "__abstractmethods__", set()) or set()
+    for name in abstract:
+        if not hasattr(ControlStrategy, name):
+            setattr(
+                ControlStrategy,
+                name,
+                (lambda *a, **k: False) if name == "completed" else (lambda *a, **k: None),
+            )
+
+    return ControlStrategy(spec)
+
+
+# ------------------------------- Attach paths --------------------------------
+
+def _attach_modern(table: Table, spec: Dict[str, Any]) -> EngineAttachResult:
+    StrategyBase, _ = _resolve_modern_strategy_base()
+    if StrategyBase is None:
+        raise RuntimeError(
+            "CrapsSim ≥0.3.x detected but no Strategy base found. "
+            "Expected crapssim.strategy.Strategy or .BaseStrategy."
+        )
+
+    controller_strategy = _build_controller_strategy(spec, StrategyBase)
+
+    # Choose a bankroll (spec override -> run -> table -> default)
+    bankroll = int(
+        spec.get("bankroll")
+        or spec.get("run", {}).get("bankroll")
+        or spec.get("table", {}).get("bankroll", 1000)
     )
 
-def _list_bet_sigs(bets: Iterable[Any]) -> List[Tuple]:
-    return sorted(_bet_sig(b) for b in list(bets or []))
+    # Attach strategy (use whatever the table exposes)
+    add_player = getattr(table, "add_player", None)
+    add_strategy = getattr(table, "add_strategy", None)
+
+    if callable(add_player):
+        # Try to attach with keywords (some builds ignore bankroll here)
+        attached = False
+        for kw_name in ("strategy", "bet_strategy"):
+            try:
+                add_player(bankroll=bankroll, **{kw_name: controller_strategy}, name="CSC-Control")
+                attached = True
+                break
+            except TypeError:
+                continue
+        if not attached:
+            try:
+                add_player(bankroll=bankroll, strategy=controller_strategy)
+                attached = True
+            except Exception:
+                try:
+                    add_player(bankroll=bankroll, bet_strategy=controller_strategy)
+                    attached = True
+                except Exception:
+                    # LAST resort: positional (may be ignored by some builds)
+                    add_player(bankroll, controller_strategy, "CSC-Control")
+                    attached = True
+    elif callable(add_strategy):
+        try:
+            add_strategy(strategy=controller_strategy, name="CSC-Control")
+        except TypeError:
+            add_strategy(strategy=controller_strategy)
+    else:
+        raise RuntimeError("Table has neither add_player nor add_strategy.")
+
+    # --- Force bankroll on the attached player (engines that ignore kwargs) ---
+    try:
+        players = getattr(table, "players", None)
+        p0 = players[0] if players else None
+        if p0 is None:
+            raise RuntimeError("No player attached after add_* call.")
+
+        # Try setter first
+        set_br = getattr(p0, "set_bankroll", None)
+        if callable(set_br):
+            set_br(float(bankroll))
+        else:
+            # Set all plausible attributes
+            for attr in ("bankroll", "total_player_cash", "chips", "_bankroll"):
+                if hasattr(p0, attr):
+                    try:
+                        setattr(p0, attr, float(bankroll))
+                    except Exception:
+                        pass
+    except Exception:
+        # Non-fatal
+        pass
+
+    return EngineAttachResult(
+        table=table,
+        controller_player=controller_strategy,
+        meta={"mode": "modern", "bankroll": bankroll},
+    )
+
+
+def _attach_legacy(table: Table, spec: Dict[str, Any]) -> EngineAttachResult:
+    """Fallback for older CrapsSim exposing crapssim.players."""
+    if cs_players is None:
+        raise RuntimeError("Legacy players API requested but 'crapssim.players' is unavailable.")
+
+    BasePlayer = getattr(cs_players, "BasePlayer", None) or getattr(cs_players, "Player", None)
+    if BasePlayer is None:
+        raise RuntimeError("Could not find BasePlayer/Player in crapssim.players.")
+
+    class ControlPlayer(BasePlayer):  # type: ignore[misc]
+        def __init__(self, spec_dict: Dict[str, Any]):
+            super().__init__()
+            self._spec = spec_dict
+            self._state: Dict[str, Any] = {"mode": spec_dict.get("start_mode", "default")}
+
+        def on_comeout(self, table):
+            return
+
+        def on_point(self, table, point):
+            return
+
+        def on_roll(self, table, roll):
+            return
+
+        def on_seven_out(self, table):
+            return
+
+        def apply_template(self, table, template: Dict[str, Any]):
+            return
+
+        def clear_bets(self, table):
+            return
+
+    p = ControlPlayer(spec)
+    table.add_player(p)
+    return EngineAttachResult(table=table, controller_player=p, meta={"mode": "legacy"})
+
+
+def attach_engine(spec: Dict[str, Any]) -> EngineAttachResult:
+    """
+    Prepare a Table and attach our control object.
+    Prefer modern Strategy path; fall back to legacy players if available.
+    """
+    t = Table()
+    if cs_strategy is not None:
+        return _attach_modern(t, spec)
+    if _HAS_LEGACY_PLAYERS:
+        return _attach_legacy(t, spec)
+    raise RuntimeError(
+        "Could not attach to CrapsSim. "
+        "Neither 'crapssim.strategy' (modern) nor 'crapssim.players' (legacy) is available. "
+        "Installed CrapsSim submodules likely include: bet, dice, point, strategy, table. "
+        "Ensure 'crapssim.strategy' exports Strategy/BaseStrategy and Table exposes add_strategy or add_player."
+    )
+
+
+# --- Compatibility shim for older CLI expecting EngineAdapter -----------------
 
 class EngineAdapter:
     """
-    Light adapter that drives a craps-like table one roll at a time.
-    If the table lacks a single-roll method (vanilla crapssim), we fall back
-    to a thin bridge that advances one roll via TableUpdate and exposes a view.
+    Back-compat wrapper expected by the CLI.
+    Provides .attach(spec) and a classmethod attach as well.
     """
-    def __init__(self, table: Any, player: Any, strategy: Any):
-        self.table = table
-        self.player = player
-        self.strategy = strategy
-        self._vanilla_driver: Optional[Any] = None
+    def __init__(self, *args, **kwargs):
+        # Newer adapter no longer needs table/player injected here
+        pass
 
-    def play(self, *, shooters: int = 1, max_rolls_per_shooter: int = 200) -> None:
-        shooters_remaining = shooters
-        while shooters_remaining > 0:
-            for _ in range(max_rolls_per_shooter):
-                event = self._roll_once()
-                if (event or {}).get("event") in ("seven_out", "shooter_change"):
-                    break
-            shooters_remaining -= 1
+    def attach(self, spec: Dict[str, Any]) -> EngineAttachResult:
+        return attach_engine(spec)
 
-    def _ensure_vanilla_driver(self):
-        if self._vanilla_driver is not None or VanillaDriver is None:
-            return
-        # Heuristic: vanilla has .dice/.point but no 'roll_once'/'roll'/'step'
-        if hasattr(self.table, "dice") and hasattr(self.table, "point") and not any(
-            hasattr(self.table, name) for name in ("roll_once", "roll", "step")
-        ):
-            self._vanilla_driver = VanillaDriver(self.table, self.strategy)
+    @classmethod
+    def attach_cls(cls, spec: Dict[str, Any]) -> EngineAttachResult:
+        return attach_engine(spec)
 
-    def _roll_once(self) -> Optional[Dict[str, Any]]:
-        prev_snapshot = self._snapshot_for_events(self.table)
 
-        # Pre-roll strategy hook (skip if vanilla bridge will call it for us)
-        self._ensure_vanilla_driver()
-        if self._vanilla_driver is None:
-            try:
-                self.strategy.update_bets(self.table)
-            except TypeError:
-                self.strategy.update_bets(self.table)
-
-        # Advance one roll
-        if hasattr(self.table, "roll_once"):
-            self.table.roll_once()
-        elif hasattr(self.table, "roll"):
-            self.table.roll()
-        else:
-            step = getattr(self.table, "step", None)
-            if callable(step):
-                step()
-            else:
-                self._ensure_vanilla_driver()
-                if self._vanilla_driver is not None:
-                    self._vanilla_driver.roll_once()
-                else:
-                    raise RuntimeError("EngineAdapter: cannot find a roll method on the table")
-
-        curr_snapshot = self._snapshot_for_events(self.table)
-
-        event = derive_event(prev_snapshot, curr_snapshot) or {"event": "roll"}
-
-        try:
-            self.strategy.after_roll(self.table, event)
-        except TypeError:
-            try:
-                self.strategy.after_roll(self.table, event)
-            except Exception:
-                pass
-
-        return event
-
-    def _get_player_bets(self) -> List[Any]:
-        player = self._first_player()
-        if player is None:
-            return []
-        bets = getattr(player, "bets", None)
-        if bets is None and isinstance(player, dict):
-            bets = player.get("bets")
-        return list(bets or [])
-
-    def _first_player(self):
-        players = getattr(self.table, "players", None)
-        if players is None and isinstance(self.table, dict):
-            players = self.table.get("players")
-        if players and len(players) > 0:
-            return players[0]
-        single = getattr(self.table, "player", None)
-        if single is None and isinstance(self.table, dict):
-            single = self.table.get("player")
-        return single or self.player
-
-    def _snapshot_for_events(self, table: Any) -> Dict[str, Any]:
-        def g(obj, name, default=None):
-            if isinstance(obj, dict):
-                return obj.get(name, default)
-            return getattr(obj, name, default)
-
-        # Prefer a .view (vanilla bridge) but fall back to table itself
-        view = getattr(table, "view", table)
-
-        point_number = g(view, "point_number", None)
-        comeout = bool(g(view, "comeout", False))
-        total = g(view, "total", None)
-        roll_index = g(view, "roll_index", None)
-        just_est = g(view, "just_established_point", False)
-        just_made = g(view, "just_made_point", False)
-
-        # vanilla fallbacks
-        if point_number is None and hasattr(table, "point"):
-            point_number = getattr(getattr(table, "point", None), "number", None)
-            comeout = bool(point_number is None)
-        if total is None and hasattr(table, "dice"):
-            total = int(getattr(getattr(table, "dice", None), "total", 0))
-        if roll_index is None and hasattr(table, "dice"):
-            roll_index = int(getattr(getattr(table, "dice", None), "n_rolls", 0))
-
-        return {
-            "comeout": comeout,
-            "point_on": bool(point_number is not None),
-            "point_num": point_number,
-            "just_est": bool(just_est),
-            "just_made": bool(just_made),
-            "total": int(total or 0),
-            "roll_index": roll_index,
-        }
+# Keep a direct name too, just in case someone imports the function
+attach = attach_engine  # type: ignore
+__all__ = ["EngineAttachResult", "EngineAdapter", "attach_engine", "attach"]
