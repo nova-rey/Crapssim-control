@@ -9,7 +9,7 @@ engine_adapter.py — CrapsSim-Control ↔ CrapsSim bridge
 """
 
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Tuple, List
+from typing import Any, Dict, Optional, Tuple, List, TYPE_CHECKING
 
 # --- Detect CrapsSim shape ----------------------------------------------------
 
@@ -25,13 +25,14 @@ try:
 except ModuleNotFoundError:
     cs_players = None  # type: ignore
 
+# Table is optional at import time; only fail when we actually attach.
 try:
-    from crapssim.table import Table
-except Exception as e:  # pragma: no cover
-    raise RuntimeError(
-        "CrapsSim engine not importable: failed to import 'crapssim.table.Table'. "
-        f"Original error: {e}"
-    ) from e
+    from crapssim.table import Table as _CsTable  # runtime alias
+except Exception:
+    _CsTable = None  # type: ignore
+
+if TYPE_CHECKING:  # for type checkers/IDEs only
+    from crapssim.table import Table  # noqa: F401
 
 
 # --- Public adapter surface used by the CLI -----------------------------------
@@ -252,7 +253,7 @@ def _build_controller_strategy(spec: Dict[str, Any], strategy_base: type) -> Any
 
 # ------------------------------- Attach paths --------------------------------
 
-def _attach_modern(table: Table, spec: Dict[str, Any]) -> EngineAttachResult:
+def _attach_modern(table: Any, spec: Dict[str, Any]) -> EngineAttachResult:
     StrategyBase, _ = _resolve_modern_strategy_base()
     if StrategyBase is None:
         raise RuntimeError(
@@ -333,7 +334,7 @@ def _attach_modern(table: Table, spec: Dict[str, Any]) -> EngineAttachResult:
     )
 
 
-def _attach_legacy(table: Table, spec: Dict[str, Any]) -> EngineAttachResult:
+def _attach_legacy(table: Any, spec: Dict[str, Any]) -> EngineAttachResult:
     """Fallback for older CrapsSim exposing crapssim.players."""
     if cs_players is None:
         raise RuntimeError("Legacy players API requested but 'crapssim.players' is unavailable.")
@@ -376,100 +377,47 @@ def attach_engine(spec: Dict[str, Any]) -> EngineAttachResult:
     Prepare a Table and attach our control object.
     Prefer modern Strategy path; fall back to legacy players if available.
     """
-    t = Table()
+    if _CsTable is None and cs_strategy is None and not _HAS_LEGACY_PLAYERS:
+        raise RuntimeError(
+            "Could not attach to CrapsSim: engine not installed (no 'crapssim')."
+        )
+
+    if _CsTable is not None:
+        t = _CsTable()
+    else:
+        class _ShimTable:
+            def __init__(self): self.players = []
+            def add_player(self, *a, **k): self.players.append(object())
+            def add_strategy(self, *a, **k): pass
+        t = _ShimTable()
+
     if cs_strategy is not None:
         return _attach_modern(t, spec)
     if _HAS_LEGACY_PLAYERS:
         return _attach_legacy(t, spec)
     raise RuntimeError(
         "Could not attach to CrapsSim. "
-        "Neither 'crapssim.strategy' (modern) nor 'crapssim.players' (legacy) is available. "
-        "Installed CrapsSim submodules likely include: bet, dice, point, strategy, table. "
-        "Ensure 'crapssim.strategy' exports Strategy/BaseStrategy and Table exposes add_strategy or add_player."
+        "Neither 'crapssim.strategy' (modern) nor 'crapssim.players' (legacy) is available."
     )
 
 
-# --- Compatibility shim for older CLI & tests expecting EngineAdapter ---------
+# --- Compatibility shim for older CLI expecting EngineAdapter -----------------
 
 class EngineAdapter:
     """
-    Back-compat wrapper used by CLI *and* tests.
-    Supports:
-      • EngineAdapter() + .attach(spec)         (CLI path)
-      • EngineAdapter(table, player, strategy)  (test/smoke path)
-      • .play(shooters=..., rolls=...)          (tolerant driver)
+    Back-compat wrapper expected by the CLI.
+    Provides .attach(spec) and a classmethod attach as well.
     """
-    def __init__(self, table: Any = None, player: Any = None, strategy: Any = None):
-        self.table = table
-        self.player = player
-        self.strategy = strategy
+    def __init__(self, *args, **kwargs):
+        # Newer adapter no longer needs table/player injected here
+        pass
 
-    # CLI path
     def attach(self, spec: Dict[str, Any]) -> EngineAttachResult:
-        result = attach_engine(spec)
-        # cache for potential .play() calls later
-        self.table = result.table
-        # modern path returns the strategy object as "controller_player"
-        self.player = None
-        self.strategy = result.controller_player
-        return result
+        return attach_engine(spec)
 
     @classmethod
     def attach_cls(cls, spec: Dict[str, Any]) -> EngineAttachResult:
         return attach_engine(spec)
-
-    # Test/smoke path — minimal, tolerant driver
-    def play(self, shooters: int | None = None, rolls: int | None = None) -> None:
-        t = self.table
-        if t is None:
-            return
-
-        # If explicit rolls are provided, try to run exactly that many.
-        r = int(rolls or 0)
-        if r > 0:
-            if hasattr(t, "play"):
-                try:
-                    t.play(rolls=r)
-                    return
-                except Exception:
-                    pass
-            if hasattr(t, "run"):
-                try:
-                    t.run(r)
-                    return
-                except TypeError:
-                    try:
-                        t.run(rolls=r)
-                        return
-                    except Exception:
-                        pass
-                except Exception:
-                    pass
-            if hasattr(t, "roll"):
-                try:
-                    for _ in range(r):
-                        t.roll()
-                    return
-                except Exception:
-                    pass
-            return  # nothing compatible; no-op to keep tests happy
-
-        # If no rolls given, but a shooters concept exists in a fake, try it.
-        if shooters is not None and hasattr(t, "pass_rolls"):
-            try:
-                t.pass_rolls(int(shooters))
-            except Exception:
-                pass
-
-
-# Keep a direct name too, just in case someone imports the function
-attach = attach_engine  # type: ignore
-__all__ = ["EngineAttachResult", "EngineAdapter", "attach_engine", "attach"]
-
-
-# Keep a direct name too, just in case someone imports the function
-attach = attach_engine  # type: ignore
-__all__ = ["EngineAttachResult", "EngineAdapter", "attach_engine", "attach"]
 
 
 # Keep a direct name too, just in case someone imports the function
