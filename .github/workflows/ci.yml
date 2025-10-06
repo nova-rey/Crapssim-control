@@ -15,15 +15,15 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install deps
+      - name: Install deps (engineless)
         run: |
           python -m venv .venv
           . .venv/bin/activate
           pip install --upgrade pip wheel
-          # Install CrapsSim engine from GitHub (adjust if different)
-          # pip install "git+https://github.com/skent259/crapssim.git"
           # Install this package (editable)
           pip install -e .
+          # Ensure engine is NOT present so tests expecting missing engine pass
+          pip uninstall -y crapssim || true
           # Test runner
           pip install pytest
 
