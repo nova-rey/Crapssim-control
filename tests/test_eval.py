@@ -1,5 +1,6 @@
 # tests/test_eval.py
-from crapssim_control.eval import evaluate, eval_num, eval_bool, EvalError
+import pytest
+from crapssim_control.eval import evaluate, eval_num, eval_bool, EvalError, try_eval
 
 
 def test_arithmetic_and_precedence():
@@ -39,39 +40,32 @@ def test_python_ternary_supported():
     assert eval_num("1 if bubble else ceil(units/2)", st) == 5
 
 
+def test_membership_tuple():
+    st = {"point": 6}
+    assert eval_bool("point in (6, 8)", st) is True
+    assert eval_bool("point not in (5, 9)", st) is True
+    st["point"] = 5
+    assert eval_bool("point in (6, 8)", st) is False
+
+
 def test_undefined_variable_raises():
-    try:
+    with pytest.raises(EvalError) as e:
         evaluate("foo + 1", {})
-    except EvalError as e:
-        assert "Unknown variable 'foo'" in str(e)
-    else:
-        assert False, "Expected EvalError"
+    assert "Unknown variable 'foo'" in str(e.value)
 
 
 def test_disallowed_syntax_rejected():
     # attribute access
-    try:
-        evaluate("__import__('os').system('echo nope')")
-    except EvalError as e:
-        assert "not allowed" in str(e).lower()
-    else:
-        assert False, "Expected EvalError"
+    with pytest.raises(EvalError):
+        evaluate("__import__('os').system('echo nope')", {})
 
     # subscripts
-    try:
+    with pytest.raises(EvalError):
         evaluate("a[0]", {"a": [1, 2, 3]})
-    except EvalError:
-        pass
-    else:
-        assert False, "Expected EvalError"
 
     # lambdas
-    try:
+    with pytest.raises(EvalError):
         evaluate("(lambda x: x)(1)")
-    except EvalError:
-        pass
-    else:
-        assert False, "Expected EvalError"
 
 
 def test_type_coercions_and_booleans():
@@ -79,3 +73,20 @@ def test_type_coercions_and_booleans():
     assert eval_bool("0") is False
     assert eval_bool("'true'") is True
     assert eval_bool("'no'") is False
+
+
+def test_assignment_and_augassign_mutation():
+    st = {"x": 1}
+    # plain assignment
+    evaluate("x = x + 2", st)
+    assert st["x"] == 3
+    # augmented assignment
+    evaluate("x += 5", st)
+    assert st["x"] == 8
+
+
+def test_try_eval_fail_open():
+    # Unknown variable → returns default instead of raising
+    assert try_eval("unknown_var + 1", {}, default=0) == 0
+    # Valid expression still evaluates
+    assert try_eval("2 + 3", {}, default=0) == 5
