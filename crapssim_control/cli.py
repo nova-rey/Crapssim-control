@@ -12,7 +12,6 @@ from pathlib import Path
 from typing import Any, Dict, List, Tuple, Optional
 
 from .logging_utils import setup_logging
-from .spec_validation import validate_spec
 
 log = logging.getLogger("crapssim-ctl")
 
@@ -31,8 +30,12 @@ def _load_spec_file(path: str | Path) -> Dict[str, Any]:
     if p.suffix.lower() in (".yaml", ".yml"):
         if yaml is None:
             raise RuntimeError("PyYAML not installed; cannot read YAML specs.")
-        return yaml.safe_load(text) or {}
-    return json.loads(text or "{}")
+        data = yaml.safe_load(text) or {}
+    else:
+        data = json.loads(text or "{}")
+    if not isinstance(data, dict):
+        raise ValueError("Spec root must be a JSON/YAML object (mapping).")
+    return data
 
 
 def _normalize_validate_result(res):
@@ -157,6 +160,23 @@ def _write_csv_summary(path: str | Path, row: Dict[str, Any]) -> None:
         writer.writerow(safe_row)
 
 
+# ------------------------------ Validation ---------------------------------- #
+
+def _lazy_validate_spec(spec: Dict[str, Any]) -> Tuple[bool, List[str], List[str]]:
+    """
+    Lazy-import validate_spec to avoid import-time failures if that module
+    still has TODOs. Always returns (ok, hard_errs, soft_warns).
+    """
+    try:
+        from . import spec_validation as _sv  # lazy
+        res = _sv.validate_spec(spec)
+    except Exception as e:
+        # If validation module is incomplete, allow a friendly failure.
+        log.debug("validate_spec unavailable or failed: %r", e)
+        return False, [f"Validation logic unavailable: {e!r}"], []
+    return _normalize_validate_result(res)
+
+
 # --------------------------------- Run -------------------------------------- #
 
 def run(args: argparse.Namespace) -> int:
@@ -180,7 +200,7 @@ def run(args: argparse.Namespace) -> int:
     seed = args.seed if args.seed is not None else spec_run.get("seed")
 
     # Validate first (fail fast)
-    ok, hard_errs, soft_warns = _normalize_validate_result(validate_spec(spec))
+    ok, hard_errs, soft_warns = _lazy_validate_spec(spec)
     if not ok or hard_errs:
         print("failed validation:", file=sys.stderr)
         for e in hard_errs:
@@ -201,13 +221,13 @@ def run(args: argparse.Namespace) -> int:
 
     # Attach engine (modern adapter handles CrapsSim 0.3+; legacy fallback inside)
     try:
-        from crapssim_control.engine_adapter import EngineAdapter
+        from crapssim_control.engine_adapter import EngineAdapter  # lazy
         adapter = EngineAdapter()
         attach_result = adapter.attach(spec)  # -> EngineAttachResult
         table = attach_result.table
-        log.debug("attach meta: %s", attach_result.meta)
+        log.debug("attach meta: %s", getattr(attach_result, "meta", {}))
         if os.environ.get("CSC_DEBUG", "0").lower() in ("1", "true", "yes"):
-            print("DEBUG attach_result:", attach_result.meta)
+            print("DEBUG attach_result:", getattr(attach_result, "meta", {}))
     except Exception as e:
         if os.environ.get("CSC_DEBUG", "0").lower() in ("1", "true", "yes"):
             print("\n--- CSC DEBUG TRACEBACK (attach) ---", flush=True)
@@ -249,7 +269,7 @@ def run(args: argparse.Namespace) -> int:
                     "rolls": rolls,
                     "final_bankroll": float(bankroll) if bankroll is not None else None,
                     "seed": seed_int,
-                    "note": attach_result.meta.get("mode", ""),
+                    "note": getattr(getattr(attach_result, "meta", {}), "get", lambda _k, _d=None: _d)("mode", ""),
                 },
             )
             log.info("Exported summary CSV → %s", args.export)
@@ -276,8 +296,7 @@ def _cmd_validate(args: argparse.Namespace) -> int:
         print(f"failed validation:\n- Could not load spec: {e}", file=sys.stderr)
         return 2
 
-    res = validate_spec(spec)
-    ok, hard_errs, soft_warns = _normalize_validate_result(res)
+    ok, hard_errs, soft_warns = _lazy_validate_spec(spec)
 
     notes: List[str] = []
     if getattr(args, "guardrails", False):
