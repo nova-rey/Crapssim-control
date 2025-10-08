@@ -17,7 +17,12 @@ class ControlStrategy:
       • required adapter shims: update_bets(table) and after_roll(table, event)
     """
 
-    def __init__(self, spec: Dict[str, Any], ctrl_state: Any | None = None, table_cfg: Optional[Dict[str, Any]] = None) -> None:
+    def __init__(
+        self,
+        spec: Dict[str, Any],
+        ctrl_state: Any | None = None,
+        table_cfg: Optional[Dict[str, Any]] = None,
+    ) -> None:
         self.spec = spec
         self.table_cfg = table_cfg or spec.get("table") or {}
         self.point: Optional[int] = None
@@ -86,26 +91,34 @@ class ControlStrategy:
         Accept either:
           • dict {bet_type: amount}  or {bet_type: {'amount': X}}
                 → [{'action':'set','bet_type':..., 'amount':...}]
-          • list/tuple of dicts      → pass through
+          • list/tuple of dicts      → pass through (amount normalized if present)
           • list/tuple of triplets   → [('set','pass_line',10), ...] → dicts
         """
         out: List[Dict[str, Any]] = []
 
         if isinstance(plan_obj, dict):
             for bet_type, amount in plan_obj.items():
-                out.append({"action": "set", "bet_type": str(bet_type), "amount": ControlStrategy._extract_amount(amount)})
+                out.append({
+                    "action": "set",
+                    "bet_type": str(bet_type),
+                    "amount": ControlStrategy._extract_amount(amount),
+                })
             return out
 
         if isinstance(plan_obj, (list, tuple)):
             for item in plan_obj:
                 if isinstance(item, dict):
-                    # if provided as {'action':'set','bet_type':'x','amount':{...}} normalize amount too
+                    # normalize amount if present
                     if "amount" in item:
                         item = {**item, "amount": ControlStrategy._extract_amount(item["amount"])}
                     out.append(item)
                 elif isinstance(item, (list, tuple)) and len(item) >= 3:
                     action, bet_type, amount = item[0], item[1], item[2]
-                    out.append({"action": str(action), "bet_type": str(bet_type), "amount": ControlStrategy._extract_amount(amount)})
+                    out.append({
+                        "action": str(action),
+                        "bet_type": str(bet_type),
+                        "amount": ControlStrategy._extract_amount(amount),
+                    })
             return out
 
         return out
@@ -126,7 +139,9 @@ class ControlStrategy:
             "on_comeout": self.on_comeout,
         }
         raw = render_runtime_template(tmpl, st, event)
-        return self._normalize_plan(raw)
+        plan = self._normalize_plan(raw)
+        # Defensive: ensure we always return a list of dicts
+        return plan if isinstance(plan, list) else []
 
     # ----- public API used by tests -----
 
@@ -140,9 +155,13 @@ class ControlStrategy:
             return []
 
         if ev_type == "point_established":
-            self.point = int(event["point"])
+            # Safer parsing of point value
+            try:
+                self.point = int(event.get("point"))
+            except Exception:
+                self.point = None
             self.rolls_since_point = 0
-            self.on_comeout = False
+            self.on_comeout = self.point in (None, 0)
             return self._apply_mode_template_plan(self.mode)
 
         if ev_type == "roll":
