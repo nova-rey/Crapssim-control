@@ -34,7 +34,7 @@ from __future__ import annotations
 
 from typing import Dict, List, Optional, Tuple, Any
 
-from .eval import eval_num, EvalError
+from .eval import eval_num, EvalError, try_eval
 from .legalize_rt import legalize_amount
 
 
@@ -64,13 +64,32 @@ def _cfg(table_cfg: Optional[Dict]) -> Dict:
     return cfg
 
 
+def _coerce_float(val: Any) -> float:
+    if isinstance(val, (int, float)):
+        return float(val)
+    if isinstance(val, str):
+        try:
+            return float(val)
+        except Exception:
+            return 0.0
+    return 0.0
+
+
 def _eval_amount(expr_or_num: Any, state: Dict, event: Dict) -> float:
+    """
+    Evaluate a template value into a numeric amount, fail-open to 0.0 on errors.
+    - numbers pass through
+    - strings are expressions evaluated against (state,event)
+    - anything else -> 0.0
+    """
     if isinstance(expr_or_num, (int, float)):
         return float(expr_or_num)
     if expr_or_num is None:
         return 0.0
     if isinstance(expr_or_num, str):
-        return float(eval_num(expr_or_num, state, event))
+        # Fail-open: unknown vars / bad expressions yield 0.0
+        val = try_eval(expr_or_num, state, event, default=0)
+        return _coerce_float(val)
     # unknown types → zero (effectively "clear")
     return 0.0
 
