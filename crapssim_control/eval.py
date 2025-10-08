@@ -82,8 +82,9 @@ _ALLOWED_EXPR_NODES = {
     ast.FloorDiv,
     ast.Mod,
     ast.Pow,
-    ast.Num,  # legacy constant
+    ast.Num,       # legacy constant
     ast.Constant,
+    ast.Tuple,     # allow tuple literals, e.g., (6, 8) for membership tests
     ast.Compare,
     ast.Eq,
     ast.NotEq,
@@ -91,11 +92,13 @@ _ALLOWED_EXPR_NODES = {
     ast.LtE,
     ast.Gt,
     ast.GtE,
+    ast.In,        # membership operator: a in (...)
+    ast.NotIn,     # membership operator: a not in (...)
     ast.And,
     ast.Or,
     ast.BoolOp,
-    ast.IfExp,  # ternary: a if cond else b
-    ast.Call,   # restricted further below
+    ast.IfExp,     # ternary: a if cond else b
+    ast.Call,      # restricted further below
     ast.Name,
     ast.Load,
 }
