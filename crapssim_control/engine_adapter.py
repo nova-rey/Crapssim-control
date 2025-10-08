@@ -8,6 +8,8 @@ engine_adapter.py — CrapsSim-Control ↔ CrapsSim bridge
   with a minimal Iron Cross (Pass Line on comeout; Place 6/8 + Field when point is ON)
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass
 from typing import Any, Dict, Optional, Tuple, List, TYPE_CHECKING
 
@@ -122,6 +124,7 @@ def _build_controller_strategy(spec: Dict[str, Any], strategy_base: type) -> Any
                 try:
                     super().__init__(name="CSC-Control")
                 except TypeError:
+                    # Some bases take no args at all
                     pass
             self.name = "CSC-Control"
             self._spec = spec_dict
@@ -284,6 +287,9 @@ def _attach_modern(table: Any, spec: Dict[str, Any]) -> EngineAttachResult:
                 break
             except TypeError:
                 continue
+            except Exception:
+                # keep trying other shapes
+                pass
         if not attached:
             try:
                 add_player(bankroll=bankroll, strategy=controller_strategy)
@@ -368,7 +374,15 @@ def _attach_legacy(table: Any, spec: Dict[str, Any]) -> EngineAttachResult:
             return
 
     p = ControlPlayer(spec)
-    table.add_player(p)
+    # Try common signatures for legacy add
+    add_player = getattr(table, "add_player", None)
+    if callable(add_player):
+        try:
+            add_player(p)
+        except TypeError:
+            add_player(player=p)
+    else:
+        raise RuntimeError("Legacy attach failed: table has no add_player()")
     return EngineAttachResult(table=table, controller_player=p, meta={"mode": "legacy"})
 
 
@@ -382,11 +396,18 @@ def attach_engine(spec: Dict[str, Any]) -> EngineAttachResult:
             "Could not attach to CrapsSim: engine not installed (no 'crapssim')."
         )
 
+    # Instantiate a table as best we can
     if _CsTable is not None:
-        t = _CsTable()
+        try:
+            # Try tolerant constructor: allow kwargs some builds accept
+            t = _CsTable()
+        except TypeError:
+            # Fallback: no-arg constructor only
+            t = _CsTable()  # type: ignore[call-arg]
     else:
         class _ShimTable:
-            def __init__(self): self.players = []
+            def __init__(self):
+                self.players = []
             def add_player(self, *a, **k): self.players.append(object())
             def add_strategy(self, *a, **k): pass
         t = _ShimTable()
@@ -399,7 +420,6 @@ def attach_engine(spec: Dict[str, Any]) -> EngineAttachResult:
         "Could not attach to CrapsSim. "
         "Neither 'crapssim.strategy' (modern) nor 'crapssim.players' (legacy) is available."
     )
-
 
 
 # --- Compatibility shim for older CLI expecting EngineAdapter -----------------
@@ -456,4 +476,3 @@ class EngineAdapter:
                 pass
 
         return {"shooters": int(shooters), "rolls": int(rolls), "status": "ok"}
-
