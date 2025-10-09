@@ -22,6 +22,7 @@ def assert_valid_spec(spec: Dict[str, Any]) -> None:
         raise SpecValidationError(errs)
 
 
+# Allowed action verbs for object-form steps
 _ALLOWED_ACTIONS = {"set", "clear", "press", "reduce", "switch_mode"}
 _ACTION_NEEDS_AMOUNT = {
     "set": True,
@@ -30,19 +31,23 @@ _ACTION_NEEDS_AMOUNT = {
     "reduce": True,
     "switch_mode": False,
 }
-_FREEFORM_STARTERS = {"units"}  # allow legacy free-form directives like "units 10"
+# Legacy free-form starters (string steps) we allow without strict parsing
+_FREEFORM_STARTERS = {"units"}  # e.g., "units 10"
 
 
 def validate_spec(spec: Dict[str, Any]) -> List[str]:
     """
-    Return a flat list of 'hard' validation errors.
+    Return a flat list of 'hard' validation errors (no warnings).
 
     String `do` steps:
       • Accept free-form directives like "apply_template('Main')" (contain '(')
       • Accept legacy free-form starters like "units 10"
       • Heuristically flag obvious verb-like forms (e.g., "explode place_6 10")
+
     Object `do` steps:
       • Strictly validated (action/bet/amount as appropriate)
+      • Accept both 'bet' and 'bet_type'
+      • 'amount' may be a number OR a string expression (evaluated at runtime)
     """
     errors: List[str] = []
 
