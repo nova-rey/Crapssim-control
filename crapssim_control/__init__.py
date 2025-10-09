@@ -1,30 +1,57 @@
+# crapssim_control/__init__.py
 """
-Crapssim Control - strategy specs, rule engine, and CLI wrapper.
+CrapsSim Control — runtime templates, rule engine (MVP), controller, and CSV tooling.
 """
 
 from .controller import ControlStrategy
-from .materialize import apply_intents
-from .rules import run_rules_for_event
-from .templates import render_template
-from .spec_validation import (
-    validate_spec, assert_valid_spec, is_valid_spec, SpecValidationError
+from .templates_rt import render_template, diff_bets
+from .rules_rt import apply_rules
+from .actions import (
+    make_action,
+    ActionEnvelope,
+    SCHEMA_VERSION as ACTION_SCHEMA_VERSION,
+    ACTION_SET,
+    ACTION_CLEAR,
+    ACTION_PRESS,
+    ACTION_REDUCE,
+    ACTION_SWITCH_MODE,
+    SOURCE_TEMPLATE,
+    SOURCE_RULE,
 )
-from .tracker import Tracker
-from .bet_types import normalize_bet_type
+from .csv_journal import CSVJournal
+from .csv_summary import summarize_journal, write_summary_csv
 
-# Keep version here so CLI can import it safely
-__version__ = "0.18.0"
+# Bump for Phase 3 CSV + envelopes work
+__version__ = "0.19.0"
 
 __all__ = [
+    # Core controller
     "ControlStrategy",
-    "apply_intents",
-    "run_rules_for_event",
+
+    # Runtime templates
     "render_template",
-    "validate_spec",
-    "assert_valid_spec",
-    "is_valid_spec",
-    "SpecValidationError",
-    "Tracker",
-    "normalize_bet_type",
+    "diff_bets",
+
+    # Rules (MVP)
+    "apply_rules",
+
+    # Action envelopes
+    "make_action",
+    "ActionEnvelope",
+    "ACTION_SCHEMA_VERSION",
+    "ACTION_SET",
+    "ACTION_CLEAR",
+    "ACTION_PRESS",
+    "ACTION_REDUCE",
+    "ACTION_SWITCH_MODE",
+    "SOURCE_TEMPLATE",
+    "SOURCE_RULE",
+
+    # CSV utilities
+    "CSVJournal",
+    "summarize_journal",
+    "write_summary_csv",
+
+    # Package version
     "__version__",
 ]
