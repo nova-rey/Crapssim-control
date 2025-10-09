@@ -1,6 +1,10 @@
+# crapssim_control/spec_validation.py
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, Tuple
+
+# Canonical event names come from the central events module (P4C2 contract)
+from .events import CANONICAL_EVENT_TYPES
 
 
 # -------------------------------------------------
@@ -23,10 +27,31 @@ def assert_valid_spec(spec: Dict[str, Any]) -> None:
         raise SpecValidationError(errs)
 
 
+# -------------------------------------------------
+# Validation (P4C2 upgraded)
+# -------------------------------------------------
+
+_ALLOWED_ACTIONS = {"set", "clear", "press", "reduce", "switch_mode"}
+# action → requires_amount flag (string or number accepted when True)
+_ACTION_NEEDS_AMOUNT = {
+    "set": True,
+    "clear": False,
+    "press": True,
+    "reduce": True,
+    "switch_mode": False,  # uses 'notes' or separate 'mode' string when present
+}
+
+
 def validate_spec(spec: Dict[str, Any]) -> List[str]:
     """
     Return a flat list of 'hard' validation errors.
     (Existing tests expect exactly this signature and behavior.)
+
+    P4C2 additions:
+      • Validate rules[*].on.event ∈ CANONICAL_EVENT_TYPES
+      • Validate 'when' is a string when present
+      • Validate 'do' steps as strings OR objects with {action, bet, amount}
+      • Clear, user-facing errors referencing rule names/indices
     """
     errors: List[str] = []
 
@@ -35,15 +60,17 @@ def validate_spec(spec: Dict[str, Any]) -> List[str]:
     for key in required:
         if key not in spec:
             errors.append(f"Missing required section: '{key}'")
-            # Tests expect a friendlier message for 'modes' as well.
             if key == "modes":
+                # tests expect this friendlier wording as well
                 errors.append("You must define at least one mode.")
 
     # variables is optional but if present must be a dict
     if "variables" in spec and not isinstance(spec["variables"], dict):
         errors.append("variables must be an object")
 
+    # -------------------------
     # table
+    # -------------------------
     if "table" in spec and isinstance(spec["table"], dict):
         t = spec["table"]
         if "bubble" in t and not isinstance(t["bubble"], bool):
@@ -56,7 +83,9 @@ def validate_spec(spec: Dict[str, Any]) -> List[str]:
     elif "table" in spec:
         errors.append("table must be an object")
 
+    # -------------------------
     # modes
+    # -------------------------
     if "modes" in spec:
         modes = spec["modes"]
         if not isinstance(modes, dict) or not modes:
@@ -73,10 +102,10 @@ def validate_spec(spec: Dict[str, Any]) -> List[str]:
                 if not isinstance(tmpl, dict):
                     errors.append(f"modes['{mname}'].template must be an object")
                     continue
-                # template values may be:
-                # - number (amount),
-                # - string (variable reference),
-                # - object with at least 'amount' number
+                # template values:
+                # - number (amount)
+                # - string (variable/expression reference)
+                # - object with at least 'amount' number/string
                 for k, v in tmpl.items():
                     if isinstance(v, (int, float)):
                         continue
@@ -84,36 +113,59 @@ def validate_spec(spec: Dict[str, Any]) -> List[str]:
                         continue
                     if isinstance(v, dict):
                         amt = v.get("amount")
-                        if _is_number(amt):
+                        if _is_number(amt) or isinstance(amt, str):
                             continue
                     errors.append(
                         "template values must be a number/string or an object with 'amount'"
                     )
 
+    # -------------------------
     # rules
+    # -------------------------
     if "rules" in spec:
         rules = spec["rules"]
         if not isinstance(rules, list):
             errors.append("rules must be an array")
         else:
             for i, r in enumerate(rules):
+                ctx = _rule_ctx(r, i)
                 if not isinstance(r, dict):
-                    errors.append(f"rules[{i}] must be an object")
+                    errors.append(f"{ctx} must be an object")
                     continue
+
+                # on.event
                 on = r.get("on")
-                do = r.get("do")
                 if not isinstance(on, dict):
-                    errors.append(f"rules[{i}].on must be an object")
+                    errors.append(f"{ctx}.on must be an object")
                 else:
                     ev = on.get("event")
                     if not isinstance(ev, str):
-                        errors.append("on.event must be a string")
+                        errors.append(f"{ctx}.on.event must be a string")
+                    else:
+                        if ev not in CANONICAL_EVENT_TYPES:
+                            allowed = ", ".join(sorted(CANONICAL_EVENT_TYPES))
+                            errors.append(
+                                f"{ctx}.on.event must be one of {{{allowed}}} (got '{ev}')"
+                            )
+
+                # when (optional)
+                if "when" in r and not isinstance(r.get("when"), str):
+                    errors.append(f"{ctx}.when must be a string")
+
+                # do: steps
+                do = r.get("do")
                 if not isinstance(do, list):
-                    errors.append(f"rules[{i}].do must be an array")
+                    errors.append(f"{ctx}.do must be an array")
                 else:
                     for j, step in enumerate(do):
-                        if not isinstance(step, str):
-                            errors.append(f"do[{j}] must be a string")
+                        step_ctx = f"{ctx}.do[{j}]"
+                        if isinstance(step, str):
+                            # strings should look like: "<action> <bet?> <amount?>"
+                            _validate_do_string(step, step_ctx, errors)
+                        elif isinstance(step, dict):
+                            _validate_do_object(step, step_ctx, errors)
+                        else:
+                            errors.append(f"{step_ctx} must be a string or an object")
 
     # OPTIONAL: table_rules (Batch 2 shape-only checks)
     if "table_rules" in spec and spec.get("table_rules"):
@@ -125,6 +177,74 @@ def validate_spec(spec: Dict[str, Any]) -> List[str]:
 # -------------------------------------------------
 # Private helpers
 # -------------------------------------------------
+
+def _rule_ctx(rule: Any, idx: int) -> str:
+    """Return a human-friendly rule context for error messages."""
+    if isinstance(rule, dict):
+        nm = rule.get("name")
+        if isinstance(nm, str) and nm.strip():
+            return f"rules['{nm.strip()}']"
+    return f"rules[{idx}]"
+
+
+def _validate_do_string(s: str, ctx: str, errors: List[str]) -> None:
+    """
+    Very lightweight string form checker.
+    Accepts verbs in _ALLOWED_ACTIONS; does not parse full bet names here.
+    """
+    parts = str(s).strip().split()
+    if not parts:
+        errors.append(f"{ctx} is empty")
+        return
+    action = parts[0].lower()
+    if action not in _ALLOWED_ACTIONS:
+        allowed = ", ".join(sorted(_ALLOWED_ACTIONS))
+        errors.append(f"{ctx}: unknown action '{action}' (allowed: {allowed})")
+        return
+
+    needs_amt = _ACTION_NEEDS_AMOUNT[action]
+    # Heuristic: for string steps, presence of amount is not strictly enforced here
+    # because expressions are allowed; object form is strictly validated.
+    if needs_amt and len(parts) < 2:
+        # With string steps, user might provide amount via variables or expression as part 2/3.
+        # We only warn when there's clearly no room for an amount.
+        errors.append(f"{ctx}: action '{action}' usually requires an amount")
+
+
+def _validate_do_object(step: Dict[str, Any], ctx: str, errors: List[str]) -> None:
+    """
+    Object form:
+        { "action": "set"|"clear"|"press"|"reduce"|"switch_mode",
+          "bet": "<bet_type>",           # not required for switch_mode
+          "amount": <number|string>,     # required for set/press/reduce
+          "notes": "<free text>" }       # optional
+    """
+    action = step.get("action")
+    if not isinstance(action, str):
+        errors.append(f"{ctx}.action must be a string")
+        return
+    action = action.lower()
+    if action not in _ALLOWED_ACTIONS:
+        allowed = ", ".join(sorted(_ALLOWED_ACTIONS))
+        errors.append(f"{ctx}.action must be one of {{{allowed}}}")
+        return
+
+    # bet is required for all except switch_mode
+    if action != "switch_mode":
+        bet = step.get("bet")
+        if not isinstance(bet, str) or not bet.strip():
+            errors.append(f"{ctx}.bet must be a non-empty string for action '{action}'")
+
+    # amount requirements
+    needs_amt = _ACTION_NEEDS_AMOUNT[action]
+    if needs_amt:
+        if "amount" not in step:
+            errors.append(f"{ctx}.amount is required for action '{action}'")
+        else:
+            amt = step["amount"]
+            if not (_is_number(amt) or isinstance(amt, str)):
+                errors.append(f"{ctx}.amount must be a number or string expression")
+
 
 def _validate_table_rules_block(tr: Any) -> List[str]:
     errs: List[str] = []
