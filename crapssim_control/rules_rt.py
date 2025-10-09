@@ -2,34 +2,34 @@
 from __future__ import annotations
 
 """
-rules_rt.py — Runtime Rules (Phase 3 · Checkpoint 1: MVP)
+rules_rt.py — Runtime Rules (Phase 4 · Checkpoint 2)
 
 Purpose
 -------
-Turn spec "rules" into Action Envelopes. This MVP supports:
+Turn spec "rules" into Action Envelopes.
+
+Supported (MVP+P4C2):
   • Event gating via rule["on"]["event"] in {"comeout","roll","point_established","seven_out"}
   • Optional boolean predicate rule["when"] evaluated against (state ⊕ event)
-  • Basic "do" steps:
+  • "do" steps (string OR object forms):
         - set <bet_type> <amount>
         - clear <bet_type>
         - press <bet_type> <amount>
         - reduce <bet_type> <amount>
         - switch_mode <ModeName>
-    Steps may be provided as simple space-delimited strings (MVP form) or
-    as dicts with explicit keys {"action","bet_type","amount","notes"}.
+
+  Object step form (both keys supported for back-compat):
+      { "action": "...", "bet": "place_6", "amount": 12, "notes": "..." }
+      { "action": "...", "bet_type": "place_6", "amount": "units*2" }
 
 Design notes
 ------------
-- We fail *open and quiet*: invalid rules/steps are skipped; we never raise.
+- Fail open & quiet: invalid rules/steps are skipped; we do not raise.
 - Amounts may be numeric literals or expressions (evaluated with eval_num()).
-- switch_mode produces an envelope with bet_type=None, amount=None, notes=mode.
+- switch_mode produces an envelope with bet_type=None, amount=None, notes=<mode>.
 - Rule IDs:
-    • prefer a non-empty "name" field → id="rule:<name>"
-    • else fall back to 1-based index   → id="rule:#<index>"
-
-This module intentionally does NOT mutate controller state; it only returns
-envelopes. Controller decides how to apply them (Phase 3C2) and CSV logger
-will serialize them (Phase 3C3).
+    • prefer a non-empty "name" → id="rule:<name>"
+    • else fall back to 1-based index → id="rule:#<index>"
 """
 
 from typing import Any, Dict, List, Optional, Tuple
@@ -45,6 +45,7 @@ from .actions import (
     ALLOWED_ACTIONS,
 )
 from .eval import eval_bool, eval_num, EvalError
+from .events import CANONICAL_EVENT_TYPES
 
 
 # --------------------------- Public Entry Point --------------------------------- #
@@ -64,7 +65,7 @@ def apply_rules(
     state : dict
         Evaluation state (table cfg + user variables + controller snapshot).
     event : dict
-        Event context (e.g., {"type": "roll", "total": 6, ...}).
+        Canonical event context (e.g., {"type": "roll", "roll": 6, "point": 6, ...}).
 
     Returns
     -------
@@ -83,13 +84,17 @@ def apply_rules(
 
         rid = _rule_id(rule, idx)
 
-        # --- Event gating (required in MVP) ---
+        # --- Event gating (required) ---
         on = rule.get("on") or {}
         if not isinstance(on, dict):
             continue
         want_event = str(on.get("event", "")).strip().lower()
-        if not want_event or want_event != ev_type:
-            # Non-matching or missing event → skip rule
+        if not want_event:
+            # explicit gating is required for now
+            continue
+        # If spec used a non-canonical event, just require equality to the incoming type.
+        # (Spec validation will catch non-canonical values; here we stay permissive.)
+        if want_event != ev_type:
             continue
 
         # --- Predicate (optional) ---
@@ -99,7 +104,7 @@ def apply_rules(
                 if not eval_bool(str(cond_expr), state, event):
                     continue
             except EvalError:
-                # On expression error, treat as False (rule doesn't fire)
+                # treat expression errors as False; skip quietly
                 continue
 
         # --- Steps ---
@@ -142,13 +147,25 @@ def _parse_step_string(step: str) -> Tuple[str, Optional[str], Optional[str]]:
     if action == ACTION_SWITCH_MODE:
         # everything after keyword is the mode name (can contain spaces)
         mode = " ".join(parts[1:]).strip() if len(parts) > 1 else ""
-        return action, None, mode or None
+        return action, None, (mode or None)
     if len(parts) == 1:
         return action, None, None
     if len(parts) == 2:
         return action, parts[1], None
     # len >= 3 → treat third token (only) as amount/expression
     return action, parts[1], parts[2]
+
+
+def _coerce_bet_key(step: Dict[str, Any]) -> Optional[str]:
+    """
+    Accept both 'bet' and 'bet_type' to remain compatible with older specs/tests.
+    """
+    bet = step.get("bet")
+    if bet is None:
+        bet = step.get("bet_type")
+    if bet is None:
+        return None
+    return str(bet)
 
 
 def _step_to_envelope(
@@ -162,31 +179,18 @@ def _step_to_envelope(
     Convert a single step (string or dict) to an Action Envelope.
     Unknown/invalid steps return None (quietly).
     """
-    # Dict form: {"action": "...", "bet_type": "...", "amount": 10, "notes": "..."}
+    # Dict form: {"action": "...", "bet"/"bet_type": "...", "amount": 10|"expr", "notes": "..."}
     if isinstance(step, dict):
         action = str(step.get("action", "")).lower()
         if action not in ALLOWED_ACTIONS:
             return None
 
-        bet_type = step.get("bet_type")
-        if bet_type is not None:
-            bet_type = str(bet_type)
-
+        bet_type = _coerce_bet_key(step)
         amount = step.get("amount")
-        amt_val: Optional[float] = None
-        if amount is not None:
-            # Allow numeric or expression strings
-            try:
-                if isinstance(amount, (int, float)):
-                    amt_val = float(amount)
-                else:
-                    amt_val = float(eval_num(str(amount), state, event))
-            except Exception:
-                amt_val = None
-
         notes = step.get("notes") or ""
+
         if action == ACTION_SWITCH_MODE:
-            # Notes carries the target mode in MVP
+            # Target mode from explicit 'mode' key, else from notes (legacy)
             target = str(step.get("mode") or notes or "").strip()
             return make_action(
                 ACTION_SWITCH_MODE,
@@ -196,6 +200,23 @@ def _step_to_envelope(
                 id_=rule_id,
                 notes=target,
             )
+
+        # For set/press/reduce/clear
+        if action != ACTION_CLEAR and not bet_type:
+            # set/press/reduce require a bet_type
+            return None
+
+        amt_val: Optional[float] = None
+        if action != ACTION_CLEAR:
+            if amount is None:
+                return None
+            try:
+                if isinstance(amount, (int, float)):
+                    amt_val = float(amount)
+                else:
+                    amt_val = float(eval_num(str(amount), state, event))
+            except Exception:
+                return None
 
         return make_action(
             action,
@@ -226,12 +247,10 @@ def _step_to_envelope(
         if action in (ACTION_SET, ACTION_CLEAR, ACTION_PRESS, ACTION_REDUCE):
             bet_type = bet if isinstance(bet, str) and bet else None
             if action != ACTION_CLEAR and bet_type is None:
-                # set/press/reduce require a bet_type
                 return None
 
             amt_val: Optional[float] = None
             if action != ACTION_CLEAR:
-                # amount is required for set/press/reduce
                 if arg is None or str(arg).strip() == "":
                     return None
                 try:
