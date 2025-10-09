@@ -1,3 +1,4 @@
+# crapssim_control/csv_summary.py
 from __future__ import annotations
 
 import csv
@@ -32,15 +33,20 @@ def _to_int(x: Any) -> Optional[int]:
 
 
 def _parse_ts(s: Any) -> Optional[datetime]:
+    """
+    Accept common ISO-ish formats. Our CSVJournal writes 'YYYY-mm-ddTHH:MM:SS' (UTC).
+    """
     if s is None:
         return None
     txt = str(s).strip()
     if not txt:
         return None
-    for fmt in ("%Y-%m-%dT%H:%M:%S.%fZ",
-                "%Y-%m-%dT%H:%M:%S.%f",
-                "%Y-%m-%dT%H:%M:%S",
-                "%Y-%m-%d %H:%M:%S"):
+    for fmt in (
+        "%Y-%m-%dT%H:%M:%S.%fZ",
+        "%Y-%m-%dT%H:%M:%S.%f",
+        "%Y-%m-%dT%H:%M:%S",
+        "%Y-%m-%d %H:%M:%S",
+    ):
         try:
             return datetime.strptime(txt, fmt)
         except Exception:
@@ -157,6 +163,7 @@ def summarize_journal(
             rows_total += 1
 
             evt = (r.get("event_type") or "").strip().lower()
+            # NOTE: CSVJournal writes 'timestamp' column (schema v1.0)
             ts_str = (r.get("timestamp") or "").strip()
             if evt == "roll":
                 key_ts = ts_str if ts_str else f"__row_{idx}"
