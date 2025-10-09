@@ -1,0 +1,31 @@
+{
+  "name": "Quickstart – Place 6/8 with Pass",
+  "description": "Tiny spec for the CSV quickstart: pass line + place 6/8 using `units`.",
+  "table": {
+    "level": 10,
+    "bubble": false
+  },
+  "variables": {
+    "units": 5,
+    "mode": "Main"
+  },
+  "modes": {
+    "Main": {
+      "template": {
+        "pass": "units",
+        "place": { "6": "units * 2", "8": "units * 2" }
+      }
+    }
+  },
+  "rules": [],
+  "run": {
+    "rolls": 60,
+    "seed": 1234,
+    "csv": {
+      "enabled": true,
+      "path": "journal.csv",
+      "append": false,
+      "run_id": "quickstart"
+    }
+  }
+}
