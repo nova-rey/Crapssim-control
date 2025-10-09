@@ -38,10 +38,12 @@ def _parse_ts(s: Any) -> Optional[datetime]:
     txt = str(s).strip()
     if not txt:
         return None
-    for fmt in ("%Y-%m-%dT%H:%M:%S.%fZ",
-                "%Y-%m-%dT%H:%M:%S.%f",
-                "%Y-%m-%dT%H:%M:%S",
-                "%Y-%m-%d %H:%M:%S"):
+    for fmt in (
+        "%Y-%m-%dT%H:%M:%S.%fZ",
+        "%Y-%m-%dT%H:%M:%S.%f",
+        "%Y-%m-%dT%H:%M:%S",
+        "%Y-%m-%d %H:%M:%S",
+    ):
         try:
             return datetime.strptime(txt, fmt)
         except Exception:
@@ -79,16 +81,17 @@ def summarize_journal(
 
     Returned dict columns (when available):
       - run_id
+      - run_id_or_file          (duplicate label for CLI UX; always populated)
       - rows_total
       - actions_total
       - sets, clears, presses, reduces, switch_mode
       - unique_bets
       - modes_used
       - points_seen
-      - roll_events   (distinct roll ticks by timestamp)
+      - roll_events             (distinct roll ticks by timestamp)
       - regress_events
       - sum_amount_set, sum_amount_press, sum_amount_reduce
-      - first_timestamp, last_timestamp
+      - t_first, t_last         (iso-like; seconds resolution)
       - path
     """
     p = Path(journal_path)
@@ -100,8 +103,10 @@ def summarize_journal(
         return []
 
     if not rows:
+        key = _default_group_key_for_file(p)
         return [{
-            "run_id": _default_group_key_for_file(p),
+            "run_id": key,
+            "run_id_or_file": key,
             "rows_total": 0,
             "actions_total": 0,
             "sets": 0,
@@ -117,8 +122,8 @@ def summarize_journal(
             "sum_amount_set": 0.0,
             "sum_amount_press": 0.0,
             "sum_amount_reduce": 0.0,
-            "first_timestamp": None,
-            "last_timestamp": None,
+            "t_first": None,
+            "t_last": None,
             "path": str(p),
         }]
 
@@ -151,8 +156,8 @@ def summarize_journal(
 
         ts_list: List[Optional[datetime]] = []
 
-        # NEW: track distinct roll “ticks” by timestamp (fallback to row idx)
-        roll_ticks: set[Tuple[str, str]] = set()
+        # Count distinct roll “ticks” by timestamp (multiple actions at same tick count as one)
+        roll_ticks: set[str] = set()
 
         for idx, r in enumerate(grp):
             rows_total += 1
@@ -160,9 +165,9 @@ def summarize_journal(
             evt = (r.get("event_type") or "").strip().lower()
             ts_str = (r.get("timestamp") or "").strip()
             if evt == "roll":
-                # distinct by timestamp; if missing, use a unique fallback per row
+                # Use timestamp as the identity; if missing, fallback to a unique row-based token
                 key_ts = ts_str if ts_str else f"__row_{idx}"
-                roll_ticks.add((evt, key_ts))
+                roll_ticks.add(key_ts)
 
             act = (r.get("action") or "").strip().lower()
             if act == "set":
@@ -204,10 +209,12 @@ def summarize_journal(
             ts = _parse_ts(ts_str)
             ts_list.append(ts)
 
-        first_ts, last_ts = _first_last(ts_list)
+        t_first, t_last = _first_last(ts_list)
 
+        # Always emit both run_id and run_id_or_file for convenience
         summaries.append({
             "run_id": key,
+            "run_id_or_file": key,
             "rows_total": rows_total,
             "actions_total": rows_total,  # one row per action in the journal
             "sets": sets,
@@ -223,8 +230,8 @@ def summarize_journal(
             "sum_amount_set": round(sum_amount_set, 4),
             "sum_amount_press": round(sum_amount_press, 4),
             "sum_amount_reduce": round(sum_amount_reduce, 4),
-            "first_timestamp": first_ts,
-            "last_timestamp": last_ts,
+            "t_first": t_first,
+            "t_last": t_last,
             "path": str(p),
         })
 
@@ -245,6 +252,7 @@ def write_summary_csv(
 
     fieldnames = [
         "run_id",
+        "run_id_or_file",
         "rows_total",
         "actions_total",
         "sets",
@@ -260,8 +268,8 @@ def write_summary_csv(
         "sum_amount_set",
         "sum_amount_press",
         "sum_amount_reduce",
-        "first_timestamp",
-        "last_timestamp",
+        "t_first",
+        "t_last",
         "path",
     ]
 
