@@ -1,192 +1,186 @@
-# Rules Engine (MVP → P4C2)
+⸻
 
-**Status:** Phase 4 – Checkpoint 2  
-Rules are evaluated at each canonical event with a safe expression sandbox. Outputs are normalized **Action Envelopes** (see `actions.py`).
+
+# CrapsSim-Control — Rules Specification (P4C3)
+
+This document defines the **runtime rules specification** used by `CrapsSim-Control`
+to convert declarative rule logic into *action envelopes* during simulation.
 
 ---
 
-## Quick Start
+## 1️⃣ Overview
 
-Add a `rules` array at the top level of your strategy spec:
+Each Control spec defines three core blocks:
 
-```jsonc
+| Key | Type | Purpose |
+| --- | ---- | -------- |
+| `table` | object | Environment configuration (bubble table, level, bankroll hints, etc.) |
+| `modes` | object | Named betting templates (default “Main”) |
+| `rules` | array | Event-driven conditional actions |
+| *(optional)* `table_rules` | object | Per-casino enforcement limits & increments |
+
+During simulation, incoming table events (`roll`, `point_established`, `seven_out`, etc.)
+are **canonicalized** and then evaluated against the spec by the runtime rules engine.
+
+---
+
+## 2️⃣ Canonical Event Types
+
+These are the normalized `event.type` values recognized by the control layer:
+
+comeout
+point_established
+roll
+seven_out
+shooter_change
+bet_resolved
+
+Additional fields may accompany events:
+```json
 {
-  "modes": { "base": { "template": { "pass": "units", "place": { "6": "units*2", "8": "units*2" } } } },
-  "variables": { "units": 10 },
-  "rules": [
-    {
-      "name": "Regress 6/8 after 3 rolls",
-      "on": { "event": "roll" },
-      "when": "point in (4,5,6,8,9,10) and rolls_since_point >= 3",
-      "do": ["clear place_6", "clear place_8"]
-    },
-    {
-      "name": "Switch to press mode on hot table",
-      "on": { "event": "point_established" },
-      "when": "streak >= 3",
-      "do": ["switch_mode Press"]
-    }
-  ]
+  "type": "roll",
+  "roll": 8,
+  "point": 6,
+  "on_comeout": false
 }
 
 
 ⸻
 
-Canonical Events
+3️⃣ Rule Object Schema
 
-All inbound events are normalized by events.canonicalize_event(). The controller uses these when calling the rules engine.
+Each rule object must contain:
 
-Type	Guaranteed Keys (subset)	Example
-comeout	type, event, roll (0 if unknown), point=None, on_comeout=True	{ "type":"comeout" }
-point_established	type, event, point, on_comeout=False	{ "type":"point_established", "point":6 }
-roll	type, event, roll, point (if on), on_comeout	{ "type":"roll", "roll":8, "point":6, "on_comeout":false }
-seven_out	type, event, point (the previous point), on_comeout=True after reset	{ "type":"seven_out", "point":6 }
+on:
+  event: roll                # one of the canonical types
+when: "roll == 8"            # (optional) boolean expression
+do:                          # list of string or object steps
+  - "press place_8 6"
+  - { action: "clear", bet: "place_6" }
 
-Valid values for on.event: comeout, point_established, roll, seven_out.
-(Invalid values are rejected during spec validation.)
+3.1 on.event
 
-⸻
+A string gating which event triggers this rule.
+Validation enforces membership in the canonical event list.
 
-Evaluation Context
+3.2 when (optional)
 
-Every rule’s when expression is evaluated in a sandbox with a flat namespace built from controller state and the current event:
+A string expression evaluated with the safe evaluator against a merged context of
+state ⊕ event.
+Example: "on_comeout or point == 6"
 
-Common keys you can reference:
-	•	on_comeout (bool)
-	•	point (int or None)
-	•	roll (int; for roll events)
-	•	rolls_since_point (int; controller counter)
-	•	mode (current mode name, if set)
-	•	Any other simple keys the controller/state provides (e.g., units, streak)
+If the expression raises or returns False, the rule is skipped.
 
-We also provide read-only variables and event objects for parity with documentation, but attribute/subscript access is blocked by design. Prefer flat keys (point, roll, etc.).
+3.3 do
 
-Allowed operators & calls
-	•	Arithmetic: + - * / // % **
-	•	Comparisons: == != < <= > >=
-	•	Boolean: and or not
-	•	Membership: in, not in (with tuple literals, e.g., point in (6,8))
-	•	Ternary: A if cond else B
-	•	Calls (whitelisted only): min, max, abs, round, int, float, floor, ceil, sqrt, log, log10
-
-No attribute access, indexing, or arbitrary function calls are allowed.
+An ordered list of actions, evaluated sequentially.
+Each element can be a string or an object form.
 
 ⸻
 
-Actions (do)
+4️⃣ Action Step Forms
 
-Rules emit Action Envelopes via string or object steps.
+4.1 String Form
 
-String form
+Compact, space-delimited form:
 
-set <bet> <amount>
-clear <bet>
-press <bet> <amount>
-reduce <bet> <amount>
-switch_mode <ModeName>
+Example	Meaning
+set place_6 12	Set the Place 6 bet to 12 units
+press place_6 6	Increase Place 6 by 6
+reduce place_8 6	Decrease Place 8 by 6
+clear place_6	Remove the Place 6 bet
+switch_mode Aggressive	Switch controller to Aggressive mode
 
-Examples
-	•	set place_6 units*2
-	•	clear place_8
-	•	press odds_pass 10
-	•	switch_mode Base
+String steps that contain parentheses (e.g. apply_template('Main')) are treated as free-form directives and bypass validation.
+Legacy starters like units 10 are also permitted.
 
-Object form
-
-{ "action": "set", "bet": "place_6", "amount": "units*2" }
-
-Object keys:
-	•	action: "set" | "clear" | "press" | "reduce" | "switch_mode"
-	•	bet or bet_type: string (required for all except switch_mode)
-	•	amount: number or string expression (required for set/press/reduce)
-	•	mode: string (optional target for switch_mode), or use notes
-	•	notes: string (optional)
+Unknown verbs in a <verb> <bet> <amount> shape are flagged as validation errors.
 
 ⸻
 
-Action Envelope Contract (output)
+4.2 Object Form
 
-Each step becomes a normalized envelope (see actions.py):
+Verbose, explicit structure:
 
-{
-  "source": "rule",
-  "id": "rule:Regress 6/8 after 3 rolls",
-  "action": "clear",
-  "bet_type": "place_6",
-  "amount": null,
-  "notes": ""
-}
+{ action: "set", bet_type: "place_6", amount: 12 }
+{ action: "press", bet: "place_6", amount: "units / 2" }
+{ action: "switch_mode", mode: "Main" }
 
-	•	source: always "rule" here
-	•	id: "rule:<name>" or "rule:#<index>"
-	•	action: one of the supported verbs
-	•	bet_type: string or null (for switch_mode)
-	•	amount: number or null (for clear / switch_mode)
-	•	notes: free text or mode name
+Field	Type	Required	Notes
+action	string	✅	One of: set, clear, press, reduce, switch_mode
+bet / bet_type	string	⚙️	Required for all except switch_mode
+amount	number | expr	⚙️	Required for set/press/reduce
+mode	string	✴️	Optional, only for switch_mode
+notes	string	✴️	Free-form context info
 
-⸻
-
-Validation & Guardrails (P4C2)
-
-Spec validation (spec_validation.py) enforces:
-	•	rules must be an array of objects.
-	•	rules[*].on must be an object with event in the canonical set.
-	•	rules[*].when (if present) must be a string.
-	•	rules[*].do must be an array of strings or objects.
-	•	Object steps must include action, and when required, a non-empty bet/bet_type and an amount (number or expression) for set/press/reduce.
-
-Controller behavior:
-	•	Events are canonicalized before rule evaluation.
-	•	Rule envelopes are appended after template/regression actions and then journaled.
-
-Failure mode:
-	•	Rule/eval errors fail quietly (rule simply doesn’t fire).
-	•	Spec shape errors are hard errors surfaced by validation.
+Numeric expressions are evaluated safely by eval_num() in a sandboxed namespace containing:
+	•	current controller state (point, on_comeout, rolls_since_point, etc.)
+	•	table configuration (level, bubble, etc.)
+	•	user variables (units, mode, etc.)
+	•	the current event dictionary
 
 ⸻
 
-Cookbook
+5️⃣ Validation Rules
 
-Press place-6 by 6 on every roll after the 2nd roll on a point:
+Validation is performed by spec_validation.validate_spec() and enforces:
+	•	required top-level sections: table, modes, rules
+	•	all on.event values are canonical
+	•	all when values are strings (if present)
+	•	all do lists contain only strings or objects
+	•	string steps:
+	•	allowed if they contain parentheses (e.g. function-style)
+	•	allowed if they start with a free-form starter like units
+	•	otherwise, if shaped like <word> <word> <num> and verb is unknown → error
+	•	object steps:
+	•	action ∈ { set, clear, press, reduce, switch_mode }
+	•	bet required for all except switch_mode
+	•	amount required and numeric/expr for actions that need it
 
-{
-  "name": "Press 6 after 2 rolls",
-  "on": { "event": "roll" },
-  "when": "point and rolls_since_point >= 2",
-  "do": ["press place_6 6"]
-}
+⸻
 
-Switch to “Conservative” mode after seven-out:
+6️⃣ Action Envelopes
 
-{
-  "name": "Chill after PSO",
-  "on": { "event": "seven_out" },
-  "do": ["switch_mode Conservative"]
-}
+All actions emitted by templates or rules conform to this locked schema:
 
-Set odds on pass to 2× units when point is 6 or 8:
+Key	Type	Example
+source	"template" | "rule"	"rule"
+id	string	"rule:#2" or "template:Main"
+action	string	"set"
+bet_type	string | None	"place_6"
+amount	float | None	12.0
+notes	string	"auto-regress after 3rd roll"
 
-{
-  "name": "2x odds on 6/8",
-  "on": { "event": "point_established" },
-  "when": "point in (6,8)",
-  "do": [{ "action": "set", "bet": "odds_pass", "amount": "units*2" }]
-}
+Future versions may add additive fields (e.g. seq), but existing columns remain stable.
+
+⸻
+
+7️⃣ CSV Journaling (Quick Reference)
+
+When enabled via spec.run.csv, each event writes one row per Action Envelope with this exact schema:
+
+ts, run_id, seed,
+event_type, point, rolls_since_point, on_comeout,
+mode, units, bankroll,
+source, id, action, bet_type, amount, notes,
+extra
+
+	•	UTC timestamps (ts) for deterministic sorting
+	•	extra field merges snapshot hints (roll, event_point, seq, custom extras`)
+
+⸻
+
+8️⃣ Versioning Notes
+
+Phase	Focus	Highlights
+P4C1	Spec guardrails	Basic shape validation & canonical event checks
+P4C2	Canonical events	Consistent event normalization across rules / journal
+P4C3	Rule runtime & journaling polish	Safe eval, free-form do steps, extra merge in CSV
 
 
 ⸻
 
-Testing References
-	•	tests/test_rules_mvp.py – basic gating, predicates, and steps
-	•	tests/test_rules_events.py – event-driven behavior across types
-	•	(P4C2 additions recommended)
-	•	tests/test_rules_event_context.py – context keys present/usable
-	•	tests/test_rules_guardrails.py – validation errors for malformed rules
-	•	tests/test_controller_event_payloads.py – controller emits canonical events
+Schema version: P4C3 · Oct 2025
+Maintainer: CrapsSim-Control Core Team
 
-⸻
-
-Notes & Roadmap
-	•	P4C3: extend step set (parlay/lay/take-odds helpers that compile to primitives).
-	•	P4C4: integration tests across longer hand flows (mode switches, regressions).
-	•	P4C5: doc polish + rule examples for common strategies.
+---
