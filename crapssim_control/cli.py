@@ -177,6 +177,26 @@ def _lazy_validate_spec(spec: Dict[str, Any]) -> Tuple[bool, List[str], List[str
     return _normalize_validate_result(res)
 
 
+# ------------------------------ CSV Journal FYI ------------------------------ #
+
+def _csv_journal_info(spec: Dict[str, Any]) -> Optional[str]:
+    """
+    Read spec.run.csv and return a tiny human-friendly summary if journaling is enabled.
+    This is FYI only; the controller actually does the writing.
+    """
+    run = spec.get("run", {}) if isinstance(spec.get("run", {}), dict) else {}
+    csv_cfg = run.get("csv") if isinstance(run, dict) else None
+    if not isinstance(csv_cfg, dict):
+        return None
+    if not csv_cfg.get("enabled"):
+        return None
+    path = csv_cfg.get("path")
+    if not path:
+        return None
+    append = csv_cfg.get("append", True)
+    return f"[journal] enabled → {path} (append={'on' if append else 'off'})"
+
+
 # --------------------------------- Run -------------------------------------- #
 
 def run(args: argparse.Namespace) -> int:
@@ -208,6 +228,11 @@ def run(args: argparse.Namespace) -> int:
         return 2
     for w in soft_warns:
         log.warning("spec warning: %s", w)
+
+    # Friendly FYI if journaling is configured in the spec
+    info = _csv_journal_info(spec)
+    if info:
+        print(info)
 
     # Seed RNGs (Python & NumPy)
     if seed is not None:
@@ -259,7 +284,7 @@ def run(args: argparse.Namespace) -> int:
     else:
         print(f"RESULT: rolls={rolls}")
 
-    # Optional CSV export
+    # Optional CSV export (end-of-run summary)
     if getattr(args, "export", None):
         try:
             _write_csv_summary(
