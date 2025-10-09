@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional
 
 from .templates_rt import render_template as render_runtime_template, diff_bets
 from .actions import make_action  # Action Envelope helper
+from .rules_rt import apply_rules  # P3C2: rules engine wiring
 
 
 class ControlStrategy:
@@ -15,6 +16,7 @@ class ControlStrategy:
       • plan application on point_established (via runtime template) → diff to actions
       • regression after 3rd roll (clear place_6/place_8)
       • seven_out resets state
+      • rules engine (MVP) called on every event and merged after template/regression
       • required adapter shims: update_bets(table) and after_roll(table, event)
     """
 
@@ -63,6 +65,7 @@ class ControlStrategy:
         st["point"] = self.point
         st["rolls_since_point"] = self.rolls_since_point
         st["on_comeout"] = self.on_comeout
+        st["mode"] = getattr(self, "mode", None)
         return st
 
     @staticmethod
@@ -150,16 +153,35 @@ class ControlStrategy:
             notes="template diff",
         )
 
+    def _apply_rules_for_event(self, event: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """P3C2: run rules engine for this event and return envelopes."""
+        rules = self.spec.get("rules") if isinstance(self.spec, dict) else None
+        st = self._current_state_for_eval()
+        # apply_rules is permissive (returns [] on bad input); never raises
+        return apply_rules(rules, st, event or {})
+
     # ----- public API used by tests -----
 
     def handle_event(self, event: Dict[str, Any], current_bets: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """
+        Produce a list of Action Envelopes for the given event by:
+          1) updating internal state (point / comeout / counters),
+          2) generating template diff/regression actions,
+          3) appending rule-driven actions (MVP).
+        """
         ev_type = event.get("type")
 
+        # Aggregate actions per event (template/regression first; rules appended after)
+        actions: List[Dict[str, Any]] = []
+
         if ev_type == "comeout":
+            # Update state
             self.point = None
             self.rolls_since_point = 0
             self.on_comeout = True
-            return []
+            # No template plan on pure comeout; just run rules for comeout
+            actions.extend(self._apply_rules_for_event(event))
+            return actions
 
         if ev_type == "point_established":
             # Safer parsing of point value
@@ -169,14 +191,19 @@ class ControlStrategy:
                 self.point = None
             self.rolls_since_point = 0
             self.on_comeout = self.point in (None, 0)
-            return self._apply_mode_template_plan(current_bets, self.mode)
+
+            # 1) Template diff actions for this mode
+            actions.extend(self._apply_mode_template_plan(current_bets, self.mode))
+            # 2) Rule actions (appended)
+            actions.extend(self._apply_rules_for_event(event))
+            return actions
 
         if ev_type == "roll":
             if self.point:
                 self.rolls_since_point += 1
                 if self.rolls_since_point == 3:
                     # Regress: clear place_6 and place_8 with provenance
-                    return [
+                    actions.extend([
                         make_action(
                             "clear",
                             bet_type="place_6",
@@ -191,16 +218,22 @@ class ControlStrategy:
                             id_="template:regress_roll3",
                             notes="auto-regress after 3rd roll",
                         ),
-                    ]
-            return []
+                    ])
+            # Append rule actions for this roll
+            actions.extend(self._apply_rules_for_event(event))
+            return actions
 
         if ev_type == "seven_out":
+            # Reset state then run rules (some may want to react to seven_out)
             self.point = None
             self.rolls_since_point = 0
             self.on_comeout = True
-            return []
+            actions.extend(self._apply_rules_for_event(event))
+            return actions
 
-        return []
+        # Unknown event type: still allow rules to look at it if they wish
+        actions.extend(self._apply_rules_for_event(event))
+        return actions
 
     def state_snapshot(self) -> Dict[str, Any]:
         return {
