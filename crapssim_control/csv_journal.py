@@ -37,6 +37,51 @@ def _as_str(x: Any) -> str:
     return str(x)
 
 
+def _merge_extra(snapshot: Dict[str, Any], action: Dict[str, Any]) -> Any:
+    """
+    Build an 'extra' payload for the CSV row:
+      - Start with snapshot.get("extra") (string/dict allowed)
+      - Merge in canonical event hints: roll, event_point (when present)
+      - Merge per-action seq (if present)
+    Returns a string (JSON if dict-like) or passthrough string.
+    """
+    snap_extra = snapshot.get("extra")
+    base: Dict[str, Any] = {}
+
+    # If caller provided a dict-like extra, start with that
+    if isinstance(snap_extra, dict):
+        base.update(snap_extra)
+    elif snap_extra is not None and str(snap_extra).strip() != "":
+        # preserve non-dict extra under a conventional key
+        base["extra"] = str(snap_extra)
+
+    # Canonical event hints (if provided in snapshot by controller)
+    roll_val = _coerce_num(snapshot.get("roll"))
+    if roll_val is not None:
+        base["roll"] = int(roll_val) if float(roll_val).is_integer() else roll_val
+
+    evt_pt = snapshot.get("event_point")
+    # event_point can be non-numeric (None/empty), only include if numeric
+    evt_pt_num = _coerce_num(evt_pt)
+    if evt_pt_num is not None:
+        base["event_point"] = int(evt_pt_num) if float(evt_pt_num).is_integer() else evt_pt_num
+
+    # Per-action sequence (optional)
+    if "seq" in action and action.get("seq") is not None:
+        try:
+            seq_num = int(action.get("seq"))
+            base["seq"] = seq_num
+        except Exception:
+            # If not cleanly int, store raw
+            base["seq"] = action.get("seq")
+
+    # If base is still empty and original extra was a simple string, pass it through
+    if not base and isinstance(snap_extra, str):
+        return snap_extra
+
+    return base if base else ""
+
+
 @dataclass
 class CSVJournal:
     """
@@ -107,7 +152,6 @@ class CSVJournal:
             mode_val = _as_str(snap.get("mode"))
             units = _coerce_num(snap.get("units"))
             bankroll = _coerce_num(snap.get("bankroll"))
-            extra = snap.get("extra")
 
             rows_written = 0
             for a in acts:
@@ -117,6 +161,9 @@ class CSVJournal:
                 bet_type = _as_str(a.get("bet_type"))
                 amount = _coerce_num(a.get("amount"))
                 notes = _as_str(a.get("notes"))
+
+                # Build enriched 'extra' payload (merges roll/event_point/seq)
+                extra_payload = _merge_extra(snap, a)
 
                 row = {
                     "ts": _iso_now(),
@@ -135,13 +182,14 @@ class CSVJournal:
                     "bet_type": bet_type,
                     "amount": amount if amount is not None else "",
                     "notes": notes,
-                    "extra": _as_str(extra) if extra is not None else "",
+                    "extra": _as_str(extra_payload) if extra_payload is not None else "",
                 }
 
                 try:
                     writer.writerow(row)
                     rows_written += 1
                 except Exception:
+                    # Fail-open: skip problematic rows but keep file usable
                     continue
 
         return rows_written
