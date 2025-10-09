@@ -2,13 +2,13 @@
 from __future__ import annotations
 
 """
-rules_rt.py — Runtime Rules (Phase 4 · Checkpoint 2)
+rules_rt.py — Runtime Rules (Phase 4 · Checkpoint 3)
 
 Purpose
 -------
 Turn spec "rules" into Action Envelopes.
 
-Supported (MVP+P4C2):
+Supported (MVP + P4C2/P4C3):
   • Event gating via rule["on"]["event"] in {"comeout","roll","point_established","seven_out"}
   • Optional boolean predicate rule["when"] evaluated against (state ⊕ event)
   • "do" steps (string OR object forms):
