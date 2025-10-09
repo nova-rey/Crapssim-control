@@ -1,11 +1,13 @@
+# crapssim_control/controller.py
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
 from .templates_rt import render_template as render_runtime_template, diff_bets
 from .actions import make_action  # Action Envelope helper
-from .rules_rt import apply_rules  # P3C2: rules engine wiring
-from .csv_journal import CSVJournal  # P3C4: per-event journaling
+from .rules_rt import apply_rules  # Runtime rules engine
+from .csv_journal import CSVJournal  # Per-event journaling
+from .events import canonicalize_event, COMEOUT, POINT_ESTABLISHED, ROLL, SEVEN_OUT
 
 
 class ControlStrategy:
@@ -16,10 +18,14 @@ class ControlStrategy:
       • point / rolls_since_point / on_comeout tracking
       • plan application on point_established (via runtime template) → diff to actions
       • regression after 3rd roll (clear place_6/place_8)
-      • seven_out resets state
       • rules engine (MVP) called on every event and merged after template/regression
       • per-event CSV journaling (when enabled via spec.run.csv)
       • required adapter shims: update_bets(table) and after_roll(table, event)
+
+    P4C2 upgrades:
+      • Canonicalize all inbound events via events.canonicalize_event(...)
+      • Stable event fields for rules ('type', 'roll', 'point', 'on_comeout', ...)
+      • Snapshot/journaling now includes canonical event fields where useful
     """
 
     def __init__(
@@ -44,7 +50,7 @@ class ControlStrategy:
         else:
             self.mode = self._default_mode()
 
-        # Journaling (P3C4): lazy-init on first use
+        # Journaling: lazy-init on first use
         self._journal: Optional[CSVJournal] = None
         self._journal_enabled: Optional[bool] = None  # tri-state: None unknown, True/False decided
 
@@ -169,8 +175,9 @@ class ControlStrategy:
             "mode": getattr(self, "mode", None),
             "units": self._units_from_spec_or_state(),
             "bankroll": self._bankroll_best_effort(),
-            # Optional place for dice/shooter/etc. (Phase 3C5+)
-            # "extra": event.get("extra"),
+            # Optional: include canonical roll/point for convenience
+            "roll": event.get("roll"),
+            "event_point": event.get("point"),
         }
         return snap
 
@@ -259,14 +266,15 @@ class ControlStrategy:
         mode = mode_name or self.mode or self._default_mode()
         tmpl = (self.spec.get("modes", {}).get(mode) or {}).get("template") or {}
         st = self._current_state_for_eval()
-        event = {
-            "type": "point_established" if self.point else "comeout",
-            "point": self.point,
-            "rolls_since_point": self.rolls_since_point,
-            "on_comeout": self.on_comeout,
-        }
 
-        desired = render_runtime_template(tmpl, st, event)
+        # Synthesize a minimal canonical event representing table posture for templates
+        synth_event = canonicalize_event({
+            "type": POINT_ESTABLISHED if self.point else COMEOUT,
+            "point": self.point,
+            "on_comeout": self.on_comeout,
+        })
+
+        desired = render_runtime_template(tmpl, st, synth_event)
         # Produce standardized action envelopes with provenance + context note
         return diff_bets(
             current_bets or {},
@@ -277,7 +285,7 @@ class ControlStrategy:
         )
 
     def _apply_rules_for_event(self, event: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """P3C2: run rules engine for this event and return envelopes."""
+        """Run rules engine for this canonical event and return envelopes."""
         rules = self.spec.get("rules") if isinstance(self.spec, dict) else None
         st = self._current_state_for_eval()
         # apply_rules is permissive (returns [] on bad input); never raises
@@ -288,17 +296,19 @@ class ControlStrategy:
     def handle_event(self, event: Dict[str, Any], current_bets: Dict[str, Any]) -> List[Dict[str, Any]]:
         """
         Produce a list of Action Envelopes for the given event by:
-          1) updating internal state (point / comeout / counters),
+          1) canonicalizing and updating internal state,
           2) generating template diff/regression actions,
-          3) appending rule-driven actions (MVP),
+          3) appending rule-driven actions,
           4) journaling envelopes to CSV if enabled.
         """
+        # Normalize inbound event to the canonical contract
+        event = canonicalize_event(event or {})
         ev_type = event.get("type")
 
         # Aggregate actions per event (template/regression first; rules appended after)
         actions: List[Dict[str, Any]] = []
 
-        if ev_type == "comeout":
+        if ev_type == COMEOUT:
             # Update state
             self.point = None
             self.rolls_since_point = 0
@@ -309,7 +319,7 @@ class ControlStrategy:
             self._journal_actions(event, actions)
             return actions
 
-        if ev_type == "point_established":
+        if ev_type == POINT_ESTABLISHED:
             # Safer parsing of point value
             try:
                 self.point = int(event.get("point"))
@@ -326,7 +336,7 @@ class ControlStrategy:
             self._journal_actions(event, actions)
             return actions
 
-        if ev_type == "roll":
+        if ev_type == ROLL:
             if self.point:
                 self.rolls_since_point += 1
                 if self.rolls_since_point == 3:
@@ -353,7 +363,7 @@ class ControlStrategy:
             self._journal_actions(event, actions)
             return actions
 
-        if ev_type == "seven_out":
+        if ev_type == SEVEN_OUT:
             # Reset state then run rules (some may want to react to seven_out)
             self.point = None
             self.rolls_since_point = 0
@@ -363,7 +373,7 @@ class ControlStrategy:
             self._journal_actions(event, actions)
             return actions
 
-        # Unknown event type: still allow rules to look at it if they wish
+        # Unknown or ancillary event type: still allow rules to look at it
         actions.extend(self._apply_rules_for_event(event))
         self._journal_actions(event, actions)
         return actions
@@ -386,8 +396,8 @@ class ControlStrategy:
         Adapter calls this after each roll. For smoke tests we keep it minimal:
         - reset on seven_out
         """
-        ev = event.get("event") or event.get("type")
-        if ev == "seven_out":
+        ev = (event.get("event") or event.get("type") or "").lower()
+        if ev == SEVEN_OUT:
             self.point = None
             self.rolls_since_point = 0
             self.on_comeout = True
