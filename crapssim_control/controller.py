@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional
 from .templates_rt import render_template as render_runtime_template, diff_bets
 from .actions import make_action  # Action Envelope helper
 from .rules_rt import apply_rules  # P3C2: rules engine wiring
+from .csv_journal import CSVJournal  # P3C4: per-event journaling
 
 
 class ControlStrategy:
@@ -17,6 +18,7 @@ class ControlStrategy:
       • regression after 3rd roll (clear place_6/place_8)
       • seven_out resets state
       • rules engine (MVP) called on every event and merged after template/regression
+      • per-event CSV journaling (when enabled via spec.run.csv)
       • required adapter shims: update_bets(table) and after_roll(table, event)
     """
 
@@ -41,6 +43,10 @@ class ControlStrategy:
             )
         else:
             self.mode = self._default_mode()
+
+        # Journaling (P3C4): lazy-init on first use
+        self._journal: Optional[CSVJournal] = None
+        self._journal_enabled: Optional[bool] = None  # tri-state: None unknown, True/False decided
 
     # ----- helpers -----
 
@@ -67,6 +73,123 @@ class ControlStrategy:
         st["on_comeout"] = self.on_comeout
         st["mode"] = getattr(self, "mode", None)
         return st
+
+    def _units_from_spec_or_state(self) -> Optional[float]:
+        # Prefer ctrl_state variables if present; else spec.variables
+        val = None
+        if self.ctrl_state is not None:
+            v = getattr(self.ctrl_state, "user", None)
+            if v is None:
+                v = getattr(self.ctrl_state, "variables", {}) or {}
+            val = (v or {}).get("units")
+        if val is None:
+            val = (self.spec.get("variables", {}) or {}).get("units")
+        try:
+            return float(val) if val is not None else None
+        except Exception:
+            return None
+
+    def _bankroll_best_effort(self) -> Optional[float]:
+        """
+        Best-effort bankroll hint for CSV context (optional).
+        We avoid importing engine objects; look for hints in spec.run/table.
+        """
+        run = self.spec.get("run", {}) or {}
+        table = self.spec.get("table", {}) or {}
+        for k in ("bankroll", "starting_bankroll"):
+            v = run.get(k)
+            if v is None:
+                v = table.get(k)
+            if v is not None:
+                try:
+                    return float(v)
+                except Exception:
+                    pass
+        return None
+
+    def _resolve_journal_cfg(self) -> Optional[Dict[str, Any]]:
+        """
+        Read journaling config from spec["run"]["csv"].
+        Returns a dict with normalized keys or None if disabled/missing.
+        """
+        run = self.spec.get("run", {}) if isinstance(self.spec, dict) else {}
+        csv_cfg = run.get("csv") if isinstance(run, dict) else None
+        if not isinstance(csv_cfg, dict):
+            return None
+        enabled = bool(csv_cfg.get("enabled", False))
+        path = csv_cfg.get("path")
+        if not enabled or not path:
+            return None
+        append = True if csv_cfg.get("append", True) not in (False, "false", "no", 0) else False
+        run_id = csv_cfg.get("run_id")  # optional
+        seed = csv_cfg.get("seed")      # optional
+        try:
+            seed_val = int(seed) if seed is not None else None
+        except Exception:
+            seed_val = None
+        return {"path": str(path), "append": append, "run_id": run_id, "seed": seed_val}
+
+    def _ensure_journal(self) -> Optional[CSVJournal]:
+        """
+        Lazy-create CSVJournal if enabled in spec.run.csv. Cache enable/disable decision.
+        Never raises; on failure we disable journaling for the session.
+        """
+        if self._journal_enabled is False:
+            return None
+        if self._journal is not None:
+            self._journal_enabled = True
+            return self._journal
+
+        cfg = self._resolve_journal_cfg()
+        if not cfg:
+            self._journal_enabled = False
+            return None
+
+        try:
+            j = CSVJournal(cfg["path"], append=cfg["append"], run_id=cfg.get("run_id"), seed=cfg.get("seed"))
+            # Do not write header here; writer will handle on first write.
+            self._journal = j
+            self._journal_enabled = True
+            return j
+        except Exception:
+            # Disable if we cannot construct (e.g., bad path)
+            self._journal_enabled = False
+            self._journal = None
+            return None
+
+    def _snapshot_for_event(self, event: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Build a compact snapshot for CSV rows. Only simple, stable fields.
+        """
+        snap = {
+            "event_type": event.get("type"),
+            "point": self.point,
+            "rolls_since_point": self.rolls_since_point,
+            "on_comeout": self.on_comeout,
+            "mode": getattr(self, "mode", None),
+            "units": self._units_from_spec_or_state(),
+            "bankroll": self._bankroll_best_effort(),
+            # Optional place for dice/shooter/etc. (Phase 3C5+)
+            # "extra": event.get("extra"),
+        }
+        return snap
+
+    def _journal_actions(self, event: Dict[str, Any], actions: List[Dict[str, Any]]) -> None:
+        """
+        Best-effort: write action envelopes to CSV if journaling is enabled.
+        Never raises; failures silently disable journaling for the rest of the run.
+        """
+        if not actions:
+            return
+        j = self._ensure_journal()
+        if j is None:
+            return
+        try:
+            j.write_actions(actions, snapshot=self._snapshot_for_event(event))
+        except Exception:
+            # One strike policy: disable on first failure to avoid spam
+            self._journal_enabled = False
+            self._journal = None
 
     @staticmethod
     def _extract_amount(val: Any) -> float:
@@ -167,7 +290,8 @@ class ControlStrategy:
         Produce a list of Action Envelopes for the given event by:
           1) updating internal state (point / comeout / counters),
           2) generating template diff/regression actions,
-          3) appending rule-driven actions (MVP).
+          3) appending rule-driven actions (MVP),
+          4) journaling envelopes to CSV if enabled.
         """
         ev_type = event.get("type")
 
@@ -181,6 +305,8 @@ class ControlStrategy:
             self.on_comeout = True
             # No template plan on pure comeout; just run rules for comeout
             actions.extend(self._apply_rules_for_event(event))
+            # Journal and return
+            self._journal_actions(event, actions)
             return actions
 
         if ev_type == "point_established":
@@ -196,6 +322,8 @@ class ControlStrategy:
             actions.extend(self._apply_mode_template_plan(current_bets, self.mode))
             # 2) Rule actions (appended)
             actions.extend(self._apply_rules_for_event(event))
+            # Journal and return
+            self._journal_actions(event, actions)
             return actions
 
         if ev_type == "roll":
@@ -221,6 +349,8 @@ class ControlStrategy:
                     ])
             # Append rule actions for this roll
             actions.extend(self._apply_rules_for_event(event))
+            # Journal and return
+            self._journal_actions(event, actions)
             return actions
 
         if ev_type == "seven_out":
@@ -229,10 +359,13 @@ class ControlStrategy:
             self.rolls_since_point = 0
             self.on_comeout = True
             actions.extend(self._apply_rules_for_event(event))
+            # Journal and return
+            self._journal_actions(event, actions)
             return actions
 
         # Unknown event type: still allow rules to look at it if they wish
         actions.extend(self._apply_rules_for_event(event))
+        self._journal_actions(event, actions)
         return actions
 
     def state_snapshot(self) -> Dict[str, Any]:
