@@ -23,11 +23,9 @@ current_bets = {
 
 Outputs:
   - render_template(...) -> desired_bets  (same shape as current_bets)
-  - diff_bets(current_bets, desired_bets, source='template', source_id='template:Main') -> list[actions]
-      actions are Action Envelopes:
-        {"source":"template","id":"template:Main","action":"set","bet_type":"place_6","amount":12}
-        {"source":"template","id":"template:Main","action":"clear","bet_type":"field"}
-        {"source":"template","id":"template:Main","action":"set","bet_type":"odds_6_pass","amount":20,"working_on_comeout":False}
+  - diff_bets(current_bets, desired_bets, source=None) -> list[actions]
+      • Legacy mode (default, source=None): minimal dicts for back-compat
+      • Envelope mode (opt-in, source="template"|"rule"): Action Envelopes
 """
 
 from __future__ import annotations
@@ -88,10 +86,8 @@ def _eval_amount(expr_or_num: Any, state: Dict, event: Dict) -> float:
     if expr_or_num is None:
         return 0.0
     if isinstance(expr_or_num, str):
-        # Fail-open: unknown vars / bad expressions yield 0.0
         val = try_eval(expr_or_num, state, event, default=0)
         return _coerce_float(val)
-    # unknown types → zero (effectively "clear")
     return 0.0
 
 
@@ -145,7 +141,6 @@ def render_template(
     if point:
         odds = template.get("odds")
         if isinstance(odds, dict):
-            # support odds on pass or don't separately (start with pass)
             base_pass = desired.get("pass_line", {}).get("amount", 0)
             base_dp = desired.get("dont_pass", {}).get("amount", 0)
 
@@ -175,8 +170,7 @@ def render_template(
 
     # ---- Working flag for odds on comeout (optional)
     working_flag = _bool(template.get("working_on_comeout", False), False)
-    if working_flag:
-        # annotate any odds entries with explicit working flag
+    if working_flag and on_comeout:
         for k, v in desired.items():
             if k.startswith("odds_"):
                 v["working_on_comeout"] = True
@@ -188,14 +182,17 @@ def diff_bets(
     current_bets: Dict[str, Dict],
     desired_bets: Dict[str, Dict],
     *,
-    source: str = "template",
-    source_id: str = "template:Main",
+    source: str | None = None,
+    source_id: str | None = None,
     notes: str = "",
 ) -> List[Dict]:
     """
-    Compute idempotent actions to reconcile from current -> desired, returning
-    standardized Action Envelopes. Provenance can be provided via `source` and
-    `source_id` (e.g., source='template', source_id='template:Main').
+    Compute idempotent actions to reconcile from current -> desired.
+
+    Modes:
+      • Legacy (default, source=None): returns minimal dicts for back-compat.
+      • Envelope (opt-in, source provided): returns Action Envelopes stamped
+        with provenance (source/source_id/notes).
 
     Policy:
       - If a bet exists with a different amount, emit **clear** then **set**.
@@ -223,32 +220,49 @@ def diff_bets(
     clears: List[Dict] = []
     sets: List[Dict] = []
 
+    envelope_mode = source is not None  # opt-in
+
     # Handle updates / removals
     for k, cur_amt in current.items():
         des_amt = desired.get(k, 0)
         if des_amt <= 0:
-            # present -> absent: clear
-            clears.append(make_action("clear", bet_type=k, source=source, id_=source_id, notes=notes))
+            if envelope_mode:
+                clears.append(make_action("clear", bet_type=k, source=source or "template", id_=source_id or "template:Main", notes=notes))
+            else:
+                clears.append({"action": "clear", "bet_type": k})
         elif des_amt != cur_amt:
-            # amount change: clear then set
-            clears.append(make_action("clear", bet_type=k, source=source, id_=source_id, notes=notes))
-            act = make_action("set", bet_type=k, amount=des_amt, source=source, id_=source_id, notes=notes)
-            # preserve working flag if provided on desired bet
-            wf = (desired_bets.get(k) or {}).get("working_on_comeout")
-            if isinstance(wf, bool):
-                act["working_on_comeout"] = wf  # passthrough for engines that use it
-            sets.append(act)
+            if envelope_mode:
+                clears.append(make_action("clear", bet_type=k, source=source or "template", id_=source_id or "template:Main", notes=notes))
+                act = make_action("set", bet_type=k, amount=des_amt, source=source or "template", id_=source_id or "template:Main", notes=notes)
+                wf = (desired_bets.get(k) or {}).get("working_on_comeout")
+                if isinstance(wf, bool):
+                    act["working_on_comeout"] = wf
+                sets.append(act)
+            else:
+                clears.append({"action": "clear", "bet_type": k})
+                set_action = {"action": "set", "bet_type": k, "amount": des_amt}
+                wf = (desired_bets.get(k) or {}).get("working_on_comeout")
+                if isinstance(wf, bool):
+                    set_action["working_on_comeout"] = wf
+                sets.append(set_action)
         # else equal -> no-op
 
     # Handle creations (present in desired, missing in current)
     for k, des_meta in (desired_bets or {}).items():
         des_amt = _amt(des_meta)
         if des_amt > 0 and k not in current:
-            act = make_action("set", bet_type=k, amount=des_amt, source=source, id_=source_id, notes=notes)
-            wf = (desired_bets.get(k) or {}).get("working_on_comeout")
-            if isinstance(wf, bool):
-                act["working_on_comeout"] = wf
-            sets.append(act)
+            if envelope_mode:
+                act = make_action("set", bet_type=k, amount=des_amt, source=source or "template", id_=source_id or "template:Main", notes=notes)
+                wf = (desired_bets.get(k) or {}).get("working_on_comeout")
+                if isinstance(wf, bool):
+                    act["working_on_comeout"] = wf
+                sets.append(act)
+            else:
+                set_action = {"action": "set", "bet_type": k, "amount": des_amt}
+                wf = (desired_bets.get(k) or {}).get("working_on_comeout")
+                if isinstance(wf, bool):
+                    set_action["working_on_comeout"] = wf
+                sets.append(set_action)
 
     # Stable deterministic ordering
     actions = sorted(clears, key=lambda a: a["bet_type"]) + sorted(sets, key=lambda a: a["bet_type"])
