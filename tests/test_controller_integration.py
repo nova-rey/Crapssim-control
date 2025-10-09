@@ -14,12 +14,17 @@ def _get_amount(actions, bet_type):
     return None
 
 
+def _all_have_envelope(actions, *, source="template", source_id_prefix="template:"):
+    return all(("source" in a and "id" in a and a["source"] == source and str(a["id"]).startswith(source_id_prefix))
+               for a in actions)
+
+
 def test_controller_renders_template_with_expressions_and_sets_bets():
     """
     End-to-end smoke test:
       - Controller consumes a template with string expressions (units*2, etc.)
       - Runtime template renderer evaluates via the safe evaluator
-      - Controller returns normalized action list with numeric amounts
+      - Controller returns action envelopes with numeric amounts
     """
     spec = {
         "variables": {"units": 5},
@@ -40,6 +45,9 @@ def test_controller_renders_template_with_expressions_and_sets_bets():
     ev_point = {"type": "point_established", "point": 6}
     plan = ctrl.handle_event(ev_point, current_bets={})
 
+    # Envelope fields present and correct provenance
+    assert _all_have_envelope(plan, source="template", source_id_prefix="template:Main")
+
     # Expect set actions for pass line and place 6/8
     assert _has_action(plan, "set", "pass_line")
     assert _has_action(plan, "set", "place_6")
@@ -55,6 +63,7 @@ def test_controller_renders_template_with_expressions_and_sets_bets():
 def test_regression_after_third_roll_clears_place_6_and_8():
     """
     Controller should clear place_6/place_8 on the 3rd roll after the point is on.
+    The emitted actions should carry envelope provenance and a regression note.
     """
     spec = {
         "variables": {"units": 5},
@@ -78,6 +87,11 @@ def test_regression_after_third_roll_clears_place_6_and_8():
     a3 = ctrl.handle_event({"type": "roll"}, current_bets={})
     assert _has_action(a3, "clear", "place_6")
     assert _has_action(a3, "clear", "place_8")
+
+    # Envelope + note assertions
+    assert _all_have_envelope(a3, source="template", source_id_prefix="template:regress_roll3")
+    for a in a3:
+        assert a.get("notes") == "auto-regress after 3rd roll"
 
 
 def test_seven_out_resets_state_to_comeout():
