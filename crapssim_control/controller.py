@@ -30,8 +30,14 @@ class ControlStrategy:
     P4C3 upgrades:
       • Deterministic in-event ordering: template → regression → rules
       • Conflict merge within an event; last-wins per bet; clear overrides others
-      • Side-effect application for 'switch_mode' (takes effect next event)
       • Journal only the post-merge final list; annotate with per-event monotonic seq
+
+    P4C4 upgrades:
+      • switch_mode side-effect applies IMMEDIATELY within the same event
+        (so a switch on point_established affects that event’s template diff).
+      • Final action order within an event:
+          [all switch_mode actions] → [template/regression] → [other rule actions] → [other/unknown]
+        with last-wins conflict resolution among bet actions as before.
     """
 
     def __init__(
@@ -159,12 +165,10 @@ class ControlStrategy:
 
         try:
             j = CSVJournal(cfg["path"], append=cfg["append"], run_id=cfg.get("run_id"), seed=cfg.get("seed"))
-            # Do not write header here; writer will handle on first write.
             self._journal = j
             self._journal_enabled = True
             return j
         except Exception:
-            # Disable if we cannot construct (e.g., bad path)
             self._journal_enabled = False
             self._journal = None
             return None
@@ -200,7 +204,6 @@ class ControlStrategy:
         try:
             j.write_actions(actions, snapshot=self._snapshot_for_event(event))
         except Exception:
-            # One strike policy: disable on first failure to avoid spam
             self._journal_enabled = False
             self._journal = None
 
@@ -248,7 +251,6 @@ class ControlStrategy:
         if isinstance(plan_obj, (list, tuple)):
             for item in plan_obj:
                 if isinstance(item, dict):
-                    # normalize amount if present
                     if "amount" in item:
                         item = {**item, "amount": ControlStrategy._extract_amount(item["amount"])}
                     out.append(item)
@@ -281,7 +283,6 @@ class ControlStrategy:
         })
 
         desired = render_runtime_template(tmpl, st, synth_event)
-        # Produce standardized action envelopes with provenance + context note
         return diff_bets(
             current_bets or {},
             desired,
@@ -294,10 +295,9 @@ class ControlStrategy:
         """Run rules engine for this canonical event and return envelopes."""
         rules = self.spec.get("rules") if isinstance(self.spec, dict) else None
         st = self._current_state_for_eval()
-        # apply_rules is permissive (returns [] on bad input); never raises
         return apply_rules(rules, st, event or {})
 
-    # ----- P4C3: event-local action merge & side-effects -------------------------
+    # ----- P4C3/P4C4: event-local action merge & (P4C4) pre-merge switch handling -----
 
     @staticmethod
     def _source_bucket(action: Dict[str, Any]) -> int:
@@ -342,13 +342,11 @@ class ControlStrategy:
     def _merge_actions_for_event(self, actions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
         Deterministic event-local merge:
-          • Ordering: template → regression (also 'template') → rules → other
+          • Ordering (by buckets): template → rules → other
           • Within a bucket: keep original order (stable sort)
-          • Conflicts:
+          • Conflicts among bet actions:
               - Last wins for same bet across the entire event
               - 'clear' overrides any earlier set/press/reduce on same bet
-              - Rule bucket can override template bucket for same bet
-          • Side-effects are NOT applied here (handled in _apply_envelopes)
         """
         if not actions:
             return []
@@ -369,56 +367,52 @@ class ControlStrategy:
             if fam in ("bet_mutate", "bet_clear"):
                 bk = self._bet_key(a)
                 if not bk:
-                    # malformed bet action; keep it but don't attempt conflict resolution
                     final.append(a)
                     continue
-                # If we've already scheduled something for this bet, decide override
                 if bk in last_for_bet:
                     prev_idx = last_for_bet[bk]
-                    prev = final[prev_idx]
-                    prev_fam = self._action_family(prev)
-
-                    # If current is clear → override previous bet action
-                    if fam == "bet_clear":
-                        final[prev_idx] = a
-                    else:
-                        # current is set/press/reduce
-                        # If previous was clear, we still let last-wins (override)
-                        final[prev_idx] = a
-                    # Update pointer to last action for this bet
+                    # last wins semantics (clear overrides implicitly by replacement)
+                    final[prev_idx] = a
                     last_for_bet[bk] = prev_idx
                 else:
                     last_for_bet[bk] = len(final)
                     final.append(a)
             else:
-                # Non-bet actions (e.g., switch_mode) are appended in order
                 final.append(a)
 
         return final
 
-    def _apply_envelopes(self, actions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """
-        Apply side-effects (e.g., switch_mode) and return the final, ordered list
-        annotated with a per-event `seq` field starting at 1.
-        """
-        merged = self._merge_actions_for_event(actions)
-
-        # Side-effects: apply switch_mode in encounter order (no re-render this event)
-        for a in merged:
-            if self._is_switch_mode(a):
-                # In P4C2/P4C3, rules_rt packs the target into 'notes'
-                # Some future variants may also use 'mode'
-                target = (a.get("notes") or a.get("mode") or "").strip()
-                if target:
-                    self.mode = target  # takes effect next event
-
-        # Annotate with seq (1-based monotonic within event)
-        for i, a in enumerate(merged, start=1):
-            # Don't stomp an existing seq if already present
+    def _annotate_seq(self, actions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        for i, a in enumerate(actions, start=1):
             if "seq" not in a:
                 a["seq"] = i
+        return actions
 
-        return merged
+    # ----- P4C4 helpers: split/apply switches BEFORE planning/journaling ----------
+
+    @staticmethod
+    def _split_switch_and_other(actions: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+        """Partition actions into (switch_mode actions, others) preserving order."""
+        switches: List[Dict[str, Any]] = []
+        others: List[Dict[str, Any]] = []
+        for a in actions:
+            if (a.get("action") or "").lower() == "switch_mode":
+                switches.append(a)
+            else:
+                others.append(a)
+        return switches, others
+
+    def _apply_switches_now(self, switch_actions: List[Dict[str, Any]]) -> None:
+        """
+        Apply mode switches immediately (last one wins). Targets are taken from 'notes' or 'mode'.
+        """
+        last_target: Optional[str] = None
+        for a in switch_actions:
+            target = (a.get("notes") or a.get("mode") or "").strip()
+            if target:
+                last_target = target
+        if last_target:
+            self.mode = last_target  # takes effect immediately in this event
 
     # ----- public API used by tests -----
 
@@ -426,31 +420,38 @@ class ControlStrategy:
         """
         Produce a list of Action Envelopes for the given event by:
           1) canonicalizing and updating internal state,
-          2) generating template diff/regression actions,
-          3) appending rule-driven actions,
-          4) merging + applying side-effects (switch_mode),
-          5) journaling the final envelopes if enabled.
+          2) collecting rule-driven actions,
+          3) applying any switch_mode immediately (affects same-event planning),
+          4) generating template diff/regression actions (using current mode),
+          5) merging (deterministic) & annotating seq,
+          6) journaling the final envelopes if enabled.
         """
         # Normalize inbound event to the canonical contract
         event = canonicalize_event(event or {})
         ev_type = event.get("type")
 
-        # Aggregate actions per event (template/regression first; rules appended after)
-        actions: List[Dict[str, Any]] = []
+        # Aggregate actions pieces per event
+        template_and_regress: List[Dict[str, Any]] = []
+        rule_actions: List[Dict[str, Any]] = []
 
+        # ----- state updates driven by the canonical event -----
         if ev_type == COMEOUT:
-            # Update state
             self.point = None
             self.rolls_since_point = 0
             self.on_comeout = True
-            # No template plan on pure comeout; just run rules for comeout
-            actions.extend(self._apply_rules_for_event(event))
-            final_actions = self._apply_envelopes(actions)
-            self._journal_actions(event, final_actions)
-            return final_actions
+
+            # Rules first → apply switches immediately
+            rule_actions = self._apply_rules_for_event(event)
+            switches, rule_non_switch = self._split_switch_and_other(rule_actions)
+            self._apply_switches_now(switches)
+
+            # No template plan on pure comeout
+            final = self._merge_actions_for_event(switches + template_and_regress + rule_non_switch)
+            final = self._annotate_seq(final)
+            self._journal_actions(event, final)
+            return final
 
         if ev_type == POINT_ESTABLISHED:
-            # Safer parsing of point value
             try:
                 self.point = int(event.get("point"))
             except Exception:
@@ -458,21 +459,25 @@ class ControlStrategy:
             self.rolls_since_point = 0
             self.on_comeout = self.point in (None, 0)
 
-            # 1) Template diff actions for this mode
-            actions.extend(self._apply_mode_template_plan(current_bets, self.mode))
-            # 2) Rule actions (appended)
-            actions.extend(self._apply_rules_for_event(event))
+            # Rules first → apply switches so template uses the updated mode
+            rule_actions = self._apply_rules_for_event(event)
+            switches, rule_non_switch = self._split_switch_and_other(rule_actions)
+            self._apply_switches_now(switches)
 
-            final_actions = self._apply_envelopes(actions)
-            self._journal_actions(event, final_actions)
-            return final_actions
+            # Now render template with (possibly) new mode
+            template_and_regress.extend(self._apply_mode_template_plan(current_bets, self.mode))
+
+            final = self._merge_actions_for_event(switches + template_and_regress + rule_non_switch)
+            final = self._annotate_seq(final)
+            self._journal_actions(event, final)
+            return final
 
         if ev_type == ROLL:
+            # Regression logic (template-origin)
             if self.point:
                 self.rolls_since_point += 1
                 if self.rolls_since_point == 3:
-                    # Regress: clear place_6 and place_8 with provenance
-                    actions.extend([
+                    template_and_regress.extend([
                         make_action(
                             "clear",
                             bet_type="place_6",
@@ -488,27 +493,41 @@ class ControlStrategy:
                             notes="auto-regress after 3rd roll",
                         ),
                     ])
-            # Append rule actions for this roll
-            actions.extend(self._apply_rules_for_event(event))
-            final_actions = self._apply_envelopes(actions)
-            self._journal_actions(event, final_actions)
-            return final_actions
+
+            # Rules → apply switches immediately (even though roll has no template plan)
+            rule_actions = self._apply_rules_for_event(event)
+            switches, rule_non_switch = self._split_switch_and_other(rule_actions)
+            self._apply_switches_now(switches)
+
+            final = self._merge_actions_for_event(switches + template_and_regress + rule_non_switch)
+            final = self._annotate_seq(final)
+            self._journal_actions(event, final)
+            return final
 
         if ev_type == SEVEN_OUT:
-            # Reset state then run rules (some may want to react to seven_out)
+            # Reset state then run rules
             self.point = None
             self.rolls_since_point = 0
             self.on_comeout = True
-            actions.extend(self._apply_rules_for_event(event))
-            final_actions = self._apply_envelopes(actions)
-            self._journal_actions(event, final_actions)
-            return final_actions
+
+            rule_actions = self._apply_rules_for_event(event)
+            switches, rule_non_switch = self._split_switch_and_other(rule_actions)
+            self._apply_switches_now(switches)
+
+            final = self._merge_actions_for_event(switches + rule_non_switch)
+            final = self._annotate_seq(final)
+            self._journal_actions(event, final)
+            return final
 
         # Unknown or ancillary event type: still allow rules to look at it
-        actions.extend(self._apply_rules_for_event(event))
-        final_actions = self._apply_envelopes(actions)
-        self._journal_actions(event, final_actions)
-        return final_actions
+        rule_actions = self._apply_rules_for_event(event)
+        switches, rule_non_switch = self._split_switch_and_other(rule_actions)
+        self._apply_switches_now(switches)
+
+        final = self._merge_actions_for_event(switches + rule_non_switch)
+        final = self._annotate_seq(final)
+        self._journal_actions(event, final)
+        return final
 
     def state_snapshot(self) -> Dict[str, Any]:
         return {
