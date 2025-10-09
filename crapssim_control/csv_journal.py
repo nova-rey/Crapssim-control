@@ -43,6 +43,7 @@ def _merge_extra(snapshot: Dict[str, Any], action: Dict[str, Any]) -> Any:
       - Start with snapshot.get("extra") (string/dict allowed)
       - Merge in canonical event hints: roll, event_point (when present)
       - Merge per-action seq (if present)
+      - [P4C4] If action is 'setvar', include {"setvar": {"var": <name>, "value": <any>}}
     Returns a string (JSON if dict-like) or passthrough string.
     """
     snap_extra = snapshot.get("extra")
@@ -74,6 +75,15 @@ def _merge_extra(snapshot: Dict[str, Any], action: Dict[str, Any]) -> Any:
         except Exception:
             # If not cleanly int, store raw
             base["seq"] = action.get("seq")
+
+    # P4C4: capture setvar details for auditability
+    if str(action.get("action") or "").lower() == "setvar":
+        var_name = action.get("var")
+        if isinstance(var_name, str) and var_name.strip():
+            base.setdefault("setvar", {})
+            base["setvar"]["var"] = var_name.strip()
+            if "value" in action:
+                base["setvar"]["value"] = action.get("value")
 
     # If base is still empty and original extra was a simple string, pass it through
     if not base and isinstance(snap_extra, str):
@@ -162,7 +172,7 @@ class CSVJournal:
                 amount = _coerce_num(a.get("amount"))
                 notes = _as_str(a.get("notes"))
 
-                # Build enriched 'extra' payload (merges roll/event_point/seq)
+                # Build enriched 'extra' payload (merges roll/event_point/seq and setvar details)
                 extra_payload = _merge_extra(snap, a)
 
                 row = {
