@@ -4,7 +4,7 @@ from __future__ import annotations
 """
 Action Envelope schema (v1.0)
 
-Every action emitted by CrapsSim-Control (from templates now, rules later)
+Every action emitted by CrapsSim-Control (from templates and rules)
 must conform to this shape so downstream consumers (CSV exporter, UIs, tests)
 can rely on a single contract.
 
@@ -14,8 +14,10 @@ Envelope (per action):
       "id": "template:<mode>" | "rule:<name-or-idx>", # stable identifier
       "action": "set" | "clear" | "press" | "reduce" | "switch_mode",
       "bet_type": "pass_line" | "place_6" | "odds_6_pass" | None,
-      "amount": float | None,                          # None when not applicable
-      "notes": str                                     # brief reason or context
+      "amount": float | None,                         # None when not applicable
+      "notes": str                                    # brief reason or context
+      # [P4C3] optional:
+      # "seq": int                                    # per-event sequence, annotated by controller
     }
 
 Conventions:
@@ -68,6 +70,7 @@ class ActionEnvelope(TypedDict, total=False):
     bet_type: Optional[str]
     amount: Optional[float]
     notes: str
+    seq: int  # optional, added by controller during journaling
 
 
 def make_action(
@@ -94,12 +97,14 @@ def make_action(
         ActionEnvelope dict with all standard keys present.
     """
     # Lightweight guards (don’t raise; keep envelopes flowing)
-    if source not in ALLOWED_SOURCES:
-        source = SOURCE_TEMPLATE
-    if action not in ALLOWED_ACTIONS:
-        # Fall back to a no-op-ish shape but keep the original string
-        # This avoids raising in hot paths; tests/exporter can validate separately.
-        action = action  # keep as-is; exporter/tests may flag it
+    src = (source or "").lower()
+    if src not in ALLOWED_SOURCES:
+        src = SOURCE_TEMPLATE
+
+    act = (action or "").lower()
+    if act not in ALLOWED_ACTIONS:
+        # Keep as-is to allow validators to flag; don't crash hot paths.
+        act = action
 
     # Normalize amount to float or None
     amt: Optional[float]
@@ -111,20 +116,63 @@ def make_action(
         except Exception:
             amt = None
 
+    bt = str(bet_type) if isinstance(bet_type, str) and bet_type else None
+
     return ActionEnvelope(
-        source=source,
-        id=id_,
-        action=action,
-        bet_type=bet_type,
+        source=src,
+        id=id_ or "",
+        action=act,
+        bet_type=bt,
         amount=amt,
-        notes=notes or "",
+        notes=str(notes or ""),
     )
+
+
+# ---- P4C3 helpers ---------------------------------------------------------------
+
+def normalize_action(env: Dict[str, Any]) -> ActionEnvelope:
+    """
+    Normalize an arbitrary action-like dict to a compliant ActionEnvelope.
+    - Lowercases 'source' and 'action' (when applicable).
+    - Coerces 'amount' to float or None.
+    - Coerces 'bet_type' to str or None.
+    - Ensures required keys exist with safe defaults.
+    Does not raise; best-effort normalization.
+    """
+    source = (env.get("source") or SOURCE_TEMPLATE)
+    action = (env.get("action") or "")
+    bet_type = env.get("bet_type")
+    amount = env.get("amount")
+    notes = env.get("notes") or ""
+    id_ = env.get("id") or "template:Main"
+
+    return make_action(
+        action=action,
+        bet_type=str(bet_type) if isinstance(bet_type, str) and bet_type else None,
+        amount=amount if isinstance(amount, (int, float, str)) else None,
+        source=str(source).lower(),
+        id_=str(id_),
+        notes=str(notes),
+    )
+
+
+def is_bet_action(env: Dict[str, Any]) -> bool:
+    """
+    True if the action mutates or clears a specific bet.
+    """
+    a = (env.get("action") or "").lower()
+    if a not in (ACTION_SET, ACTION_PRESS, ACTION_REDUCE, ACTION_CLEAR):
+        return False
+    bt = env.get("bet_type")
+    return isinstance(bt, str) and bool(bt)
 
 
 __all__ = [
     "SCHEMA_VERSION",
     "ActionEnvelope",
     "make_action",
+    "normalize_action",
+    "is_bet_action",
     "SOURCE_TEMPLATE",
     "SOURCE_RULE",
     "ACTION_SET",
