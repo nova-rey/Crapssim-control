@@ -38,12 +38,10 @@ def _parse_ts(s: Any) -> Optional[datetime]:
     txt = str(s).strip()
     if not txt:
         return None
-    # Best-effort: try common ISO-ish shapes.
-    for fmt in ("%Y-%m-%dT%H:%M:%S.%fZ",  # e.g. 2025-10-09T16:42:10.123Z
-                "%Y-%m-%dT%H:%M:%S.%f",   # no Z
-                "%Y-%m-%dT%H:%M:%S",      # seconds only
-                "%Y-%m-%d %H:%M:%S",      # space separator
-                ):
+    for fmt in ("%Y-%m-%dT%H:%M:%S.%fZ",
+                "%Y-%m-%dT%H:%M:%S.%f",
+                "%Y-%m-%dT%H:%M:%S",
+                "%Y-%m-%d %H:%M:%S"):
         try:
             return datetime.strptime(txt, fmt)
         except Exception:
@@ -52,19 +50,16 @@ def _parse_ts(s: Any) -> Optional[datetime]:
 
 
 def _first_last(ts_iter: Iterable[Optional[datetime]]) -> Tuple[Optional[str], Optional[str]]:
-    """Return (first_iso, last_iso) in ISO 8601 (Z-less), or (None, None)."""
     vals = [t for t in ts_iter if t is not None]
     if not vals:
         return None, None
     vals.sort()
     def fmt(t: datetime) -> str:
-        # Use a stable, spreadsheet-friendly format
         return t.strftime("%Y-%m-%dT%H:%M:%S")
     return fmt(vals[0]), fmt(vals[-1])
 
 
 def _default_group_key_for_file(journal_path: Path) -> str:
-    # Fallback grouping label when run_id is absent or grouping by file.
     return f"file:{journal_path.name}"
 
 
@@ -90,7 +85,7 @@ def summarize_journal(
       - unique_bets
       - modes_used
       - points_seen
-      - roll_events
+      - roll_events   (distinct roll ticks by timestamp)
       - regress_events
       - sum_amount_set, sum_amount_press, sum_amount_reduce
       - first_timestamp, last_timestamp
@@ -105,7 +100,6 @@ def summarize_journal(
         return []
 
     if not rows:
-        # Empty file -> single empty summary (still useful for tooling)
         return [{
             "run_id": _default_group_key_for_file(p),
             "rows_total": 0,
@@ -143,31 +137,32 @@ def summarize_journal(
     summaries: List[Dict[str, Any]] = []
 
     for key, grp in groups.items():
-        # Sets for distinct counts
         bet_types = set()
         modes = set()
         points = set()
 
-        # Counters
         rows_total = 0
         sets = clears = presses = reduces = switch_mode = 0
-        roll_events = 0
         regress_events = 0
 
-        # Amount sums
         sum_amount_set = 0.0
         sum_amount_press = 0.0
         sum_amount_reduce = 0.0
 
-        # Timestamps for first/last
         ts_list: List[Optional[datetime]] = []
 
-        for r in grp:
+        # NEW: track distinct roll “ticks” by timestamp (fallback to row idx)
+        roll_ticks: set[Tuple[str, str]] = set()
+
+        for idx, r in enumerate(grp):
             rows_total += 1
 
             evt = (r.get("event_type") or "").strip().lower()
+            ts_str = (r.get("timestamp") or "").strip()
             if evt == "roll":
-                roll_events += 1
+                # distinct by timestamp; if missing, use a unique fallback per row
+                key_ts = ts_str if ts_str else f"__row_{idx}"
+                roll_ticks.add((evt, key_ts))
 
             act = (r.get("action") or "").strip().lower()
             if act == "set":
@@ -181,7 +176,6 @@ def summarize_journal(
             elif act == "switch_mode":
                 switch_mode += 1
 
-            # Distinct bet types / modes
             bt = (r.get("bet_type") or "").strip()
             if bt:
                 bet_types.add(bt)
@@ -190,17 +184,14 @@ def summarize_journal(
             if m:
                 modes.add(m)
 
-            # Points seen: distinct non-zero integers
             pt = _to_int(r.get("point"))
             if pt and pt != 0:
                 points.add(pt)
 
-            # Regression events: clear actions with the specific id
             rid = (r.get("id") or "").strip()
             if act == "clear" and rid == "template:regress_roll3":
                 regress_events += 1
 
-            # Sum amounts by action type
             amt = _to_float(r.get("amount"))
             if amt is not None:
                 if act == "set":
@@ -210,8 +201,7 @@ def summarize_journal(
                 elif act == "reduce":
                     sum_amount_reduce += amt
 
-            # Timestamps if present
-            ts = _parse_ts(r.get("timestamp"))
+            ts = _parse_ts(ts_str)
             ts_list.append(ts)
 
         first_ts, last_ts = _first_last(ts_list)
@@ -228,7 +218,7 @@ def summarize_journal(
             "unique_bets": len(bet_types),
             "modes_used": len(modes),
             "points_seen": len(points),
-            "roll_events": roll_events,
+            "roll_events": len(roll_ticks),  # distinct roll timestamps
             "regress_events": regress_events,
             "sum_amount_set": round(sum_amount_set, 4),
             "sum_amount_press": round(sum_amount_press, 4),
@@ -253,7 +243,6 @@ def write_summary_csv(
     out = Path(out_path)
     out.parent.mkdir(parents=True, exist_ok=True)
 
-    # Stable column order; include everything we compute.
     fieldnames = [
         "run_id",
         "rows_total",
@@ -289,6 +278,5 @@ def write_summary_csv(
         if (not append) or write_header:
             writer.writeheader()
         for row in summaries:
-            # Ensure only known fields are written; fill missing with empty strings
             safe = {k: row.get(k, "") for k in fieldnames}
             writer.writerow(safe)
