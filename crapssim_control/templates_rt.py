@@ -23,19 +23,20 @@ current_bets = {
 
 Outputs:
   - render_template(...) -> desired_bets  (same shape as current_bets)
-  - diff_bets(current_bets, desired_bets) -> list[actions]
-      actions are:
-        {"action":"set", "bet_type":"place_6", "amount":12}
-        {"action":"clear","bet_type":"field"}
-        {"action":"set","bet_type":"odds_6_pass","amount":20,"working_on_comeout":False}
+  - diff_bets(current_bets, desired_bets, source='template', source_id='template:Main') -> list[actions]
+      actions are Action Envelopes:
+        {"source":"template","id":"template:Main","action":"set","bet_type":"place_6","amount":12}
+        {"source":"template","id":"template:Main","action":"clear","bet_type":"field"}
+        {"source":"template","id":"template:Main","action":"set","bet_type":"odds_6_pass","amount":20,"working_on_comeout":False}
 """
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Dict, List, Optional, Any
 
-from .eval import eval_num, EvalError, try_eval
+from .eval import try_eval
 from .legalize_rt import legalize_amount
+from .actions import make_action  # Action Envelope helper
 
 
 def _bool(x: Any, default: bool = False) -> bool:
@@ -174,7 +175,7 @@ def render_template(
 
     # ---- Working flag for odds on comeout (optional)
     working_flag = _bool(template.get("working_on_comeout", False), False)
-    if working_flag and on_comeout:
+    if working_flag:
         # annotate any odds entries with explicit working flag
         for k, v in desired.items():
             if k.startswith("odds_"):
@@ -183,9 +184,18 @@ def render_template(
     return desired
 
 
-def diff_bets(current_bets: Dict[str, Dict], desired_bets: Dict[str, Dict]) -> List[Dict]:
+def diff_bets(
+    current_bets: Dict[str, Dict],
+    desired_bets: Dict[str, Dict],
+    *,
+    source: str = "template",
+    source_id: str = "template:Main",
+    notes: str = "",
+) -> List[Dict]:
     """
-    Compute idempotent actions to reconcile from current -> desired.
+    Compute idempotent actions to reconcile from current -> desired, returning
+    standardized Action Envelopes. Provenance can be provided via `source` and
+    `source_id` (e.g., source='template', source_id='template:Main').
 
     Policy:
       - If a bet exists with a different amount, emit **clear** then **set**.
@@ -218,25 +228,27 @@ def diff_bets(current_bets: Dict[str, Dict], desired_bets: Dict[str, Dict]) -> L
         des_amt = desired.get(k, 0)
         if des_amt <= 0:
             # present -> absent: clear
-            clears.append({"action": "clear", "bet_type": k})
+            clears.append(make_action("clear", bet_type=k, source=source, id_=source_id, notes=notes))
         elif des_amt != cur_amt:
             # amount change: clear then set
-            clears.append({"action": "clear", "bet_type": k})
-            set_action = {"action": "set", "bet_type": k, "amount": des_amt}
+            clears.append(make_action("clear", bet_type=k, source=source, id_=source_id, notes=notes))
+            act = make_action("set", bet_type=k, amount=des_amt, source=source, id_=source_id, notes=notes)
+            # preserve working flag if provided on desired bet
             wf = (desired_bets.get(k) or {}).get("working_on_comeout")
             if isinstance(wf, bool):
-                set_action["working_on_comeout"] = wf
-            sets.append(set_action)
+                act["working_on_comeout"] = wf  # passthrough for engines that use it
+            sets.append(act)
         # else equal -> no-op
 
     # Handle creations (present in desired, missing in current)
-    for k, des_amt in desired.items():
+    for k, des_meta in (desired_bets or {}).items():
+        des_amt = _amt(des_meta)
         if des_amt > 0 and k not in current:
-            set_action = {"action": "set", "bet_type": k, "amount": des_amt}
+            act = make_action("set", bet_type=k, amount=des_amt, source=source, id_=source_id, notes=notes)
             wf = (desired_bets.get(k) or {}).get("working_on_comeout")
             if isinstance(wf, bool):
-                set_action["working_on_comeout"] = wf
-            sets.append(set_action)
+                act["working_on_comeout"] = wf
+            sets.append(act)
 
     # Stable deterministic ordering
     actions = sorted(clears, key=lambda a: a["bet_type"]) + sorted(sets, key=lambda a: a["bet_type"])
