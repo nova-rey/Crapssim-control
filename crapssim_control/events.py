@@ -4,21 +4,6 @@ from typing import Dict, Any, Optional, Tuple, Set
 
 """
 events.py — Canonical Event Normalization (Phase 4 · Checkpoint 2)
-
-Purpose
--------
-Provide a single, authoritative definition of CrapsSim-Control event types and
-their normalized payloads. This module converts raw engine/game-state snapshots
-into a consistent event dictionary used throughout the controller, rules engine,
-and CSV journaling.
-
-Features
---------
-✅ Stable event type constants for validation and docs.
-✅ Uniform event schema for all events (even when fields are None).
-✅ Helper `canonicalize_event()` that guarantees predictable keys.
-✅ Backwards-compatible alias: 'event' == 'type'.
-✅ Works with both dict-based and object-based game state inputs.
 """
 
 # ---------------------------------------------------------------------------
@@ -30,6 +15,8 @@ POINT_ESTABLISHED = "point_established"
 POINT_MADE = "point_made"
 ROLL = "roll"
 SEVEN_OUT = "seven_out"
+SHOOTER_CHANGE = "shooter_change"   # P4C2: keep as distinct event
+BET_RESOLVED = "bet_resolved"       # P4C2: pass-through canonical event
 
 CANONICAL_EVENT_TYPES: Set[str] = {
     COMEOUT,
@@ -37,6 +24,8 @@ CANONICAL_EVENT_TYPES: Set[str] = {
     POINT_MADE,
     ROLL,
     SEVEN_OUT,
+    SHOOTER_CHANGE,
+    BET_RESOLVED,
 }
 
 POINT_NUMS = {4, 5, 6, 8, 9, 10}
@@ -108,7 +97,7 @@ def _normalize_state(s: Any) -> Dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# Derivation logic
+# Derivation logic for table-state → semantic events
 # ---------------------------------------------------------------------------
 
 def derive_event(prev: Any, curr: Any) -> Dict[str, Any]:
@@ -116,14 +105,14 @@ def derive_event(prev: Any, curr: Any) -> Dict[str, Any]:
     Derive a semantic event from previous and current game-state snapshots.
 
     Returns a dict with canonical keys:
-        type        : str   — canonical event type (see CANONICAL_EVENT_TYPES)
-        event       : str   — alias of type (for backward compatibility)
+        type        : str   — canonical event type
+        event       : str   — alias of type
         roll        : int   — current dice total
         point       : int|None — active point (if any)
         natural     : bool  — true for comeout naturals
         craps       : bool  — true for comeout craps
-        on_comeout  : bool  — convenience flag
-        point_on    : bool  — same as engine state
+        on_comeout  : bool
+        point_on    : bool
     """
     c = _normalize_state(curr)
 
@@ -137,7 +126,6 @@ def derive_event(prev: Any, curr: Any) -> Dict[str, Any]:
     natural = False
     craps = False
 
-    # Priority of semantic events:
     if just_est:
         evt = POINT_ESTABLISHED
     elif just_made:
@@ -177,7 +165,7 @@ def derive_event(prev: Any, curr: Any) -> Dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# Canonicalization layer
+# Canonicalization layer (preserve unknown extras; keep known types verbatim)
 # ---------------------------------------------------------------------------
 
 def canonicalize_event(ev: Optional[Dict[str, Any]]) -> Dict[str, Any]:
@@ -199,23 +187,24 @@ def canonicalize_event(ev: Optional[Dict[str, Any]]) -> Dict[str, Any]:
             "point_on": False,
         }
 
-    t = ev.get("type") or ev.get("event") or COMEOUT
+    t = (ev.get("type") or ev.get("event") or COMEOUT).lower()
     if t not in CANONICAL_EVENT_TYPES:
-        # downgrade to roll if unknown (rules validator will warn separately)
+        # Keep unknowns as-is? No → choose a stable fallback 'roll' like before.
+        # But now that we include shooter_change and bet_resolved, most pass-throughs stay intact.
         t = ROLL
 
     return {
         "type": t,
-        "event": t,  # maintain alias
-        "roll": int(ev.get("roll", 0)),
+        "event": t,  # alias
+        "roll": int(ev.get("roll", ev.get("total", 0))),
         "point": ev.get("point"),
         "natural": bool(ev.get("natural", False)),
         "craps": bool(ev.get("craps", False)),
         "on_comeout": bool(ev.get("on_comeout", t == COMEOUT)),
         "point_on": bool(ev.get("point_on", bool(ev.get("point")))),
-        # preserve any additional fields for advanced uses
+        # Preserve additional fields like dice, shooter_id, roll_index, bet_type, result, payout, reason, total
         **{k: v for k, v in ev.items() if k not in {
-            "type", "event", "roll", "point", "natural", "craps",
+            "type", "event", "roll", "total", "point", "natural", "craps",
             "on_comeout", "point_on"
         }},
     }
@@ -229,5 +218,7 @@ __all__ = [
     "POINT_MADE",
     "ROLL",
     "SEVEN_OUT",
+    "SHOOTER_CHANGE",
+    "BET_RESOLVED",
     "CANONICAL_EVENT_TYPES",
 ]
