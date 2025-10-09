@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from .templates_rt import render_template as render_runtime_template  # runtime renderer returns a plan
+from .templates_rt import render_template as render_runtime_template, diff_bets
+from .actions import make_action  # Action Envelope helper
 
 
 class ControlStrategy:
@@ -11,7 +12,7 @@ class ControlStrategy:
 
     Provides:
       • point / rolls_since_point / on_comeout tracking
-      • plan application on point_established (via runtime template)
+      • plan application on point_established (via runtime template) → diff to actions
       • regression after 3rd roll (clear place_6/place_8)
       • seven_out resets state
       • required adapter shims: update_bets(table) and after_roll(table, event)
@@ -88,11 +89,11 @@ class ControlStrategy:
     @staticmethod
     def _normalize_plan(plan_obj: Any) -> List[Dict[str, Any]]:
         """
-        Accept either:
-          • dict {bet_type: amount}  or {bet_type: {'amount': X}}
-                → [{'action':'set','bet_type':..., 'amount':...}]
-          • list/tuple of dicts      → pass through (amount normalized if present)
-          • list/tuple of triplets   → [('set','pass_line',10), ...] → dicts
+        Legacy normalizer retained for completeness; not used when diffing.
+        Accepts:
+          • dict {bet_type: amount} or {bet_type: {'amount': X}} → list of set dicts
+          • list/tuple of dicts → pass through (amount normalized if present)
+          • list/tuple of triplets → [('set','pass_line',10), ...] → dicts
         """
         out: List[Dict[str, Any]] = []
 
@@ -123,11 +124,11 @@ class ControlStrategy:
 
         return out
 
-    def _apply_mode_template_plan(self, mode_name: Optional[str] = None) -> List[Dict[str, Any]]:
+    def _apply_mode_template_plan(self, current_bets: Dict[str, Any], mode_name: Optional[str] = None) -> List[Dict[str, Any]]:
         """
-        Render the active mode's template into a concrete runtime plan.
-        templates_rt.render_template requires an event argument; we pass a
-        minimal, contextually correct event dict.
+        Render the active mode's template into a concrete desired_bets map,
+        then compute a diff vs current_bets and return Action Envelopes stamped
+        with source/id for provenance.
         """
         mode = mode_name or self.mode or self._default_mode()
         tmpl = (self.spec.get("modes", {}).get(mode) or {}).get("template") or {}
@@ -138,10 +139,15 @@ class ControlStrategy:
             "rolls_since_point": self.rolls_since_point,
             "on_comeout": self.on_comeout,
         }
-        raw = render_runtime_template(tmpl, st, event)
-        plan = self._normalize_plan(raw)
-        # Defensive: ensure we always return a list of dicts
-        return plan if isinstance(plan, list) else []
+
+        desired = render_runtime_template(tmpl, st, event)
+        # Produce standardized action envelopes with provenance
+        return diff_bets(
+            current_bets or {},
+            desired,
+            source="template",
+            source_id=f"template:{mode}",
+        )
 
     # ----- public API used by tests -----
 
@@ -162,16 +168,28 @@ class ControlStrategy:
                 self.point = None
             self.rolls_since_point = 0
             self.on_comeout = self.point in (None, 0)
-            return self._apply_mode_template_plan(self.mode)
+            return self._apply_mode_template_plan(current_bets, self.mode)
 
         if ev_type == "roll":
             if self.point:
                 self.rolls_since_point += 1
                 if self.rolls_since_point == 3:
-                    # Regress: clear place_6 and place_8 (tests assert the clears).
+                    # Regress: clear place_6 and place_8 with provenance
                     return [
-                        {"action": "clear", "bet_type": "place_6"},
-                        {"action": "clear", "bet_type": "place_8"},
+                        make_action(
+                            "clear",
+                            bet_type="place_6",
+                            source="template",
+                            id_="template:regress_roll3",
+                            notes="auto-regress after 3rd roll",
+                        ),
+                        make_action(
+                            "clear",
+                            bet_type="place_8",
+                            source="template",
+                            id_="template:regress_roll3",
+                            notes="auto-regress after 3rd roll",
+                        ),
                     ]
             return []
 
