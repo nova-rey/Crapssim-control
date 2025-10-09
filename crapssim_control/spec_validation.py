@@ -3,7 +3,8 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
-from .events import CANONICAL_EVENT_TYPES  # now includes shooter_change & bet_resolved
+from .events import CANONICAL_EVENT_TYPES  # includes shooter_change & bet_resolved
+
 
 class SpecValidationError(Exception):
     def __init__(self, errors: List[str]):
@@ -35,11 +36,11 @@ def validate_spec(spec: Dict[str, Any]) -> List[str]:
     """
     Return a flat list of 'hard' validation errors.
 
-    P4C2 note:
-    - **String** `do` steps are accepted verbatim (legacy CLI relies on free-form strings
-      like "apply_template('Main')" or "units 10"). We only type-check they're strings.
-    - **Object** `do` steps are strictly validated.
-    - `on.event` must be one of the canonical events (now includes shooter_change, bet_resolved).
+    String `do` steps:
+      • Accept free-form directives like "apply_template('Main')" (contain '(')
+      • Heuristically flag obvious verb-like forms (e.g., "explode place_6 10")
+    Object `do` steps:
+      • Strictly validated (action/bet/amount as appropriate)
     """
     errors: List[str] = []
 
@@ -135,9 +136,7 @@ def validate_spec(spec: Dict[str, Any]) -> List[str]:
                     for j, step in enumerate(do):
                         step_ctx = f"{ctx}.do[{j}]"
                         if isinstance(step, str):
-                            # Be permissive: only ensure it's non-empty string
-                            if not step.strip():
-                                errors.append(f"{step_ctx} must be a non-empty string")
+                            _validate_do_string(step, step_ctx, errors)
                         elif isinstance(step, dict):
                             _validate_do_object(step, step_ctx, errors)
                         else:
@@ -158,6 +157,32 @@ def _rule_ctx(rule: Any, idx: int) -> str:
         if isinstance(nm, str) and nm.strip():
             return f"rules['{nm.strip()}']"
     return f"rules[{idx}]"
+
+
+def _validate_do_string(step: str, ctx: str, errors: List[str]) -> None:
+    """
+    Heuristic validation for *string* steps:
+      • If it contains '(' → allow (free-form directive like apply_template('Main')).
+      • Else, if it looks like "<word> <word> <amount>" and the first word is not
+        a known action → flag as unknown action.
+      • Otherwise (e.g., "units 10") accept.
+    """
+    s = str(step).strip()
+    if not s:
+        errors.append(f"{ctx} must be a non-empty string")
+        return
+
+    if "(" in s:
+        # Free-form call-like directive: allowed (CLI smoke specs rely on this).
+        return
+
+    parts = s.split()
+    if len(parts) >= 3:
+        first = parts[0].lower()
+        # conservative: only flag if the first token looks like an alpha verb
+        if first.isalpha() and first not in _ALLOWED_ACTIONS:
+            allowed = ", ".join(sorted(_ALLOWED_ACTIONS))
+            errors.append(f"{ctx}: unknown action '{first}' (allowed: {allowed})")
 
 
 def _validate_do_object(step: Dict[str, Any], ctx: str, errors: List[str]) -> None:
