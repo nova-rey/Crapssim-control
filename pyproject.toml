@@ -4,13 +4,22 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "crapssim-control"
-version = "0.1.0"
-description = "Control strategy layer for CrapsSim."
+version = "0.19.0"
+description = "Control strategy layer for CrapsSim: runtime templates, rules (MVP), controller, and CSV journaling."
 readme = "README.md"
 requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "CrapsSim Control Team" }]
 dependencies = [
   "crapssim>=0.3.1",
 ]
+
+# Optional extras: YAML loading for specs
+[project.optional-dependencies]
+yaml = ["PyYAML>=6.0"]
+
+[project.scripts]
+crapssim-ctl = "crapssim_control.cli:main"
 
 [tool.setuptools]
 # If you later add a MANIFEST.in, setuptools will respect it.
@@ -20,8 +29,7 @@ include = ["crapssim_control*"]
 exclude = ["tests*", "specs*"]
 
 [tool.setuptools.package-data]
-# If you ship data inside the package folder, list it here.
-crapssim_control = ["**/*.yml", "**/*.yaml", "**/*.json", "**/*.md"]
-
-[project.scripts]
-crapssim-ctl = "crapssim_control.cli:main"
+# Ship schema/docs/spec examples inside the package (read-only)
+crapssim_control = [
+  "**/*.yml", "**/*.yaml", "**/*.json", "**/*.md",
+]
