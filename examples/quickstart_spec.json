@@ -12,13 +12,13 @@
   "modes": {
     "Main": {
       "template": {
-        "pass": "units",
+        "pass": { "amount": "units" },
         "place": {
-          "6": "units*2",
-          "8": "units*2"
+          "6": { "amount": "units*2" },
+          "8": { "amount": "units*2" }
         },
         "odds": {
-          "pass": "units*2"
+          "pass": { "amount": "units*2" }
         },
         "working_on_comeout": false
       }
