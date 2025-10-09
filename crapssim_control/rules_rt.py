@@ -17,17 +17,21 @@ Supported (MVP + P4C2/P4C3/P4C4):
         - press <bet_type> <amount>
         - reduce <bet_type> <amount>
         - switch_mode <ModeName>
+        - setvar <VarName> <ExprOrNumber>        # NEW in P4C4
 
   Object step form (both keys supported for back-compat):
       { "action": "...", "bet": "place_6", "amount": 12, "notes": "..." }
       { "action": "...", "bet_type": "place_6", "amount": "units*2" }
       { "action": "switch_mode", "mode": "Aggressive" }
+      { "action": "setvar", "var": "win_streak", "value": "win_streak+1" }  # NEW
 
 Design notes
 ------------
 - Fail open & quiet: invalid rules/steps are skipped; we do not raise.
 - Amounts may be numeric literals or expressions (evaluated with eval_num()).
 - switch_mode produces an envelope with bet_type=None, amount=None, notes=<mode>.
+- setvar produces an envelope with action="setvar" and attaches {"var": ..., "value": ...}.
+  (Controller applies setvars immediately in the same event.)
 - Rule IDs:
     • prefer a non-empty "name" → id="rule:<name>"
     • else fall back to 1-based index → id="rule:#<index>"
@@ -46,6 +50,10 @@ from .actions import (
     ALLOWED_ACTIONS,
 )
 from .eval import eval_bool, eval_num, EvalError
+
+
+# Local extension for P4C4
+ACTION_SETVAR = "setvar"
 
 
 # --------------------------- Public Entry Point --------------------------------- #
@@ -115,7 +123,7 @@ def _rule_id(rule: Dict[str, Any], one_based_index: int) -> str:
 
 def _parse_step_string(step: str) -> Tuple[str, Optional[str], Optional[str]]:
     """
-    Parse a minimal space-delimited step string into (action, bet_or_none, arg_or_none).
+    Parse a minimal space-delimited step string into (action, key_or_bet, arg_or_none).
 
     Examples:
       "set place_6 12"          -> ("set", "place_6", "12")
@@ -123,6 +131,7 @@ def _parse_step_string(step: str) -> Tuple[str, Optional[str], Optional[str]]:
       "press place_6 6"         -> ("press", "place_6", "6")
       "reduce place_8 6"        -> ("reduce", "place_8", "6")
       "switch_mode Aggressive"  -> ("switch_mode", None, "Aggressive")
+      "setvar win_streak win_streak+1" -> ("setvar", "win_streak", "win_streak+1")
     """
     parts = str(step).strip().split()
     if not parts:
@@ -132,6 +141,10 @@ def _parse_step_string(step: str) -> Tuple[str, Optional[str], Optional[str]]:
         # everything after keyword is the mode name (can contain spaces)
         mode = " ".join(parts[1:]).strip() if len(parts) > 1 else ""
         return action, None, (mode or None)
+    if action == ACTION_SETVAR:
+        var = parts[1].strip() if len(parts) > 1 else ""
+        expr = parts[2].strip() if len(parts) > 2 else ""
+        return action, (var or None), (expr or None)
     if len(parts) == 1:
         return action, None, None
     if len(parts) == 2:
@@ -166,15 +179,34 @@ def _step_to_envelope(
     # Dict form: {"action": "...", "bet"/"bet_type": "...", "amount": 10|"expr", "notes": "..."}
     if isinstance(step, dict):
         action = str(step.get("action", "")).strip().lower()
-        if action not in ALLOWED_ACTIONS:
+
+        # Allow standard actions + local extension 'setvar'
+        if action not in ALLOWED_ACTIONS and action != ACTION_SETVAR:
             return None
 
-        bet_type = _coerce_bet_key(step)
-        amount = step.get("amount")
-        notes = (step.get("notes") or "").strip()
+        # ----- setvar (object form) -----
+        if action == ACTION_SETVAR:
+            var = step.get("var") or step.get("name")
+            # Prefer explicit 'value', otherwise allow numeric 'amount', otherwise 'notes' text
+            value = step.get("value") if "value" in step else (step.get("amount") if "amount" in step else step.get("notes"))
+            env = make_action(
+                ACTION_SETVAR,
+                bet_type=None,
+                amount=None,  # controller reads 'value' (or amount) and applies immediately
+                source=SOURCE_RULE,
+                id_=rule_id,
+                notes=str(value) if value is not None else "",
+            )
+            # Attach explicit var/value so controller can apply immediately
+            if isinstance(var, str) and var.strip():
+                env["var"] = var.strip()
+            if value is not None:
+                env["value"] = value
+            return env
 
+        # ----- switch_mode (object form) -----
         if action == ACTION_SWITCH_MODE:
-            # Prefer explicit 'mode', fall back to notes (legacy string form compatibility)
+            notes = (step.get("notes") or "").strip()
             target = str(step.get("mode") or notes or "").strip()
             return make_action(
                 ACTION_SWITCH_MODE,
@@ -185,7 +217,11 @@ def _step_to_envelope(
                 notes=target,
             )
 
-        # For set/press/reduce/clear
+        # ----- bet actions (object form) -----
+        bet_type = _coerce_bet_key(step)
+        amount = step.get("amount")
+        notes = (step.get("notes") or "").strip()
+
         if action != ACTION_CLEAR and not bet_type:
             # set/press/reduce require a bet_type
             return None
@@ -213,7 +249,7 @@ def _step_to_envelope(
 
     # String form
     if isinstance(step, str):
-        action, bet, arg = _parse_step_string(step)
+        action, key, arg = _parse_step_string(step)
         if not action:
             return None
 
@@ -228,8 +264,25 @@ def _step_to_envelope(
                 notes=str(arg or "").strip(),
             )
 
+        if action == ACTION_SETVAR:
+            var = key or ""
+            value_expr = arg if arg is not None else ""
+            env = make_action(
+                ACTION_SETVAR,
+                bet_type=None,
+                amount=None,
+                source=SOURCE_RULE,
+                id_=rule_id,
+                notes=str(value_expr).strip(),
+            )
+            if var:
+                env["var"] = var
+            if value_expr is not None:
+                env["value"] = value_expr
+            return env
+
         if action in (ACTION_SET, ACTION_CLEAR, ACTION_PRESS, ACTION_REDUCE):
-            bet_type = bet if isinstance(bet, str) and bet else None
+            bet_type = key if isinstance(key, str) and key else None
             if action != ACTION_CLEAR and bet_type is None:
                 return None
 
