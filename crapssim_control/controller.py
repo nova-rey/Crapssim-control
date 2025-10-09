@@ -141,12 +141,13 @@ class ControlStrategy:
         }
 
         desired = render_runtime_template(tmpl, st, event)
-        # Produce standardized action envelopes with provenance
+        # Produce standardized action envelopes with provenance + context note
         return diff_bets(
             current_bets or {},
             desired,
             source="template",
             source_id=f"template:{mode}",
+            notes="template diff",
         )
 
     # ----- public API used by tests -----
