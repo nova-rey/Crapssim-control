@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 """
-Action Envelope schema (v1.0)
+Action Envelope schema (v1.1 · P4C4)
 
 Every action emitted by CrapsSim-Control (from templates and rules)
 must conform to this shape so downstream consumers (CSV exporter, UIs, tests)
@@ -12,12 +12,15 @@ Envelope (per action):
     {
       "source": "template" | "rule",                  # producer of the action
       "id": "template:<mode>" | "rule:<name-or-idx>", # stable identifier
-      "action": "set" | "clear" | "press" | "reduce" | "switch_mode",
+      "action": "set" | "clear" | "press" | "reduce" | "switch_mode" | "setvar",
       "bet_type": "pass_line" | "place_6" | "odds_6_pass" | None,
       "amount": float | None,                         # None when not applicable
-      "notes": str                                    # brief reason or context
+      "notes": str,                                   # brief reason or context
       # [P4C3] optional:
-      # "seq": int                                    # per-event sequence, annotated by controller
+      # "seq": int,                                   # per-event sequence, annotated by controller
+      # [P4C4] optional (for setvar):
+      # "var": str,                                   # variable name to set (e.g., "win_streak")
+      # "value": Any                                  # expression or literal to apply
     }
 
 Conventions:
@@ -34,7 +37,7 @@ try:
 except Exception:  # pragma: no cover
     from typing_extensions import TypedDict  # type: ignore
 
-SCHEMA_VERSION: str = "1.0"
+SCHEMA_VERSION: str = "1.1"
 
 # ---- Allowed values -------------------------------------------------------------
 
@@ -48,6 +51,7 @@ ACTION_CLEAR: str = "clear"
 ACTION_PRESS: str = "press"
 ACTION_REDUCE: str = "reduce"
 ACTION_SWITCH_MODE: str = "switch_mode"
+ACTION_SETVAR: str = "setvar"  # P4C4
 
 ALLOWED_SOURCES = {SOURCE_TEMPLATE, SOURCE_RULE}
 ALLOWED_ACTIONS = {
@@ -56,6 +60,7 @@ ALLOWED_ACTIONS = {
     ACTION_PRESS,
     ACTION_REDUCE,
     ACTION_SWITCH_MODE,
+    ACTION_SETVAR,  # allow controller/rules to normalize this
 }
 
 
@@ -71,6 +76,9 @@ class ActionEnvelope(TypedDict, total=False):
     amount: Optional[float]
     notes: str
     seq: int  # optional, added by controller during journaling
+    # P4C4 (setvar)
+    var: str
+    value: Any
 
 
 def make_action(
@@ -86,7 +94,7 @@ def make_action(
     Build a well-formed ActionEnvelope with consistent defaults.
 
     Parameters:
-        action: One of ALLOWED_ACTIONS ("set", "clear", "press", "reduce", "switch_mode")
+        action: One of ALLOWED_ACTIONS ("set", "clear", "press", "reduce", "switch_mode", "setvar")
         bet_type: Canonical bet key (e.g., "pass_line", "place_6"), or None
         amount: Numeric amount for actions where it applies; None otherwise
         source: "template" or "rule" (reserve "evo" for later)
@@ -106,7 +114,7 @@ def make_action(
         # Keep as-is to allow validators to flag; don't crash hot paths.
         act = action
 
-    # Normalize amount to float or None
+    # Normalize amount to float or None (bet actions only; ignored by setvar/switch_mode)
     amt: Optional[float]
     if amount is None:
         amt = None
@@ -137,6 +145,7 @@ def normalize_action(env: Dict[str, Any]) -> ActionEnvelope:
     - Coerces 'amount' to float or None.
     - Coerces 'bet_type' to str or None.
     - Ensures required keys exist with safe defaults.
+    - Preserves optional 'var' and 'value' for setvar if present.
     Does not raise; best-effort normalization.
     """
     source = (env.get("source") or SOURCE_TEMPLATE)
@@ -146,7 +155,7 @@ def normalize_action(env: Dict[str, Any]) -> ActionEnvelope:
     notes = env.get("notes") or ""
     id_ = env.get("id") or "template:Main"
 
-    return make_action(
+    out = make_action(
         action=action,
         bet_type=str(bet_type) if isinstance(bet_type, str) and bet_type else None,
         amount=amount if isinstance(amount, (int, float, str)) else None,
@@ -154,6 +163,16 @@ def normalize_action(env: Dict[str, Any]) -> ActionEnvelope:
         id_=str(id_),
         notes=str(notes),
     )
+
+    # Preserve setvar extras if present
+    if (str(action).lower() == ACTION_SETVAR):
+        var = env.get("var")
+        if isinstance(var, str) and var.strip():
+            out["var"] = var.strip()
+        if "value" in env:
+            out["value"] = env.get("value")
+
+    return out
 
 
 def is_bet_action(env: Dict[str, Any]) -> bool:
@@ -180,6 +199,7 @@ __all__ = [
     "ACTION_PRESS",
     "ACTION_REDUCE",
     "ACTION_SWITCH_MODE",
+    "ACTION_SETVAR",
     "ALLOWED_SOURCES",
     "ALLOWED_ACTIONS",
 ]
