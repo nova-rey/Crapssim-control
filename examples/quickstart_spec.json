@@ -1,9 +1,9 @@
 {
-  "name": "Quickstart – Place 6/8 with Pass",
-  "description": "Tiny spec for the CSV quickstart: pass line + place 6/8 using `units`.",
   "table": {
+    "bubble": false,
     "level": 10,
-    "bubble": false
+    "place_410_increment": 5,
+    "max_odds_multiple": 3.0
   },
   "variables": {
     "units": 5,
@@ -13,19 +13,25 @@
     "Main": {
       "template": {
         "pass": "units",
-        "place": { "6": "units * 2", "8": "units * 2" }
+        "place": {
+          "6": "units*2",
+          "8": "units*2"
+        },
+        "odds": {
+          "pass": "units*2"
+        },
+        "working_on_comeout": false
       }
     }
   },
   "rules": [],
   "run": {
-    "rolls": 60,
-    "seed": 1234,
+    "rolls": 50,
+    "seed": 123,
     "csv": {
       "enabled": true,
       "path": "journal.csv",
-      "append": false,
-      "run_id": "quickstart"
+      "append": false
     }
   }
 }
