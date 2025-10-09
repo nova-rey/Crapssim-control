@@ -142,14 +142,12 @@ def _write_csv_summary(path: str | Path, row: Dict[str, Any]) -> None:
         try:
             write_header = path.stat().st_size == 0
         except Exception:
-            # If we can't stat, best effort: try to append without header
             write_header = False
 
     with path.open("a", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         if write_header:
             writer.writeheader()
-        # Coerce to primitive types for safety
         safe_row = {
             "spec": str(row.get("spec", "")),
             "rolls": int(row.get("rolls", 0)),
@@ -171,7 +169,6 @@ def _lazy_validate_spec(spec: Dict[str, Any]) -> Tuple[bool, List[str], List[str
         from . import spec_validation as _sv  # lazy
         res = _sv.validate_spec(spec)
     except Exception as e:
-        # If validation module is incomplete, allow a friendly failure.
         log.debug("validate_spec unavailable or failed: %r", e)
         return False, [f"Validation logic unavailable: {e!r}"], []
     return _normalize_validate_result(res)
@@ -290,7 +287,7 @@ def run(args: argparse.Namespace) -> int:
             _write_csv_summary(
                 args.export,
                 {
-                    "spec": str(spec_path),
+                    "spec": str(Path(args.spec)),
                     "rolls": rolls,
                     "final_bankroll": float(bankroll) if bankroll is not None else None,
                     "seed": seed_int,
@@ -304,6 +301,60 @@ def run(args: argparse.Namespace) -> int:
             print(f"warn: export failed: {e}", file=sys.stderr)
 
     return 0
+
+
+# ------------------------------ Journal Summarize ---------------------------- #
+
+def _cmd_journal_summarize(args: argparse.Namespace) -> int:
+    """
+    Summarize a journal CSV and either print a table to stdout or write a summary CSV.
+    """
+    from .csv_summary import summarize_journal, write_summary_csv
+
+    try:
+        journal_path = Path(args.journal)
+        if not journal_path.exists() or not journal_path.is_file():
+            print(f"failed: journal not found: {journal_path}", file=sys.stderr)
+            return 2
+
+        group_by_run_id = True if args.by_run_id else False
+        summaries = summarize_journal(journal_path=journal_path, group_by_run_id=group_by_run_id)
+
+        if args.out:
+            out_path = Path(args.out)
+            write_summary_csv(out_path, summaries, append=bool(args.append))
+            print(f"wrote summary → {out_path}")
+            return 0
+
+        # Pretty print to stdout (minimal, deterministic column order)
+        cols = [
+            "run_id_or_file",
+            "rows_total",
+            "actions_total",
+            "sets",
+            "presses",
+            "reduces",
+            "clears",
+            "switch_mode",
+            "unique_bets",
+            "modes_used",
+            "points_seen",
+            "roll_events",
+            "t_first",
+            "t_last",
+        ]
+
+        # Header
+        print("\t".join(cols))
+        for s in summaries:
+            row = [str(s.get(c, "")) for c in cols]
+            print("\t".join(row))
+        return 0
+
+    except Exception as e:
+        log.debug("journal summarize failed", exc_info=True)
+        print(f"failed: {e}", file=sys.stderr)
+        return 2
 
 
 # ------------------------------ Parser/Main --------------------------------- #
@@ -395,6 +446,23 @@ def _build_parser() -> argparse.ArgumentParser:
     p_run.add_argument("--export", type=str, help="Path to CSV summary export (optional)")
     p_run.set_defaults(func=_cmd_run)
 
+    # journal summarize
+    p_journal = sub.add_parser("journal", help="CSV journal utilities")
+    p_journal_sub = p_journal.add_subparsers(dest="journal_cmd", required=True)
+
+    p_sum = p_journal_sub.add_parser("summarize", help="Summarize a journal CSV")
+    p_sum.add_argument("journal", help="Path to journal CSV")
+    g = p_sum.add_mutually_exclusive_group()
+    g.add_argument("--by-run-id", action="store_true", default=True,
+                   help="Group summary rows by run_id (default)")
+    g.add_argument("--by-file", action="store_true",
+                   help="Single summary row per file (ignore run_id)")
+    p_sum.add_argument("--out", type=str, default=None,
+                       help="Path to write summary CSV; omit to print to stdout")
+    p_sum.add_argument("--append", action="store_true", default=False,
+                       help="Append to the output summary CSV (creates file if missing)")
+    p_sum.set_defaults(func=_cmd_journal_summarize)
+
     return parser
 
 
@@ -404,6 +472,15 @@ def main(argv: List[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
     setup_logging(args.verbose)
+
+    # Normalize journal grouping flags for convenience
+    if getattr(args, "cmd", None) == "journal" and getattr(args, "journal_cmd", None) == "summarize":
+        # If --by-file is set, disable by-run-id
+        if getattr(args, "by_file", False):
+            args.by_run_id = False
+        else:
+            args.by_run_id = True
+
     return args.func(args)
 
 
