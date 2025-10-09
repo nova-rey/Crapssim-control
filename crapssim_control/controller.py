@@ -1,7 +1,7 @@
 # crapssim_control/controller.py
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from .templates_rt import render_template as render_runtime_template, diff_bets
 from .actions import make_action  # Action Envelope helper
@@ -18,7 +18,7 @@ class ControlStrategy:
       • point / rolls_since_point / on_comeout tracking
       • plan application on point_established (via runtime template) → diff to actions
       • regression after 3rd roll (clear place_6/place_8)
-      • rules engine (MVP) called on every event and merged after template/regression
+      • rules engine called on every event; actions are merged deterministically (P4C3)
       • per-event CSV journaling (when enabled via spec.run.csv)
       • required adapter shims: update_bets(table) and after_roll(table, event)
 
@@ -26,6 +26,12 @@ class ControlStrategy:
       • Canonicalize all inbound events via events.canonicalize_event(...)
       • Stable event fields for rules ('type', 'roll', 'point', 'on_comeout', ...)
       • Snapshot/journaling now includes canonical event fields where useful
+
+    P4C3 upgrades:
+      • Deterministic in-event ordering: template → regression → rules
+      • Conflict merge within an event; last-wins per bet; clear overrides others
+      • Side-effect application for 'switch_mode' (takes effect next event)
+      • Journal only the post-merge final list; annotate with per-event monotonic seq
     """
 
     def __init__(
@@ -291,6 +297,129 @@ class ControlStrategy:
         # apply_rules is permissive (returns [] on bad input); never raises
         return apply_rules(rules, st, event or {})
 
+    # ----- P4C3: event-local action merge & side-effects -------------------------
+
+    @staticmethod
+    def _source_bucket(action: Dict[str, Any]) -> int:
+        """
+        Precedence buckets: 0=template (including regress), 1=rule, 2=other/unknown.
+        Lower bucket index means earlier in ordering. Ordering within a bucket is stable.
+        """
+        src = (action.get("source") or "").lower()
+        if src == "template":
+            return 0
+        if src == "rule":
+            return 1
+        return 2
+
+    @staticmethod
+    def _is_switch_mode(action: Dict[str, Any]) -> bool:
+        return (action.get("action") or "").lower() == "switch_mode"
+
+    @staticmethod
+    def _bet_key(action: Dict[str, Any]) -> Optional[str]:
+        bt = action.get("bet_type")
+        return str(bt) if isinstance(bt, str) and bt else None
+
+    @staticmethod
+    def _action_family(action: Dict[str, Any]) -> str:
+        """
+        Collapse action names into families that should conflict:
+          - set/press/reduce considered 'bet_mutate'
+          - clear considered 'bet_clear'
+          - switch_mode considered 'mode'
+          - others fall into their own name
+        """
+        a = (action.get("action") or "").lower()
+        if a in ("set", "press", "reduce"):
+            return "bet_mutate"
+        if a == "clear":
+            return "bet_clear"
+        if a == "switch_mode":
+            return "mode"
+        return a
+
+    def _merge_actions_for_event(self, actions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Deterministic event-local merge:
+          • Ordering: template → regression (also 'template') → rules → other
+          • Within a bucket: keep original order (stable sort)
+          • Conflicts:
+              - Last wins for same bet across the entire event
+              - 'clear' overrides any earlier set/press/reduce on same bet
+              - Rule bucket can override template bucket for same bet
+          • Side-effects are NOT applied here (handled in _apply_envelopes)
+        """
+        if not actions:
+            return []
+
+        # Stable sort by (bucket, original index)
+        sorted_with_index: List[Tuple[int, int, Dict[str, Any]]] = [
+            (self._source_bucket(a), idx, a) for idx, a in enumerate(actions)
+        ]
+        sorted_with_index.sort(key=lambda t: (t[0], t[1]))
+        ordered = [a for _, _, a in sorted_with_index]
+
+        # Merge conflicts by tracking the last effective action per bet
+        final: List[Dict[str, Any]] = []
+        last_for_bet: Dict[str, int] = {}  # bet_type -> index in final
+
+        for a in ordered:
+            fam = self._action_family(a)
+            if fam in ("bet_mutate", "bet_clear"):
+                bk = self._bet_key(a)
+                if not bk:
+                    # malformed bet action; keep it but don't attempt conflict resolution
+                    final.append(a)
+                    continue
+                # If we've already scheduled something for this bet, decide override
+                if bk in last_for_bet:
+                    prev_idx = last_for_bet[bk]
+                    prev = final[prev_idx]
+                    prev_fam = self._action_family(prev)
+
+                    # If current is clear → override previous bet action
+                    if fam == "bet_clear":
+                        final[prev_idx] = a
+                    else:
+                        # current is set/press/reduce
+                        # If previous was clear, we still let last-wins (override)
+                        final[prev_idx] = a
+                    # Update pointer to last action for this bet
+                    last_for_bet[bk] = prev_idx
+                else:
+                    last_for_bet[bk] = len(final)
+                    final.append(a)
+            else:
+                # Non-bet actions (e.g., switch_mode) are appended in order
+                final.append(a)
+
+        return final
+
+    def _apply_envelopes(self, actions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Apply side-effects (e.g., switch_mode) and return the final, ordered list
+        annotated with a per-event `seq` field starting at 1.
+        """
+        merged = self._merge_actions_for_event(actions)
+
+        # Side-effects: apply switch_mode in encounter order (no re-render this event)
+        for a in merged:
+            if self._is_switch_mode(a):
+                # In P4C2/P4C3, rules_rt packs the target into 'notes'
+                # Some future variants may also use 'mode'
+                target = (a.get("notes") or a.get("mode") or "").strip()
+                if target:
+                    self.mode = target  # takes effect next event
+
+        # Annotate with seq (1-based monotonic within event)
+        for i, a in enumerate(merged, start=1):
+            # Don't stomp an existing seq if already present
+            if "seq" not in a:
+                a["seq"] = i
+
+        return merged
+
     # ----- public API used by tests -----
 
     def handle_event(self, event: Dict[str, Any], current_bets: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -299,7 +428,8 @@ class ControlStrategy:
           1) canonicalizing and updating internal state,
           2) generating template diff/regression actions,
           3) appending rule-driven actions,
-          4) journaling envelopes to CSV if enabled.
+          4) merging + applying side-effects (switch_mode),
+          5) journaling the final envelopes if enabled.
         """
         # Normalize inbound event to the canonical contract
         event = canonicalize_event(event or {})
@@ -315,9 +445,9 @@ class ControlStrategy:
             self.on_comeout = True
             # No template plan on pure comeout; just run rules for comeout
             actions.extend(self._apply_rules_for_event(event))
-            # Journal and return
-            self._journal_actions(event, actions)
-            return actions
+            final_actions = self._apply_envelopes(actions)
+            self._journal_actions(event, final_actions)
+            return final_actions
 
         if ev_type == POINT_ESTABLISHED:
             # Safer parsing of point value
@@ -332,9 +462,10 @@ class ControlStrategy:
             actions.extend(self._apply_mode_template_plan(current_bets, self.mode))
             # 2) Rule actions (appended)
             actions.extend(self._apply_rules_for_event(event))
-            # Journal and return
-            self._journal_actions(event, actions)
-            return actions
+
+            final_actions = self._apply_envelopes(actions)
+            self._journal_actions(event, final_actions)
+            return final_actions
 
         if ev_type == ROLL:
             if self.point:
@@ -359,9 +490,9 @@ class ControlStrategy:
                     ])
             # Append rule actions for this roll
             actions.extend(self._apply_rules_for_event(event))
-            # Journal and return
-            self._journal_actions(event, actions)
-            return actions
+            final_actions = self._apply_envelopes(actions)
+            self._journal_actions(event, final_actions)
+            return final_actions
 
         if ev_type == SEVEN_OUT:
             # Reset state then run rules (some may want to react to seven_out)
@@ -369,20 +500,22 @@ class ControlStrategy:
             self.rolls_since_point = 0
             self.on_comeout = True
             actions.extend(self._apply_rules_for_event(event))
-            # Journal and return
-            self._journal_actions(event, actions)
-            return actions
+            final_actions = self._apply_envelopes(actions)
+            self._journal_actions(event, final_actions)
+            return final_actions
 
         # Unknown or ancillary event type: still allow rules to look at it
         actions.extend(self._apply_rules_for_event(event))
-        self._journal_actions(event, actions)
-        return actions
+        final_actions = self._apply_envelopes(actions)
+        self._journal_actions(event, final_actions)
+        return final_actions
 
     def state_snapshot(self) -> Dict[str, Any]:
         return {
             "point": self.point,
             "rolls_since_point": self.rolls_since_point,
             "on_comeout": self.on_comeout,
+            "mode": getattr(self, "mode", None),
         }
 
     # ----- smoke-test shims expected by EngineAdapter -----
