@@ -4,6 +4,7 @@ from __future__ import annotations
 import ast
 import math
 import re
+from types import MappingProxyType
 from typing import Any, Dict, Optional
 
 
@@ -24,7 +25,7 @@ class EvalError(Exception):
 
 
 # ---- Safe evaluation configuration -------------------------------------------------
-
+# Keep the surface area tight; add a few math helpers commonly needed in specs.
 _SAFE_FUNCS: Dict[str, Any] = {
     "min": min,
     "max": max,
@@ -34,8 +35,12 @@ _SAFE_FUNCS: Dict[str, Any] = {
     "float": float,
     "floor": math.floor,
     "ceil": math.ceil,
+    "sqrt": math.sqrt,
+    "log": math.log,       # natural log
+    "log10": math.log10,
 }
 
+# We disallow attribute/subscript so expressions remain simple and reproducible.
 _DISALLOWED_NODES = {
     ast.Attribute,
     ast.Subscript,
@@ -81,7 +86,7 @@ _ALLOWED_EXPR_NODES = {
     ast.Pow,
     ast.Num,
     ast.Constant,
-    ast.Tuple,      # allow tuple literals
+    ast.Tuple,      # allow tuple literals (for `in (6,8)` style membership)
     ast.Compare,
     ast.Eq,
     ast.NotEq,
@@ -162,21 +167,71 @@ def _exec_statements(src: str, ns: Dict[str, Any]) -> None:
     exec(code, {"__builtins__": {}, **_SAFE_FUNCS}, ns)
 
 
+# ---- Namespace assembly -----------------------------------------------------------
+
+def _freeze_mapping(maybe_dict: Optional[Dict[str, Any]]) -> MappingProxyType:
+    """
+    Present a read-only mapping to the eval namespace for documentation parity
+    (indexing is blocked at AST level; this is mainly informational/defensive).
+    """
+    if isinstance(maybe_dict, dict):
+        return MappingProxyType(dict(maybe_dict))
+    return MappingProxyType({})
+
+
+def _build_namespace(state: Optional[Dict[str, Any]], event: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Build the flat eval namespace.
+
+    Notes:
+      • We merge state first, then event, so event keys can override if needed.
+      • We also include 'variables' and 'event' as read-only mappings for parity
+        with docs, even though attribute/subscript access is intentionally blocked.
+    """
+    ns: Dict[str, Any] = {}
+
+    # Flattened state (table cfg + user variables + controller snapshot)
+    st = state or {}
+    ns.update(st)
+
+    # Flattened event keys
+    ev = event or {}
+    ns.update(ev)
+
+    # Read-only 'variables' and 'event' views for clarity (non-indexable in expressions)
+    variables_obj = st.get("variables") if isinstance(st.get("variables"), dict) else None
+    # If variables are flattened in state (common), still provide an empty mapping here
+    ns["variables"] = _freeze_mapping(variables_obj if variables_obj is not None else {})
+    ns["event"] = _freeze_mapping(ev)
+
+    return ns
+
+
 # ---- Public API -------------------------------------------------------------------
 
 def evaluate(expr: str, state: Optional[Dict[str, Any]] = None, event: Optional[Dict[str, Any]] = None) -> Any:
     """
     General evaluator with sandboxed namespace and structured errors.
+
+    Supported operators:
+      - arithmetic: + - * / // % **
+      - comparisons: == != < <= > >=
+      - boolean: and or not
+      - membership: in, not in (with tuple literals)
+      - ternary: A if cond else B
+      - calls: only whitelisted helpers (min,max,abs,round,int,float,floor,ceil,sqrt,log,log10)
+
+    Referencing values:
+      - flat keys (recommended): e.g., point, rolls_since_point, on_comeout, type, roll
+      - 'variables' and 'event' appear as read-only mappings for documentation parity,
+        but indexing/attribute access is blocked by design.
     """
-    ns: Dict[str, Any] = {}
-    state = state or {}
-    ns.update(state)
-    if event:
-        ns.update(event)
+    ns = _build_namespace(state, event)
 
     try:
         return _eval_expr(expr, ns)
     except EvalError as err:
+        # If it's not a simple expression, allow a tiny subset of statements (assign/augassign)
         try:
             tree = ast.parse(expr, mode="exec")
         except SyntaxError:
@@ -190,8 +245,10 @@ def evaluate(expr: str, state: Optional[Dict[str, Any]] = None, event: Optional[
         code = compile(tree, "<safe-eval>", "exec")
         exec(code, {"__builtins__": {}, **_SAFE_FUNCS}, ns)
 
+        # Propagate any new simple names back into state (best-effort)
+        state = state or {}
         for k, v in ns.items():
-            if k in _SAFE_FUNCS or k == "__builtins__":
+            if k in _SAFE_FUNCS or k in ("__builtins__", "variables", "event"):
                 continue
             state[k] = v
         return None
