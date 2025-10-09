@@ -2,13 +2,13 @@
 from __future__ import annotations
 
 """
-rules_rt.py — Runtime Rules (Phase 4 · Checkpoint 3)
+rules_rt.py — Runtime Rules (Phase 4 · Checkpoint 4)
 
 Purpose
 -------
 Turn spec "rules" into Action Envelopes.
 
-Supported (MVP + P4C2/P4C3):
+Supported (MVP + P4C2/P4C3/P4C4):
   • Event gating via rule["on"]["event"] in {"comeout","roll","point_established","seven_out"}
   • Optional boolean predicate rule["when"] evaluated against (state ⊕ event)
   • "do" steps (string OR object forms):
@@ -21,6 +21,7 @@ Supported (MVP + P4C2/P4C3):
   Object step form (both keys supported for back-compat):
       { "action": "...", "bet": "place_6", "amount": 12, "notes": "..." }
       { "action": "...", "bet_type": "place_6", "amount": "units*2" }
+      { "action": "switch_mode", "mode": "Aggressive" }
 
 Design notes
 ------------
@@ -45,7 +46,6 @@ from .actions import (
     ALLOWED_ACTIONS,
 )
 from .eval import eval_bool, eval_num, EvalError
-from .events import CANONICAL_EVENT_TYPES
 
 
 # --------------------------- Public Entry Point --------------------------------- #
@@ -57,20 +57,6 @@ def apply_rules(
 ) -> List[Dict[str, Any]]:
     """
     Evaluate a list of rule dicts and return Action Envelopes for those that fire.
-
-    Parameters
-    ----------
-    rules : list[dict] | None
-        Strategy rules from the spec. Missing/invalid → no actions.
-    state : dict
-        Evaluation state (table cfg + user variables + controller snapshot).
-    event : dict
-        Canonical event context (e.g., {"type": "roll", "roll": 6, "point": 6, ...}).
-
-    Returns
-    -------
-    list[dict]
-        List of Action Envelopes (schema in actions.py). Empty on no matches.
     """
     if not isinstance(rules, list) or not rules:
         return []
@@ -89,12 +75,8 @@ def apply_rules(
         if not isinstance(on, dict):
             continue
         want_event = str(on.get("event", "")).strip().lower()
-        if not want_event:
-            # explicit gating is required for now
-            continue
-        # If spec used a non-canonical event, just require equality to the incoming type.
-        # (Spec validation will catch non-canonical values; here we stay permissive.)
-        if want_event != ev_type:
+        if not want_event or want_event != ev_type:
+            # Spec validation enforces canonical values; here we keep it permissive.
             continue
 
         # --- Predicate (optional) ---
@@ -124,8 +106,10 @@ def apply_rules(
 
 def _rule_id(rule: Dict[str, Any], one_based_index: int) -> str:
     name = rule.get("name")
-    if isinstance(name, str) and name.strip():
-        return f"rule:{name.strip()}"
+    if isinstance(name, str):
+        nm = name.strip()
+        if nm:
+            return f"rule:{nm}"
     return f"rule:#{one_based_index}"
 
 
@@ -143,7 +127,7 @@ def _parse_step_string(step: str) -> Tuple[str, Optional[str], Optional[str]]:
     parts = str(step).strip().split()
     if not parts:
         return "", None, None
-    action = parts[0].lower()
+    action = parts[0].strip().lower()
     if action == ACTION_SWITCH_MODE:
         # everything after keyword is the mode name (can contain spaces)
         mode = " ".join(parts[1:]).strip() if len(parts) > 1 else ""
@@ -181,16 +165,16 @@ def _step_to_envelope(
     """
     # Dict form: {"action": "...", "bet"/"bet_type": "...", "amount": 10|"expr", "notes": "..."}
     if isinstance(step, dict):
-        action = str(step.get("action", "")).lower()
+        action = str(step.get("action", "")).strip().lower()
         if action not in ALLOWED_ACTIONS:
             return None
 
         bet_type = _coerce_bet_key(step)
         amount = step.get("amount")
-        notes = step.get("notes") or ""
+        notes = (step.get("notes") or "").strip()
 
         if action == ACTION_SWITCH_MODE:
-            # Target mode from explicit 'mode' key, else from notes (legacy)
+            # Prefer explicit 'mode', fall back to notes (legacy string form compatibility)
             target = str(step.get("mode") or notes or "").strip()
             return make_action(
                 ACTION_SWITCH_MODE,
@@ -224,7 +208,7 @@ def _step_to_envelope(
             amount=amt_val,
             source=SOURCE_RULE,
             id_=rule_id,
-            notes=str(notes),
+            notes=notes,
         )
 
     # String form
@@ -241,7 +225,7 @@ def _step_to_envelope(
                 amount=None,
                 source=SOURCE_RULE,
                 id_=rule_id,
-                notes=str(arg or ""),
+                notes=str(arg or "").strip(),
             )
 
         if action in (ACTION_SET, ACTION_CLEAR, ACTION_PRESS, ACTION_REDUCE):
