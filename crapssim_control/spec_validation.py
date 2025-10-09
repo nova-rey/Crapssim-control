@@ -30,6 +30,7 @@ _ACTION_NEEDS_AMOUNT = {
     "reduce": True,
     "switch_mode": False,
 }
+_FREEFORM_STARTERS = {"units"}  # allow legacy free-form directives like "units 10"
 
 
 def validate_spec(spec: Dict[str, Any]) -> List[str]:
@@ -38,6 +39,7 @@ def validate_spec(spec: Dict[str, Any]) -> List[str]:
 
     String `do` steps:
       • Accept free-form directives like "apply_template('Main')" (contain '(')
+      • Accept legacy free-form starters like "units 10"
       • Heuristically flag obvious verb-like forms (e.g., "explode place_6 10")
     Object `do` steps:
       • Strictly validated (action/bet/amount as appropriate)
@@ -163,9 +165,10 @@ def _validate_do_string(step: str, ctx: str, errors: List[str]) -> None:
     """
     Heuristic validation for *string* steps:
       • If it contains '(' → allow (free-form directive like apply_template('Main')).
+      • If it starts with a known free-form starter (e.g., 'units') → allow.
       • Else, if it looks like "<word> <word> <amount>" and the first word is not
         a known action → flag as unknown action.
-      • Otherwise (e.g., "units 10") accept.
+      • Otherwise accept.
     """
     s = str(step).strip()
     if not s:
@@ -173,13 +176,16 @@ def _validate_do_string(step: str, ctx: str, errors: List[str]) -> None:
         return
 
     if "(" in s:
-        # Free-form call-like directive: allowed (CLI smoke specs rely on this).
-        return
+        return  # free-form call-like directives are allowed
 
     parts = s.split()
+    first = parts[0].lower()
+
+    # allow legacy free-form directives (e.g., "units 10")
+    if first in _FREEFORM_STARTERS:
+        return
+
     if len(parts) >= 3:
-        first = parts[0].lower()
-        # conservative: only flag if the first token looks like an alpha verb
         if first.isalpha() and first not in _ALLOWED_ACTIONS:
             allowed = ", ".join(sorted(_ALLOWED_ACTIONS))
             errors.append(f"{ctx}: unknown action '{first}' (allowed: {allowed})")
