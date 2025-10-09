@@ -8,6 +8,7 @@ from .actions import make_action  # Action Envelope helper
 from .rules_rt import apply_rules  # Runtime rules engine
 from .csv_journal import CSVJournal  # Per-event journaling
 from .events import canonicalize_event, COMEOUT, POINT_ESTABLISHED, ROLL, SEVEN_OUT
+from .eval import evaluate, EvalError
 
 
 class ControlStrategy:
@@ -35,9 +36,9 @@ class ControlStrategy:
     P4C4 upgrades:
       • switch_mode side-effect applies IMMEDIATELY within the same event
         (so a switch on point_established affects that event’s template diff).
-      • Final action order within an event:
-          [all switch_mode actions] → [template/regression] → [other rule actions] → [other/unknown]
-        with last-wins conflict resolution among bet actions as before.
+      • New 'setvar' rule action to persist custom variables across events.
+        Applied before template rendering so templates/rules can use them.
+      • Snapshot.extra includes {"mode_change": bool, "memory": {...}} for journaling.
     """
 
     def __init__(
@@ -62,9 +63,15 @@ class ControlStrategy:
         else:
             self.mode = self._default_mode()
 
+        # P4C4: persistent user memory (cross-event)
+        self.memory: Dict[str, Any] = {}
+
         # Journaling: lazy-init on first use
         self._journal: Optional[CSVJournal] = None
         self._journal_enabled: Optional[bool] = None  # tri-state: None unknown, True/False decided
+
+        # P4C4: per-event flag captured in snapshot.extra
+        self._mode_changed_this_event: bool = False
 
     # ----- helpers -----
 
@@ -85,6 +92,9 @@ class ControlStrategy:
             st.update(user)
         else:
             st.update(self.spec.get("variables", {}) or {})
+
+        # P4C4: include controller memory so rules/templates can use it
+        st.update(self.memory)
 
         st["point"] = self.point
         st["rolls_since_point"] = self.rolls_since_point
@@ -188,6 +198,11 @@ class ControlStrategy:
             # Optional: include canonical roll/point for convenience
             "roll": event.get("roll"),
             "event_point": event.get("point"),
+            # P4C4: enriched extra payload consumed by CSVJournal
+            "extra": {
+                "mode_change": self._mode_changed_this_event,
+                "memory": dict(self.memory) if self.memory else {},
+            },
         }
         return snap
 
@@ -297,7 +312,7 @@ class ControlStrategy:
         st = self._current_state_for_eval()
         return apply_rules(rules, st, event or {})
 
-    # ----- P4C3/P4C4: event-local action merge & (P4C4) pre-merge switch handling -----
+    # ----- P4C3/P4C4: event-local action merge & pre-merge switch/setvar handling -----
 
     @staticmethod
     def _source_bucket(action: Dict[str, Any]) -> int:
@@ -317,6 +332,10 @@ class ControlStrategy:
         return (action.get("action") or "").lower() == "switch_mode"
 
     @staticmethod
+    def _is_setvar(action: Dict[str, Any]) -> bool:
+        return (action.get("action") or "").lower() == "setvar"
+
+    @staticmethod
     def _bet_key(action: Dict[str, Any]) -> Optional[str]:
         bt = action.get("bet_type")
         return str(bt) if isinstance(bt, str) and bt else None
@@ -328,6 +347,7 @@ class ControlStrategy:
           - set/press/reduce considered 'bet_mutate'
           - clear considered 'bet_clear'
           - switch_mode considered 'mode'
+          - setvar considered 'setvar'
           - others fall into their own name
         """
         a = (action.get("action") or "").lower()
@@ -337,6 +357,8 @@ class ControlStrategy:
             return "bet_clear"
         if a == "switch_mode":
             return "mode"
+        if a == "setvar":
+            return "setvar"
         return a
 
     def _merge_actions_for_event(self, actions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -347,6 +369,7 @@ class ControlStrategy:
           • Conflicts among bet actions:
               - Last wins for same bet across the entire event
               - 'clear' overrides any earlier set/press/reduce on same bet
+          • setvar/mode actions are independent (no bet conflict resolution)
         """
         if not actions:
             return []
@@ -371,8 +394,7 @@ class ControlStrategy:
                     continue
                 if bk in last_for_bet:
                     prev_idx = last_for_bet[bk]
-                    # last wins semantics (clear overrides implicitly by replacement)
-                    final[prev_idx] = a
+                    final[prev_idx] = a  # last wins; clear overrides by replacement
                     last_for_bet[bk] = prev_idx
                 else:
                     last_for_bet[bk] = len(final)
@@ -388,31 +410,77 @@ class ControlStrategy:
                 a["seq"] = i
         return actions
 
-    # ----- P4C4 helpers: split/apply switches BEFORE planning/journaling ----------
+    # ----- P4C4 helpers: split/apply switches & setvars BEFORE planning/journaling ----------
 
     @staticmethod
-    def _split_switch_and_other(actions: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
-        """Partition actions into (switch_mode actions, others) preserving order."""
+    def _split_switch_setvar_other(actions: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]]]:
+        """Partition actions into (switch_mode actions, setvar actions, others) preserving order."""
         switches: List[Dict[str, Any]] = []
+        setvars: List[Dict[str, Any]] = []
         others: List[Dict[str, Any]] = []
         for a in actions:
-            if (a.get("action") or "").lower() == "switch_mode":
+            act = (a.get("action") or "").lower()
+            if act == "switch_mode":
                 switches.append(a)
+            elif act == "setvar":
+                setvars.append(a)
             else:
                 others.append(a)
-        return switches, others
+        return switches, setvars, others
 
-    def _apply_switches_now(self, switch_actions: List[Dict[str, Any]]) -> None:
+    def _apply_switches_now(self, switch_actions: List[Dict[str, Any]]) -> bool:
         """
         Apply mode switches immediately (last one wins). Targets are taken from 'notes' or 'mode'.
+        Returns True if mode changed this call.
         """
         last_target: Optional[str] = None
         for a in switch_actions:
             target = (a.get("notes") or a.get("mode") or "").strip()
             if target:
                 last_target = target
-        if last_target:
-            self.mode = last_target  # takes effect immediately in this event
+        if not last_target:
+            return False
+        prev = self.mode
+        self.mode = last_target  # takes effect immediately in this event
+        return self.mode != prev
+
+    def _apply_setvars_now(self, setvar_actions: List[Dict[str, Any]], event: Dict[str, Any]) -> None:
+        """
+        Apply 'setvar' actions immediately so templates/rules can see updated memory.
+        Accepts either:
+          • explicit keys: {'action':'setvar','var':'win_streak','value':'win_streak+1'}
+          • or a fallback string in 'notes' as the value expression with 'var' provided.
+        Non-fatal on errors; silently skips bad entries.
+        """
+        if not setvar_actions:
+            return
+        for a in setvar_actions:
+            # name of the variable
+            var = a.get("var") or a.get("name")
+            if not isinstance(var, str) or not var.strip():
+                continue
+            var = var.strip()
+
+            # expression/value
+            if "value" in a:
+                val_expr = a.get("value")
+            elif "amount" in a:
+                # allow amount as a numeric shortcut
+                val_expr = a.get("amount")
+            else:
+                val_expr = a.get("notes")  # last-ditch textual expr
+
+            st = self._current_state_for_eval()
+            try:
+                # If value is already numeric/bool, keep as-is; else evaluate as expression string
+                if isinstance(val_expr, (int, float, bool)):
+                    new_val = val_expr
+                else:
+                    new_val = evaluate(str(val_expr), state=st, event=event)
+                self.memory[var] = new_val
+            except (EvalError, Exception):
+                # ignore bad expressions; fail-open
+                continue
 
     # ----- public API used by tests -----
 
@@ -422,10 +490,14 @@ class ControlStrategy:
           1) canonicalizing and updating internal state,
           2) collecting rule-driven actions,
           3) applying any switch_mode immediately (affects same-event planning),
-          4) generating template diff/regression actions (using current mode),
-          5) merging (deterministic) & annotating seq,
-          6) journaling the final envelopes if enabled.
+          4) applying any setvar immediately (memory available to template),
+          5) generating template diff/regression actions (using current mode),
+          6) merging (deterministic) & annotating seq,
+          7) journaling the final envelopes if enabled.
         """
+        # Reset per-event flags
+        self._mode_changed_this_event = False
+
         # Normalize inbound event to the canonical contract
         event = canonicalize_event(event or {})
         ev_type = event.get("type")
@@ -440,13 +512,16 @@ class ControlStrategy:
             self.rolls_since_point = 0
             self.on_comeout = True
 
-            # Rules first → apply switches immediately
+            # Rules first → apply switches & setvars immediately
             rule_actions = self._apply_rules_for_event(event)
-            switches, rule_non_switch = self._split_switch_and_other(rule_actions)
-            self._apply_switches_now(switches)
+            switches, setvars, rule_non_special = self._split_switch_setvar_other(rule_actions)
+            if switches:
+                self._mode_changed_this_event = self._apply_switches_now(switches) or self._mode_changed_this_event
+            if setvars:
+                self._apply_setvars_now(setvars, event)
 
             # No template plan on pure comeout
-            final = self._merge_actions_for_event(switches + template_and_regress + rule_non_switch)
+            final = self._merge_actions_for_event(switches + template_and_regress + rule_non_special)
             final = self._annotate_seq(final)
             self._journal_actions(event, final)
             return final
@@ -459,15 +534,18 @@ class ControlStrategy:
             self.rolls_since_point = 0
             self.on_comeout = self.point in (None, 0)
 
-            # Rules first → apply switches so template uses the updated mode
+            # Rules first → apply switches and setvars so template uses updated mode/memory
             rule_actions = self._apply_rules_for_event(event)
-            switches, rule_non_switch = self._split_switch_and_other(rule_actions)
-            self._apply_switches_now(switches)
+            switches, setvars, rule_non_special = self._split_switch_setvar_other(rule_actions)
+            if switches:
+                self._mode_changed_this_event = self._apply_switches_now(switches) or self._mode_changed_this_event
+            if setvars:
+                self._apply_setvars_now(setvars, event)
 
-            # Now render template with (possibly) new mode
+            # Now render template with (possibly) new mode and memory
             template_and_regress.extend(self._apply_mode_template_plan(current_bets, self.mode))
 
-            final = self._merge_actions_for_event(switches + template_and_regress + rule_non_switch)
+            final = self._merge_actions_for_event(switches + template_and_regress + rule_non_special)
             final = self._annotate_seq(final)
             self._journal_actions(event, final)
             return final
@@ -494,12 +572,15 @@ class ControlStrategy:
                         ),
                     ])
 
-            # Rules → apply switches immediately (even though roll has no template plan)
+            # Rules → apply switches & setvars immediately
             rule_actions = self._apply_rules_for_event(event)
-            switches, rule_non_switch = self._split_switch_and_other(rule_actions)
-            self._apply_switches_now(switches)
+            switches, setvars, rule_non_special = self._split_switch_setvar_other(rule_actions)
+            if switches:
+                self._mode_changed_this_event = self._apply_switches_now(switches) or self._mode_changed_this_event
+            if setvars:
+                self._apply_setvars_now(setvars, event)
 
-            final = self._merge_actions_for_event(switches + template_and_regress + rule_non_switch)
+            final = self._merge_actions_for_event(switches + template_and_regress + rule_non_special)
             final = self._annotate_seq(final)
             self._journal_actions(event, final)
             return final
@@ -511,20 +592,26 @@ class ControlStrategy:
             self.on_comeout = True
 
             rule_actions = self._apply_rules_for_event(event)
-            switches, rule_non_switch = self._split_switch_and_other(rule_actions)
-            self._apply_switches_now(switches)
+            switches, setvars, rule_non_special = self._split_switch_setvar_other(rule_actions)
+            if switches:
+                self._mode_changed_this_event = self._apply_switches_now(switches) or self._mode_changed_this_event
+            if setvars:
+                self._apply_setvars_now(setvars, event)
 
-            final = self._merge_actions_for_event(switches + rule_non_switch)
+            final = self._merge_actions_for_event(switches + rule_non_special)
             final = self._annotate_seq(final)
             self._journal_actions(event, final)
             return final
 
         # Unknown or ancillary event type: still allow rules to look at it
         rule_actions = self._apply_rules_for_event(event)
-        switches, rule_non_switch = self._split_switch_and_other(rule_actions)
-        self._apply_switches_now(switches)
+        switches, setvars, rule_non_special = self._split_switch_setvar_other(rule_actions)
+        if switches:
+            self._mode_changed_this_event = self._apply_switches_now(switches) or self._mode_changed_this_event
+        if setvars:
+            self._apply_setvars_now(setvars, event)
 
-        final = self._merge_actions_for_event(switches + rule_non_switch)
+        final = self._merge_actions_for_event(switches + rule_non_special)
         final = self._annotate_seq(final)
         self._journal_actions(event, final)
         return final
@@ -535,6 +622,7 @@ class ControlStrategy:
             "rolls_since_point": self.rolls_since_point,
             "on_comeout": self.on_comeout,
             "mode": getattr(self, "mode", None),
+            "memory": dict(self.memory),
         }
 
     # ----- smoke-test shims expected by EngineAdapter -----
