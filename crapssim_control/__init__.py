@@ -1,6 +1,7 @@
 # crapssim_control/__init__.py
 """
-CrapsSim Control — runtime templates, rule engine (MVP), controller, and CSV tooling.
+CrapsSim Control — runtime templates, rule engine, controller, and CSV/report/export tooling.
+Now includes P5C5 bundle export helpers.
 """
 
 from .controller import ControlStrategy
@@ -21,8 +22,8 @@ from .actions import (
 from .csv_journal import CSVJournal
 from .csv_summary import summarize_journal, write_summary_csv
 
-# Bump for Phase 3 CSV + envelopes work
-__version__ = "0.19.0"
+# Phase 5 Cycle 5 — includes report/export integration
+__version__ = "0.20.0"
 
 __all__ = [
     # Core controller
