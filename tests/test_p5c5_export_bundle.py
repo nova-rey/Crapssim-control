@@ -65,7 +65,15 @@ def _drive_minimal_run(ctrl: ControlStrategy):
     ctrl.finalize_run()
 
 
-#@pytest.mark.xfail(reason="P5C5 export bundling not implemented yet", strict=False)
+def _resolve_artifact_path(base_dir: Path, rel_or_abs: str) -> Path:
+    """
+    Manifest may store artifact paths as relative (e.g., 'journal.csv') or absolute.
+    Resolve robustly so the test passes either way.
+    """
+    p = Path(rel_or_abs)
+    return p if p.is_absolute() else (base_dir / p)
+
+
 def test_export_folder_bundle(tmp_path: Path):
     csv_path = tmp_path / "journal.csv"
     meta_path = tmp_path / "meta.json"
@@ -91,11 +99,16 @@ def test_export_folder_bundle(tmp_path: Path):
     assert "identity" in data
     assert "artifacts" in data
     arts = data["artifacts"]
-    # Paths in manifest should point at the copies inside the export folder
-    assert (export_dir / Path(arts.get("csv", ""))).exists(), "CSV artifact should exist in export"
+
+    # Resolve paths whether they are relative (to export_dir) or absolute
+    csv_art = _resolve_artifact_path(export_dir, arts.get("csv", ""))
+    meta_art = _resolve_artifact_path(export_dir, arts.get("meta", ""))
+    report_art = _resolve_artifact_path(export_dir, arts.get("report", ""))
+
+    assert csv_art.exists(), "CSV artifact should exist in export"
     # meta may be optional in some modes, but in this test we expect it
-    assert (export_dir / Path(arts.get("meta", ""))).exists(), "Meta artifact should exist in export"
-    assert (export_dir / Path(arts.get("report", ""))).exists(), "Report artifact should exist in export"
+    assert meta_art.exists(), "Meta artifact should exist in export"
+    assert report_art.exists(), "Report artifact should exist in export"
 
 
 @pytest.mark.xfail(reason="P5C5 export bundling (zip mode) not implemented yet", strict=False)
