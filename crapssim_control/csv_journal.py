@@ -247,7 +247,7 @@ class CSVJournal:
                     "action": "switch_mode",
                     "bet_type": "",
                     "amount": "",
-                    "notes": "",
+                    "notes": "end_of_run",
                     "extra": _as_str(summary),
                 }
                 writer.writerow(row)
