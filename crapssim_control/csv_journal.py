@@ -244,7 +244,7 @@ class CSVJournal:
                     "bankroll": _coerce_num(snap.get("bankroll")) or "",
                     "source": "system",
                     "id": "summary:run",
-                    "action": "",
+                    "action": "switch_mode",
                     "bet_type": "",
                     "amount": "",
                     "notes": "",
