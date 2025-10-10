@@ -2,7 +2,6 @@
 import json
 import zipfile
 from pathlib import Path
-
 import pytest
 
 from crapssim_control.controller import ControlStrategy
@@ -21,8 +20,7 @@ def _spec(csv_path: Path, meta_path: Path, report_path: Path, export_root: Path,
     return {
         "modes": {
             "Main": {
-                # No explicit template needed; controller fallback will synthesize an action on 6
-                "template": {}
+                "template": {}  # no explicit template needed; fallback handles actions
             }
         },
         "variables": {"units": 10},
@@ -36,45 +34,34 @@ def _spec(csv_path: Path, meta_path: Path, report_path: Path, export_root: Path,
             },
             "memory": {
                 "meta_path": str(meta_path),
-                # keep report_path here for legacy lookups too
-                "report_path": str(report_path),
+                "report_path": str(report_path),  # legacy lookup
             },
             "report": {
                 "path": str(report_path),
-                # nested export block (one possible lookup path)
-                "export": {
-                    "path": str(export_root),
-                    "compress": compress,
-                },
+                "export": {"path": str(export_root), "compress": compress},
             },
-            # top-level export block (alternate lookup path)
-            "export": {
-                "path": str(export_root),
-                "compress": compress,
-            },
+            "export": {"path": str(export_root), "compress": compress},
         },
         "rules": [],
     }
 
 
 def _drive_minimal_run(ctrl: ControlStrategy):
-    # comeout: no actions; point 6 should generate at least one action via template/fallback
+    """Drive a minimal session: comeout → point 6 → finalize."""
     assert ctrl.handle_event({"type": COMEOUT}, current_bets={}) == []
     acts = ctrl.handle_event({"type": POINT_ESTABLISHED, "point": 6}, current_bets={})
-    assert len(acts) >= 1
+    assert len(acts) >= 1, "Expected at least one action from POINT_ESTABLISHED(6)"
     ctrl.finalize_run()
 
 
 def _resolve_artifact_path(base_dir: Path, rel_or_abs: str) -> Path:
-    """
-    Manifest may store artifact paths as relative (e.g., 'journal.csv') or absolute.
-    Resolve robustly so the test passes either way.
-    """
+    """Manifest may store artifact paths as relative (e.g. journal.csv) or absolute."""
     p = Path(rel_or_abs)
     return p if p.is_absolute() else (base_dir / p)
 
 
 def test_export_folder_bundle(tmp_path: Path):
+    """Verify non-compressed export bundle writes a manifest and expected artifacts."""
     csv_path = tmp_path / "journal.csv"
     meta_path = tmp_path / "meta.json"
     report_path = tmp_path / "report.json"
@@ -82,12 +69,9 @@ def test_export_folder_bundle(tmp_path: Path):
 
     spec = _spec(csv_path, meta_path, report_path, export_root, compress=False)
     c = ControlStrategy(spec)
-
     _drive_minimal_run(c)
 
-    # Expect an export directory created under export_root (named by run_id + timestamp or similar)
     assert export_root.exists(), "Export root should be created"
-    # Find the most recent subfolder
     subdirs = [p for p in export_root.iterdir() if p.is_dir()]
     assert subdirs, "An export subfolder should be created inside export_root"
     export_dir = max(subdirs, key=lambda p: p.stat().st_mtime)
@@ -100,19 +84,17 @@ def test_export_folder_bundle(tmp_path: Path):
     assert "artifacts" in data
     arts = data["artifacts"]
 
-    # Resolve paths whether they are relative (to export_dir) or absolute
     csv_art = _resolve_artifact_path(export_dir, arts.get("csv", ""))
     meta_art = _resolve_artifact_path(export_dir, arts.get("meta", ""))
     report_art = _resolve_artifact_path(export_dir, arts.get("report", ""))
 
     assert csv_art.exists(), "CSV artifact should exist in export"
-    # meta may be optional in some modes, but in this test we expect it
     assert meta_art.exists(), "Meta artifact should exist in export"
     assert report_art.exists(), "Report artifact should exist in export"
 
 
-@pytest.mark.xfail(reason="P5C5 export bundling (zip mode) not implemented yet", strict=False)
 def test_export_zip_bundle(tmp_path: Path):
+    """Verify compressed export bundle creates a valid zip with manifest and artifacts."""
     csv_path = tmp_path / "journal.csv"
     meta_path = tmp_path / "meta.json"
     report_path = tmp_path / "report.json"
@@ -120,10 +102,8 @@ def test_export_zip_bundle(tmp_path: Path):
 
     spec = _spec(csv_path, meta_path, report_path, export_root, compress=True)
     c = ControlStrategy(spec)
-
     _drive_minimal_run(c)
 
-    # Expect a zip file created in export_root
     assert export_root.exists(), "Export root should be created"
     zips = sorted(export_root.glob("*.zip"))
     assert zips, "A .zip export should be created when compress=True"
@@ -131,16 +111,13 @@ def test_export_zip_bundle(tmp_path: Path):
 
     with zipfile.ZipFile(zip_path, "r") as zf:
         names = set(zf.namelist())
-        # manifest.json presence
         assert any(n.endswith("manifest.json") for n in names), "manifest.json should be in the zip"
 
-        # Read and validate manifest
         manifest_name = next(n for n in names if n.endswith("manifest.json"))
         with zf.open(manifest_name) as fp:
             data = json.loads(fp.read().decode("utf-8"))
 
         arts = data.get("artifacts", {})
-        # The artifacts should also be present in the zip by the relative paths listed
         for key in ("csv", "meta", "report"):
             rel = arts.get(key)
             assert rel, f"Artifact key '{key}' should be listed in manifest"
