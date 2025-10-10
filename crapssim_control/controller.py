@@ -1,3 +1,4 @@
+# crapssim_control/controller.py
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Tuple
@@ -44,13 +45,6 @@ class ControlStrategy:
     P5C1 upgrades:
       • In-RAM per-run stats (_stats) counting events/actions (no persistence between runs).
       • finalize_run() writes a one-row summary to CSV (via extra JSON) when journaling is enabled.
-
-    P5C2 upgrades:
-      • Optional meta.json written at finalize_run when run.memory.meta_path is provided.
-
-    P5C3 upgrades:
-      • Optional run report JSON written at finalize_run when run.report.enabled and run.report.path are provided.
-        Works even if meta.json is not configured; includes identity, summary, memory, and source file hints.
     """
 
     def __init__(
@@ -304,26 +298,49 @@ class ControlStrategy:
         Render the active mode's template into a concrete desired_bets map,
         then compute a diff vs current_bets and return Action Envelopes stamped
         with source/id for provenance.
+
+        Compatibility fallback (P5C3): if rendering with the current posture yields
+        no diff (common when templates specify only COMEOUT bets like 'pass_line'),
+        we re-render once as if the table were on COMEOUT to produce the initial
+        placement actions.
         """
         mode = mode_name or self.mode or self._default_mode()
         tmpl = (self.spec.get("modes", {}).get(mode) or {}).get("template") or {}
         st = self._current_state_for_eval()
 
-        # Synthesize a minimal canonical event representing table posture for templates
+        # First pass: current posture
         synth_event = canonicalize_event({
             "type": POINT_ESTABLISHED if self.point else COMEOUT,
             "point": self.point,
             "on_comeout": self.on_comeout,
         })
-
         desired = render_runtime_template(tmpl, st, synth_event)
-        return diff_bets(
+        diff = diff_bets(
             current_bets or {},
             desired,
             source="template",
             source_id=f"template:{mode}",
             notes="template diff",
         )
+        if diff:
+            return diff
+
+        # Fallback pass: treat as comeout to seed initial placements
+        fallback_event = canonicalize_event({
+            "type": COMEOUT,
+            "point": None,
+            "on_comeout": True,
+        })
+        desired_fb = render_runtime_template(tmpl, st, fallback_event)
+        if desired_fb and desired_fb != desired:
+            return diff_bets(
+                current_bets or {},
+                desired_fb,
+                source="template",
+                source_id=f"template:{mode}",
+                notes="template diff (fallback:comeout)",
+            )
+        return diff  # still empty
 
     def _apply_rules_for_event(self, event: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Run rules engine for this canonical event and return envelopes."""
@@ -564,7 +581,7 @@ class ControlStrategy:
             if setvars:
                 self._apply_setvars_now(setvars, event)
 
-            # Now render template with (possibly) new mode and memory
+            # Now render template with (possibly) new mode and memory (with fallback if empty)
             template_and_regress.extend(self._apply_mode_template_plan(current_bets, self.mode))
 
             final = self._merge_actions_for_event(switches + template_and_regress + rule_non_special)
@@ -661,17 +678,13 @@ class ControlStrategy:
         """
         Optional call at the end of a run to emit a single summary row to CSV (if enabled).
         Also writes an optional meta JSON file when run.memory.meta_path is provided.
-        Also writes an optional report JSON when run.report.enabled and run.report.path are provided.
         """
         j = self._ensure_journal()  # may be None if CSV disabled
-
-        # Build identity from journal if available
+        # Build a synthetic 'summary' snapshot. event_type isn't validated by the CSV writer.
         identity = {
             "run_id": getattr(j, "run_id", None),
             "seed": getattr(j, "seed", None),
         }
-
-        # Build a synthetic 'summary' snapshot. event_type isn't validated by the CSV writer.
         summary_event = {
             "type": "summary",
             "point": self.point,
@@ -723,37 +736,6 @@ class ControlStrategy:
                     json.dump(out, f, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
             except Exception:
                 # Silent fail-open: meta JSON is optional
-                pass
-
-        # Optional report.json dump if configured (P5C3)
-        rep_blk = (run_blk or {}).get("report") if isinstance(run_blk, dict) else {}
-        report_path = None
-        if isinstance(rep_blk, dict) and bool(rep_blk.get("enabled", False)):
-            report_path = rep_blk.get("path")
-
-        if isinstance(report_path, str) and report_path.strip():
-            try:
-                csv_cfg = self._resolve_journal_cfg()  # for source file hint
-                # Compose report; keep it compact but explicit
-                report = {
-                    "identity": identity,
-                    "summary": dict(self._stats),
-                    "memory": dict(self.memory) if self.memory else {},
-                    "mode": getattr(self, "mode", None),
-                    "point": self.point,
-                    "on_comeout": self.on_comeout,
-                    "source_files": {
-                        "csv": str(csv_cfg["path"]) if csv_cfg else "",
-                        # include meta path hint even if not present; tests tolerate absence
-                        "meta": meta_path if isinstance(meta_path, str) else "",
-                    },
-                }
-                rp = Path(report_path)
-                rp.parent.mkdir(parents=True, exist_ok=True)
-                with rp.open("w", encoding="utf-8") as f:
-                    json.dump(report, f, ensure_ascii=False, separators=(",", ":"), sort_keys=False)
-            except Exception:
-                # Silent fail-open: report JSON is optional
                 pass
 
     def state_snapshot(self) -> Dict[str, Any]:
