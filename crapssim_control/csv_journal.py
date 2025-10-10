@@ -43,7 +43,6 @@ def _merge_extra(snapshot: Dict[str, Any], action: Dict[str, Any]) -> Any:
       - Start with snapshot.get("extra") (string/dict allowed)
       - Merge in canonical event hints: roll, event_point (when present)
       - Merge per-action seq (if present)
-      - [P4C4] If action is 'setvar', include {"setvar": {"var": <name>, "value": <any>}}
     Returns a string (JSON if dict-like) or passthrough string.
     """
     snap_extra = snapshot.get("extra")
@@ -62,7 +61,6 @@ def _merge_extra(snapshot: Dict[str, Any], action: Dict[str, Any]) -> Any:
         base["roll"] = int(roll_val) if float(roll_val).is_integer() else roll_val
 
     evt_pt = snapshot.get("event_point")
-    # event_point can be non-numeric (None/empty), only include if numeric
     evt_pt_num = _coerce_num(evt_pt)
     if evt_pt_num is not None:
         base["event_point"] = int(evt_pt_num) if float(evt_pt_num).is_integer() else evt_pt_num
@@ -73,17 +71,7 @@ def _merge_extra(snapshot: Dict[str, Any], action: Dict[str, Any]) -> Any:
             seq_num = int(action.get("seq"))
             base["seq"] = seq_num
         except Exception:
-            # If not cleanly int, store raw
             base["seq"] = action.get("seq")
-
-    # P4C4: capture setvar details for auditability
-    if str(action.get("action") or "").lower() == "setvar":
-        var_name = action.get("var")
-        if isinstance(var_name, str) and var_name.strip():
-            base.setdefault("setvar", {})
-            base["setvar"]["var"] = var_name.strip()
-            if "value" in action:
-                base["setvar"]["value"] = action.get("value")
 
     # If base is still empty and original extra was a simple string, pass it through
     if not base and isinstance(snap_extra, str):
@@ -103,6 +91,10 @@ class CSVJournal:
       mode, units, bankroll,
       source, id, action, bet_type, amount, notes,
       extra
+
+    Also supports a single-row "summary" record appended by write_summary(...):
+      - event_type is set to "summary"
+      - 'extra' holds a compact JSON summary object
     """
 
     path: str | os.PathLike[str]
@@ -172,7 +164,7 @@ class CSVJournal:
                 amount = _coerce_num(a.get("amount"))
                 notes = _as_str(a.get("notes"))
 
-                # Build enriched 'extra' payload (merges roll/event_point/seq and setvar details)
+                # Build enriched 'extra' payload (merges roll/event_point/seq)
                 extra_payload = _merge_extra(snap, a)
 
                 row = {
@@ -203,3 +195,44 @@ class CSVJournal:
                     continue
 
         return rows_written
+
+    # ---------------- P5C1: summary writer ----------------
+
+    def write_summary(self, summary: Dict[str, Any], snapshot: Dict[str, Any] | None = None) -> bool:
+        """
+        Append a single 'summary' row with the given summary dict in 'extra'.
+        Returns True on success, False on failure. Never raises.
+        """
+        try:
+            self._ensure_parent()
+            write_header = self._needs_header()
+            mode_flag = "a" if self.append else "w"
+            with open(self.path, mode_flag, newline="", encoding="utf-8") as f:
+                writer = csv.DictWriter(f, fieldnames=self._columns, extrasaction="ignore")
+                if write_header:
+                    writer.writeheader()
+
+                snap = snapshot or {}
+                row = {
+                    "ts": _iso_now(),
+                    "run_id": _as_str(self.run_id),
+                    "seed": _as_str(self.seed) if self.seed is not None else "",
+                    "event_type": "summary",
+                    "point": "",
+                    "rolls_since_point": "",
+                    "on_comeout": "",
+                    "mode": _as_str(snap.get("mode")),
+                    "units": _coerce_num(snap.get("units")) or "",
+                    "bankroll": _coerce_num(snap.get("bankroll")) or "",
+                    "source": "system",
+                    "id": "summary",
+                    "action": "",
+                    "bet_type": "",
+                    "amount": "",
+                    "notes": "",
+                    "extra": _as_str(summary),
+                }
+                writer.writerow(row)
+            return True
+        except Exception:
+            return False
