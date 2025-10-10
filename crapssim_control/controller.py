@@ -186,6 +186,8 @@ class ControlStrategy:
 
         try:
             j = CSVJournal(cfg["path"], append=cfg["append"], run_id=cfg.get("run_id"), seed=cfg.get("seed"))
+            # P5C1: ensure the CSV file exists with a header immediately
+            j.ensure_header()
             self._journal = j
             self._journal_enabled = True
             return j
