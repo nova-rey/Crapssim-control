@@ -7,6 +7,7 @@ from pathlib import Path
 import shutil
 import zipfile
 from datetime import datetime
+import hashlib  # P5C5: for content fingerprints
 
 from .templates_rt import render_template as render_runtime_template, diff_bets
 from .actions import make_action  # Action Envelope helper
@@ -676,6 +677,64 @@ class ControlStrategy:
 
         return (Path(export_root) if isinstance(export_root, str) and export_root.strip() else None, bool(compress))
 
+    # ---- P5C5 dedup/versioning helpers (folder mode only) ----
+
+    @staticmethod
+    def _fingerprint_file(path: Path, *, chunk_size: int = 1024 * 1024) -> Optional[str]:
+        """Return SHA-256 hex digest of file contents, or None if not readable."""
+        try:
+            h = hashlib.sha256()
+            with path.open("rb") as f:
+                while True:
+                    chunk = f.read(chunk_size)
+                    if not chunk:
+                        break
+                    h.update(chunk)
+            return h.hexdigest()
+        except Exception:
+            return None
+
+    @staticmethod
+    def _export_copy(src: Path, dst_dir: Path, *, versioning: bool = True) -> Tuple[Path, bool, Optional[str]]:
+        """
+        Copy src into dst_dir with content-aware behavior.
+        Returns (dst_path, copied_bool, fingerprint_hex).
+          - If a file of same basename exists and contents are identical → skip copy (copied=False).
+          - If different and versioning=False → overwrite existing basename.
+          - If different and versioning=True → create 'name-vN.ext' (N increments).
+        """
+        dst_dir.mkdir(parents=True, exist_ok=True)
+        base = src.name
+        dst = dst_dir / base
+
+        src_fp = ControlStrategy._fingerprint_file(src)
+
+        if dst.exists():
+            dst_fp = ControlStrategy._fingerprint_file(dst)
+            if dst_fp and src_fp and dst_fp == src_fp:
+                return dst, False, src_fp  # identical, no copy
+
+            if not versioning:
+                shutil.copy2(src, dst)
+                return dst, True, src_fp
+
+            stem = dst.stem
+            suffix = dst.suffix
+            n = 1
+            while True:
+                cand = dst_dir / f"{stem}-v{n}{suffix}"
+                if not cand.exists():
+                    shutil.copy2(src, cand)
+                    return cand, True, src_fp
+                # If an older version has identical content, reuse it:
+                cand_fp = ControlStrategy._fingerprint_file(cand)
+                if cand_fp and src_fp and cand_fp == src_fp:
+                    return cand, False, src_fp
+                n += 1
+        else:
+            shutil.copy2(src, dst)
+            return dst, True, src_fp
+
     def export_bundle(self, export_root: Optional[str | Path] = None, compress: Optional[bool] = None) -> Optional[Path]:
         """
         Export run artifacts (csv/meta/report) into a dated folder or a .zip bundle.
@@ -716,33 +775,39 @@ class ControlStrategy:
         base_name = (identity.get("run_id") or "run")
         folder_name = f"{base_name}_{stamp}"
 
-        # Relative names inside bundle
+        # Relative names (preferred basenames)
         rel_csv = "journal.csv" if csv_path else None
         rel_meta = "meta.json" if meta_path else None
         rel_report = "report.json" if report_path else None
 
         if not compress:
-            # Folder export
+            # Folder export (with content-aware copy + versioning)
             dest_dir = export_root / folder_name
             dest_dir.mkdir(parents=True, exist_ok=True)
 
-            artifacts: Dict[str, str | None] = {}
+            artifacts: Dict[str, Optional[str]] = {}
+            fingerprints: Dict[str, Optional[str]] = {}
 
             if csv_path and csv_path.exists():
-                shutil.copy2(csv_path, dest_dir / "journal.csv")
-                artifacts["csv"] = "journal.csv"
+                dst, _copied, fp = self._export_copy(csv_path, dest_dir, versioning=True)
+                artifacts["csv"] = str(dst.relative_to(dest_dir))
+                fingerprints["csv"] = fp
             if meta_path and meta_path.exists():
-                shutil.copy2(meta_path, dest_dir / "meta.json")
-                artifacts["meta"] = "meta.json"
+                dst, _copied, fp = self._export_copy(meta_path, dest_dir, versioning=True)
+                artifacts["meta"] = str(dst.relative_to(dest_dir))
+                fingerprints["meta"] = fp
             else:
                 artifacts["meta"] = None
+                fingerprints["meta"] = None
             if report_path and report_path.exists():
-                shutil.copy2(report_path, dest_dir / "report.json")
-                artifacts["report"] = "report.json"
+                dst, _copied, fp = self._export_copy(report_path, dest_dir, versioning=True)
+                artifacts["report"] = str(dst.relative_to(dest_dir))
+                fingerprints["report"] = fp
 
             manifest = {
                 "identity": identity,
                 "artifacts": artifacts,
+                "fingerprints": fingerprints,
             }
             (dest_dir / "manifest.json").write_text(
                 json.dumps(manifest, ensure_ascii=False, separators=(",", ":"), sort_keys=True),
@@ -750,21 +815,21 @@ class ControlStrategy:
             )
             return dest_dir
 
-        # Zip export
+        # Zip export (unchanged behavior)
         zip_path = export_root / f"{folder_name}.zip"
-        artifacts_zip: Dict[str, str | None] = {}
+        artifacts_zip: Dict[str, Optional[str]] = {}
         with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
             if csv_path and csv_path.exists():
-                zf.write(csv_path, arcname="journal.csv")
-                artifacts_zip["csv"] = "journal.csv"
+                zf.write(csv_path, arcname=rel_csv or "journal.csv")
+                artifacts_zip["csv"] = rel_csv or "journal.csv"
             if meta_path and meta_path.exists():
-                zf.write(meta_path, arcname="meta.json")
-                artifacts_zip["meta"] = "meta.json"
+                zf.write(meta_path, arcname=rel_meta or "meta.json")
+                artifacts_zip["meta"] = rel_meta or "meta.json"
             else:
                 artifacts_zip["meta"] = None
             if report_path and report_path.exists():
-                zf.write(report_path, arcname="report.json")
-                artifacts_zip["report"] = "report.json"
+                zf.write(report_path, arcname=rel_report or "report.json")
+                artifacts_zip["report"] = rel_report or "report.json"
 
             manifest = {
                 "identity": identity,
