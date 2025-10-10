@@ -44,6 +44,13 @@ class ControlStrategy:
     P5C1 upgrades:
       • In-RAM per-run stats (_stats) counting events/actions (no persistence between runs).
       • finalize_run() writes a one-row summary to CSV (via extra JSON) when journaling is enabled.
+
+    P5C2 upgrades:
+      • Optional meta.json written at finalize_run when run.memory.meta_path is provided.
+
+    P5C3 upgrades:
+      • Optional run report JSON written at finalize_run when run.report.enabled and run.report.path are provided.
+        Works even if meta.json is not configured; includes identity, summary, memory, and source file hints.
     """
 
     def __init__(
@@ -654,13 +661,17 @@ class ControlStrategy:
         """
         Optional call at the end of a run to emit a single summary row to CSV (if enabled).
         Also writes an optional meta JSON file when run.memory.meta_path is provided.
+        Also writes an optional report JSON when run.report.enabled and run.report.path are provided.
         """
         j = self._ensure_journal()  # may be None if CSV disabled
-        # Build a synthetic 'summary' snapshot. event_type isn't validated by the CSV writer.
+
+        # Build identity from journal if available
         identity = {
             "run_id": getattr(j, "run_id", None),
             "seed": getattr(j, "seed", None),
         }
+
+        # Build a synthetic 'summary' snapshot. event_type isn't validated by the CSV writer.
         summary_event = {
             "type": "summary",
             "point": self.point,
@@ -712,6 +723,37 @@ class ControlStrategy:
                     json.dump(out, f, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
             except Exception:
                 # Silent fail-open: meta JSON is optional
+                pass
+
+        # Optional report.json dump if configured (P5C3)
+        rep_blk = (run_blk or {}).get("report") if isinstance(run_blk, dict) else {}
+        report_path = None
+        if isinstance(rep_blk, dict) and bool(rep_blk.get("enabled", False)):
+            report_path = rep_blk.get("path")
+
+        if isinstance(report_path, str) and report_path.strip():
+            try:
+                csv_cfg = self._resolve_journal_cfg()  # for source file hint
+                # Compose report; keep it compact but explicit
+                report = {
+                    "identity": identity,
+                    "summary": dict(self._stats),
+                    "memory": dict(self.memory) if self.memory else {},
+                    "mode": getattr(self, "mode", None),
+                    "point": self.point,
+                    "on_comeout": self.on_comeout,
+                    "source_files": {
+                        "csv": str(csv_cfg["path"]) if csv_cfg else "",
+                        # include meta path hint even if not present; tests tolerate absence
+                        "meta": meta_path if isinstance(meta_path, str) else "",
+                    },
+                }
+                rp = Path(report_path)
+                rp.parent.mkdir(parents=True, exist_ok=True)
+                with rp.open("w", encoding="utf-8") as f:
+                    json.dump(report, f, ensure_ascii=False, separators=(",", ":"), sort_keys=False)
+            except Exception:
+                # Silent fail-open: report JSON is optional
                 pass
 
     def state_snapshot(self) -> Dict[str, Any]:
