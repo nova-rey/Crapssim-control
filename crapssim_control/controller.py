@@ -39,6 +39,10 @@ class ControlStrategy:
       • New 'setvar' rule action to persist custom variables across events.
         Applied before template rendering so templates/rules can use them.
       • Snapshot.extra includes {"mode_change": bool, "memory": {...}} for journaling.
+
+    P5C1 upgrades:
+      • In-RAM per-run stats (_stats) counting events/actions (no persistence between runs).
+      • finalize_run() writes a one-row summary to CSV (via extra JSON) when journaling is enabled.
     """
 
     def __init__(
@@ -63,7 +67,7 @@ class ControlStrategy:
         else:
             self.mode = self._default_mode()
 
-        # P4C4: persistent user memory (cross-event)
+        # P4C4: persistent user memory (cross-event within a single run)
         self.memory: Dict[str, Any] = {}
 
         # Journaling: lazy-init on first use
@@ -72,6 +76,13 @@ class ControlStrategy:
 
         # P4C4: per-event flag captured in snapshot.extra
         self._mode_changed_this_event: bool = False
+
+        # P5C1: simple in-RAM run stats
+        self._stats: Dict[str, Any] = {
+            "events_total": 0,
+            "actions_total": 0,
+            "by_event_type": {},  # e.g., {"comeout": 1, "point_established": 3, ...}
+        }
 
     # ----- helpers -----
 
@@ -93,7 +104,7 @@ class ControlStrategy:
         else:
             st.update(self.spec.get("variables", {}) or {})
 
-        # P4C4: include controller memory so rules/templates can use it
+        # Include controller memory so rules/templates can use it
         st.update(self.memory)
 
         st["point"] = self.point
@@ -198,7 +209,7 @@ class ControlStrategy:
             # Optional: include canonical roll/point for convenience
             "roll": event.get("roll"),
             "event_point": event.get("point"),
-            # P4C4: enriched extra payload consumed by CSVJournal
+            # Enriched extra payload consumed by CSVJournal
             "extra": {
                 "mode_change": self._mode_changed_this_event,
                 "memory": dict(self.memory) if self.memory else {},
@@ -524,6 +535,9 @@ class ControlStrategy:
             final = self._merge_actions_for_event(switches + template_and_regress + rule_non_special)
             final = self._annotate_seq(final)
             self._journal_actions(event, final)
+
+            # P5C1: update stats
+            self._bump_stats(ev_type, final)
             return final
 
         if ev_type == POINT_ESTABLISHED:
@@ -548,6 +562,9 @@ class ControlStrategy:
             final = self._merge_actions_for_event(switches + template_and_regress + rule_non_special)
             final = self._annotate_seq(final)
             self._journal_actions(event, final)
+
+            # P5C1: update stats
+            self._bump_stats(ev_type, final)
             return final
 
         if ev_type == ROLL:
@@ -583,6 +600,9 @@ class ControlStrategy:
             final = self._merge_actions_for_event(switches + template_and_regress + rule_non_special)
             final = self._annotate_seq(final)
             self._journal_actions(event, final)
+
+            # P5C1: update stats
+            self._bump_stats(ev_type, final)
             return final
 
         if ev_type == SEVEN_OUT:
@@ -601,6 +621,9 @@ class ControlStrategy:
             final = self._merge_actions_for_event(switches + rule_non_special)
             final = self._annotate_seq(final)
             self._journal_actions(event, final)
+
+            # P5C1: update stats
+            self._bump_stats(ev_type, final)
             return final
 
         # Unknown or ancillary event type: still allow rules to look at it
@@ -614,7 +637,57 @@ class ControlStrategy:
         final = self._merge_actions_for_event(switches + rule_non_special)
         final = self._annotate_seq(final)
         self._journal_actions(event, final)
+
+        # P5C1: update stats
+        self._bump_stats(ev_type, final)
         return final
+
+    def _bump_stats(self, ev_type: Optional[str], actions: List[Dict[str, Any]]) -> None:
+        ev = (ev_type or "").lower()
+        self._stats["events_total"] += 1
+        self._stats["actions_total"] += len(actions)
+        map_ = self._stats["by_event_type"]
+        map_[ev] = int(map_.get(ev, 0)) + 1
+
+    def finalize_run(self) -> None:
+        """
+        Optional call at the end of a run to emit a single summary row to CSV (if enabled).
+        No-op if journaling is disabled.
+        The summary content lives in the 'extra' JSON (merged by CSVJournal).
+        """
+        j = self._ensure_journal()
+        if j is None:
+            return
+
+        # Build a synthetic 'summary' snapshot. event_type isn't validated by the CSV writer.
+        summary_event = {
+            "type": "summary",
+            "point": self.point,
+            "roll": 0,
+            "on_comeout": self.on_comeout,
+            # Merge-able extra block; CSVJournal will include this as JSON in 'extra'
+            "extra": {
+                "summary": True,
+                "stats": dict(self._stats),
+                "memory": dict(self.memory) if self.memory else {},
+            },
+        }
+
+        # Emit a single benign envelope. We use switch_mode to avoid requiring bet_type/amount.
+        summary_action = make_action(
+            "switch_mode",
+            bet_type=None,
+            amount=None,
+            source="rule",
+            id_="summary:run",
+            notes="end_of_run",
+        )
+
+        try:
+            j.write_actions([summary_action], snapshot=summary_event)  # one row summary
+        except Exception:
+            # Fail-open; summary is optional
+            pass
 
     def state_snapshot(self) -> Dict[str, Any]:
         return {
@@ -623,6 +696,7 @@ class ControlStrategy:
             "on_comeout": self.on_comeout,
             "mode": getattr(self, "mode", None),
             "memory": dict(self.memory),
+            "stats": dict(self._stats),
         }
 
     # ----- smoke-test shims expected by EngineAdapter -----
