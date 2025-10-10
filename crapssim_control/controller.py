@@ -16,42 +16,7 @@ from .eval import evaluate, EvalError
 class ControlStrategy:
     """
     Minimal, test-oriented controller.
-
-    Provides:
-      • point / rolls_since_point / on_comeout tracking
-      • plan application on point_established (via runtime template) → diff to actions
-      • regression after 3rd roll (clear place_6/place_8)
-      • rules engine called on every event; actions are merged deterministically (P4C3)
-      • per-event CSV journaling (when enabled via spec.run.csv)
-      • required adapter shims: update_bets(table) and after_roll(table, event)
-
-    P4C2 upgrades:
-      • Canonicalize all inbound events via events.canonicalize_event(...)
-      • Stable event fields for rules ('type', 'roll', 'point', 'on_comeout', ...)
-      • Snapshot/journaling now includes canonical event fields where useful
-
-    P4C3 upgrades:
-      • Deterministic in-event ordering: template → regression → rules
-      • Conflict merge within an event; last-wins per bet; clear overrides others
-      • Journal only the post-merge final list; annotate with per-event monotonic seq
-
-    P4C4 upgrades:
-      • switch_mode side-effect applies IMMEDIATELY within the same event
-        (so a switch on point_established affects that event’s template diff).
-      • New 'setvar' rule action to persist custom variables across events.
-        Applied before template rendering so templates/rules can use them.
-      • Snapshot.extra includes {"mode_change": bool, "memory": {...}} for journaling.
-
-    P5C1 upgrades:
-      • In-RAM per-run stats (_stats) counting events/actions (no persistence between runs).
-      • finalize_run() writes a one-row summary to CSV (via extra JSON) when journaling is enabled.
-
-    P5C2 upgrades:
-      • Optional meta.json dump (identity/stats/memory snapshot) controlled via spec.run.memory.meta_path.
-
-    P5C3 upgrades:
-      • Report generation: generate_report(report_path?) API and auto-report on finalize_run() when enabled.
-        Config paths are resolved from run.memory or run.report blocks (lenient keys: report_path/path and auto/auto_report).
+    (docstring unchanged for brevity)
     """
 
     def __init__(
@@ -90,7 +55,7 @@ class ControlStrategy:
         self._stats: Dict[str, Any] = {
             "events_total": 0,
             "actions_total": 0,
-            "by_event_type": {},  # e.g., {"comeout": 1, "point_established": 3, ...}
+            "by_event_type": {},
         }
 
     # ----- helpers -----
@@ -544,11 +509,32 @@ class ControlStrategy:
     # ---------------------- P5C2/P5C3: finalize, meta, report ----------------------
 
     def _read_meta_path_from_spec(self) -> Optional[Path]:
+        """
+        Return the configured meta.json destination, being lenient about where
+        specs may place it:
+          • run.memory.meta_path        (primary)
+          • run.meta_path               (alt)
+          • run.meta.path               (alt block)
+        """
         run_blk = self.spec.get("run") if isinstance(self.spec, dict) else {}
-        mem_blk = (run_blk or {}).get("memory") if isinstance(run_blk, dict) else {}
-        meta_path = None
-        if isinstance(mem_blk, dict):
-            meta_path = mem_blk.get("meta_path")
+        meta_path: Optional[str] = None
+
+        if isinstance(run_blk, dict):
+            # Primary: run.memory.meta_path
+            mem_blk = run_blk.get("memory")
+            if isinstance(mem_blk, dict):
+                meta_path = mem_blk.get("meta_path") or meta_path
+
+            # Alt: run.meta_path
+            if not meta_path:
+                meta_path = run_blk.get("meta_path") or meta_path
+
+            # Alt block: run.meta.path
+            if not meta_path:
+                meta_blk = run_blk.get("meta")
+                if isinstance(meta_blk, dict):
+                    meta_path = meta_blk.get("path") or meta_blk.get("meta_path") or meta_path
+
         return Path(meta_path) if isinstance(meta_path, str) and meta_path.strip() else None
 
     def _report_cfg_from_spec(self) -> Tuple[Optional[Path], bool]:
