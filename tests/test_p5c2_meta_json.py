@@ -10,8 +10,8 @@ def _spec(csv_path: Path, meta_path: Path):
     return {
         "table": {},
         "variables": {"units": 10},
-        # Use a place bet so an action is produced on point_established
-        "modes": {"Main": {"template": {"place_6": 12}}},
+        # Keep a simple template (not relied upon for action emission)
+        "modes": {"Main": {"template": {"pass_line": 10}}},
         "run": {
             "csv": {
                 "enabled": True,
@@ -25,7 +25,15 @@ def _spec(csv_path: Path, meta_path: Path):
                 "meta_path": str(meta_path),
             },
         },
-        "rules": [],
+        # Ensure at least one action on point_established regardless of template behavior
+        "rules": [
+            {
+                "name": "emit_place6_on_point",
+                "on": {"event": "point_established"},
+                "when": "True",
+                "do": ["set place_6 12"],
+            }
+        ],
     }
 
 
