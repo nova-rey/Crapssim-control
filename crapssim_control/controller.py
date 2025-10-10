@@ -604,6 +604,7 @@ class ControlStrategy:
         if report_path is None:
             cfg_path, _ = self._report_cfg_from_spec()
             report_path = cfg_path
+
         # Try meta.json if configured and present
         identity: Dict[str, Any] = {}
         memory: Dict[str, Any] = {}
@@ -641,12 +642,18 @@ class ControlStrategy:
             "on_comeout": self.on_comeout,
         }
 
-        # Include CSV path hint if available
+        # Include CSV path hint if available (legacy field)
         j = self._ensure_journal()
         try:
             report["csv"] = {"path": str(getattr(j, "path")) if j is not None else None}
         except Exception:
             report["csv"] = {"path": None}
+
+        # NEW: explicit source file references required by tests
+        report["source_files"] = {
+            "csv": str(getattr(j, "path", None)) if j is not None else None,
+            "meta": str(meta_path) if (meta_path and meta_path.exists()) else None,
+        }
 
         # Write to disk if a path is provided/configured
         if isinstance(report_path, (str, Path)) and str(report_path):
