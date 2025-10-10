@@ -61,6 +61,7 @@ def _merge_extra(snapshot: Dict[str, Any], action: Dict[str, Any]) -> Any:
         base["roll"] = int(roll_val) if float(roll_val).is_integer() else roll_val
 
     evt_pt = snapshot.get("event_point")
+    # event_point can be non-numeric (None/empty), only include if numeric
     evt_pt_num = _coerce_num(evt_pt)
     if evt_pt_num is not None:
         base["event_point"] = int(evt_pt_num) if float(evt_pt_num).is_integer() else evt_pt_num
@@ -71,6 +72,7 @@ def _merge_extra(snapshot: Dict[str, Any], action: Dict[str, Any]) -> Any:
             seq_num = int(action.get("seq"))
             base["seq"] = seq_num
         except Exception:
+            # If not cleanly int, store raw
             base["seq"] = action.get("seq")
 
     # If base is still empty and original extra was a simple string, pass it through
@@ -142,7 +144,8 @@ class CSVJournal:
 
         with open(self.path, mode_flag, newline="", encoding="utf-8") as f:
             writer = csv.DictWriter(f, fieldnames=self._columns, extrasaction="ignore")
-            if write_header:
+            # If we opened with 'w' (truncate), we must rewrite the header unconditionally.
+            if write_header or mode_flag == "w":
                 writer.writeheader()
 
             snap = snapshot or {}
@@ -209,7 +212,8 @@ class CSVJournal:
             mode_flag = "a" if self.append else "w"
             with open(self.path, mode_flag, newline="", encoding="utf-8") as f:
                 writer = csv.DictWriter(f, fieldnames=self._columns, extrasaction="ignore")
-                if write_header:
+                # Same rule as write_actions: after truncation, always write header.
+                if write_header or mode_flag == "w":
                     writer.writeheader()
 
                 snap = snapshot or {}
