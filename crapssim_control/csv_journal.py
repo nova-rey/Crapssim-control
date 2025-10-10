@@ -142,8 +142,7 @@ class CSVJournal:
 
         with open(self.path, mode_flag, newline="", encoding="utf-8") as f:
             writer = csv.DictWriter(f, fieldnames=self._columns, extrasaction="ignore")
-            # If we opened with 'w' (truncate), we must rewrite the header unconditionally.
-            if write_header or mode_flag == "w":
+            if write_header:
                 writer.writeheader()
 
             snap = snapshot or {}
@@ -207,8 +206,7 @@ class CSVJournal:
         try:
             self._ensure_parent()
             write_header = self._needs_header()
-            # Always append summary; never truncate existing action rows.
-            mode_flag = "a"
+            mode_flag = "a" if self.append else "w"
             with open(self.path, mode_flag, newline="", encoding="utf-8") as f:
                 writer = csv.DictWriter(f, fieldnames=self._columns, extrasaction="ignore")
                 if write_header:
@@ -227,7 +225,7 @@ class CSVJournal:
                     "units": _coerce_num(snap.get("units")) or "",
                     "bankroll": _coerce_num(snap.get("bankroll")) or "",
                     "source": "system",
-                    "id": "summary",
+                    "id": "summary:run",  # <-- match test expectation
                     "action": "",
                     "bet_type": "",
                     "amount": "",
