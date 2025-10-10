@@ -65,7 +65,7 @@ def _drive_minimal_run(ctrl: ControlStrategy):
     ctrl.finalize_run()
 
 
-@pytest.mark.xfail(reason="P5C5 export bundling not implemented yet", strict=False)
+#@pytest.mark.xfail(reason="P5C5 export bundling not implemented yet", strict=False)
 def test_export_folder_bundle(tmp_path: Path):
     csv_path = tmp_path / "journal.csv"
     meta_path = tmp_path / "meta.json"
