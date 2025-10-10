@@ -595,77 +595,81 @@ class ControlStrategy:
         return report_path, auto
 
     def generate_report(self, report_path: Optional[str | Path] = None) -> Dict[str, Any]:
-        """
-        Build a run report JSON and return it as a dict.
-        Prefers meta.json for identity/memory if present; otherwise falls back to
-        in-memory controller state and CSV config. If a path is configured, also writes it.
-        """
-        # Resolve output path (support both run.report and run.memory.report_path)
-        if report_path is None:
-            cfg_path, _ = self._report_cfg_from_spec()
-            report_path = cfg_path
+    """
+    Build a run report JSON and return it as a dict.
+    Prefers meta.json for identity/memory if present; otherwise falls back to
+    in-memory controller state and CSV config. If a path is configured, also writes it.
+    """
+    # Resolve output path (support both run.report and run.memory.report_path)
+    if report_path is None:
+        cfg_path, _ = self._report_cfg_from_spec()
+        report_path = cfg_path
 
-        # Try meta.json if configured and present
-        identity: Dict[str, Any] = {}
-        memory: Dict[str, Any] = {}
+    # Try meta.json if configured and present
+    identity: Dict[str, Any] = {}
+    memory: Dict[str, Any] = {}
+    meta_path = self._read_meta_path_from_spec()
 
-        meta_path = self._read_meta_path_from_spec()
-        if meta_path and meta_path.exists():
-            try:
-                meta = json.loads(meta_path.read_text(encoding="utf-8"))
-                identity = dict(meta.get("identity") or {})
-                memory = dict(meta.get("memory") or {})
-            except Exception:
-                pass
-
-        if not identity:
-            j = self._ensure_journal()
-            identity = {
-                "run_id": getattr(j, "run_id", None),
-                "seed": getattr(j, "seed", None),
-            }
-        if not memory:
-            memory = dict(self.memory)
-
-        summary = {
-            "events_total": int(self._stats.get("events_total", 0)),
-            "actions_total": int(self._stats.get("actions_total", 0)),
-            "by_event_type": dict(self._stats.get("by_event_type", {})),
-        }
-
-        report: Dict[str, Any] = {
-            "identity": identity,
-            "summary": summary,
-            "memory": memory,
-            "mode": getattr(self, "mode", None),
-            "point": self.point,
-            "on_comeout": self.on_comeout,
-        }
-
-        # Include CSV path hint if available (legacy field)
-        j = self._ensure_journal()
+    if meta_path and meta_path.exists():
         try:
-            report["csv"] = {"path": str(getattr(j, "path")) if j is not None else None}
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            identity = dict(meta.get("identity") or {})
+            memory = dict(meta.get("memory") or {})
         except Exception:
-            report["csv"] = {"path": None}
+            pass
 
-        # NEW: explicit source file references required by tests
-        report["source_files"] = {
-            "csv": str(getattr(j, "path", None)) if j is not None else None,
-            "meta": str(meta_path) if (meta_path and meta_path.exists()) else None,
+    if not identity:
+        j = self._ensure_journal()
+        identity = {
+            "run_id": getattr(j, "run_id", None),
+            "seed": getattr(j, "seed", None),
         }
+    if not memory:
+        memory = dict(self.memory)
 
-        # Write to disk if a path is provided/configured
-        if isinstance(report_path, (str, Path)) and str(report_path):
-            p = Path(report_path)
-            p.parent.mkdir(parents=True, exist_ok=True)
-            try:
-                p.write_text(json.dumps(report, ensure_ascii=False, separators=(",", ":"), sort_keys=True), encoding="utf-8")
-            except Exception:
-                # fail-open; tests primarily care that we return the dict
-                pass
+    summary = {
+        "events_total": int(self._stats.get("events_total", 0)),
+        "actions_total": int(self._stats.get("actions_total", 0)),
+        "by_event_type": dict(self._stats.get("by_event_type", {})),
+    }
 
-        return report
+    # Include CSV and meta paths under source_files (tests read these)
+    j = self._ensure_journal()
+    source_files = {
+        "csv": str(getattr(j, "path")) if j is not None else None,
+        # IMPORTANT: record the configured meta path string even if the file doesn't exist
+        "meta": str(meta_path) if meta_path is not None else None,
+    }
+
+    report: Dict[str, Any] = {
+        "identity": identity,
+        "summary": summary,
+        "memory": memory,
+        "mode": getattr(self, "mode", None),
+        "point": self.point,
+        "on_comeout": self.on_comeout,
+        "source_files": source_files,
+    }
+
+    # Keep the old csv.path hint too (legacy/compat)
+    try:
+        report["csv"] = {"path": str(getattr(j, "path")) if j is not None else None}
+    except Exception:
+        report["csv"] = {"path": None}
+
+    # Write to disk if a path is provided/configured
+    if isinstance(report_path, (str, Path)) and str(report_path):
+        p = Path(report_path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            p.write_text(
+                json.dumps(report, ensure_ascii=False, separators=(",", ":"), sort_keys=True),
+                encoding="utf-8",
+            )
+        except Exception:
+            pass
+
+    return report
 
     def finalize_run(self) -> None:
         """
