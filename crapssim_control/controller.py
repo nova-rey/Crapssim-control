@@ -96,7 +96,11 @@ class ControlStrategy:
     # ----- helpers -----
 
     def _default_mode(self) -> str:
-        modes = self.spec.get("modes", {})
+        modes = self.spec.get("modes", {}) or {}
+        # Prefer a conventional "Main" mode if provided
+        if "Main" in modes:
+            return "Main"
+        # Otherwise fall back to the first declared mode (dicts preserve insertion order)
         if modes:
             return next(iter(modes.keys()))
         return "Main"
