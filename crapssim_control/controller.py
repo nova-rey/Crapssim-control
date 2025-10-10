@@ -1,7 +1,8 @@
-# crapssim_control/controller.py
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Tuple
+import json
+from pathlib import Path
 
 from .templates_rt import render_template as render_runtime_template, diff_bets
 from .actions import make_action  # Action Envelope helper
@@ -652,20 +653,11 @@ class ControlStrategy:
     def finalize_run(self) -> None:
         """
         Optional call at the end of a run to emit a single summary row to CSV (if enabled).
-        No-op if journaling is disabled.
-        The summary content lives in the 'extra' JSON (merged by CSVJournal).
+        Also writes an optional meta JSON file when run.memory.meta_path is provided.
         """
-        j = self._ensure_journal()
-        if j is None:
-            return
-
-        # Build a synthetic 'summary' snapshot.
-        # event_type isn't validated by the CSV writer, so we can mark it explicitly.
-        summary_extra = {
-            "summary": True,
-            "stats": dict(self._stats),
-            "memory": dict(self.memory) if self.memory else {},
-            # P5C2: include run identity in extra block
+        j = self._ensure_journal()  # may be None if CSV disabled
+        # Build a synthetic 'summary' snapshot. event_type isn't validated by the CSV writer.
+        identity = {
             "run_id": getattr(j, "run_id", None),
             "seed": getattr(j, "seed", None),
         }
@@ -674,24 +666,53 @@ class ControlStrategy:
             "point": self.point,
             "roll": 0,
             "on_comeout": self.on_comeout,
-            "extra": summary_extra,
+            "extra": {
+                "summary": True,
+                "identity": identity,
+                "stats": dict(self._stats),
+                "memory": dict(self.memory) if self.memory else {},
+            },
         }
 
-        # Emit a single benign envelope; tests expect this exact contract.
-        summary_action = make_action(
-            "switch_mode",
-            bet_type=None,
-            amount=None,
-            source="rule",
-            id_="summary:run",
-            notes="end_of_run",
-        )
+        # Emit a benign envelope so the row passes schema checks.
+        if j is not None:
+            try:
+                summary_action = make_action(
+                    "switch_mode",
+                    bet_type=None,
+                    amount=None,
+                    source="rule",
+                    id_="summary:run",
+                    notes="end_of_run",
+                )
+                j.write_actions([summary_action], snapshot=summary_event)
+            except Exception:
+                # Fail-open; summary is optional
+                pass
 
-        try:
-            j.write_actions([summary_action], snapshot=summary_event)  # one row summary
-        except Exception:
-            # Fail-open; summary is optional
-            pass
+        # Optional meta.json dump if configured
+        run_blk = self.spec.get("run") if isinstance(self.spec, dict) else {}
+        mem_blk = (run_blk or {}).get("memory") if isinstance(run_blk, dict) else {}
+        meta_path = None
+        if isinstance(mem_blk, dict):
+            meta_path = mem_blk.get("meta_path")
+        if isinstance(meta_path, str) and meta_path.strip():
+            try:
+                out = {
+                    "identity": identity,
+                    "stats": dict(self._stats),
+                    "memory": dict(self.memory),
+                    "mode": getattr(self, "mode", None),
+                    "point": self.point,
+                    "on_comeout": self.on_comeout,
+                }
+                p = Path(meta_path)
+                p.parent.mkdir(parents=True, exist_ok=True)
+                with p.open("w", encoding="utf-8") as f:
+                    json.dump(out, f, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+            except Exception:
+                # Silent fail-open: meta JSON is optional
+                pass
 
     def state_snapshot(self) -> Dict[str, Any]:
         return {
