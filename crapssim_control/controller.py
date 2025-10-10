@@ -186,8 +186,6 @@ class ControlStrategy:
 
         try:
             j = CSVJournal(cfg["path"], append=cfg["append"], run_id=cfg.get("run_id"), seed=cfg.get("seed"))
-            # P5C1: ensure the CSV file exists with a header immediately
-            j.ensure_header()
             self._journal = j
             self._journal_enabled = True
             return j
@@ -675,18 +673,9 @@ class ControlStrategy:
             },
         }
 
-        # Emit a single benign envelope. We use switch_mode to avoid requiring bet_type/amount.
-        summary_action = make_action(
-            "switch_mode",
-            bet_type=None,
-            amount=None,
-            source="rule",
-            id_="summary:run",
-            notes="end_of_run",
-        )
-
+        # Use the CSVJournal's dedicated summary appender (always append, never truncate).
         try:
-            j.write_actions([summary_action], snapshot=summary_event)  # one row summary
+            j.write_summary(summary=summary_event["extra"], snapshot=summary_event)
         except Exception:
             # Fail-open; summary is optional
             pass
