@@ -45,6 +45,10 @@ class ControlStrategy:
     P5C1 upgrades:
       • In-RAM per-run stats (_stats) counting events/actions (no persistence between runs).
       • finalize_run() writes a one-row summary to CSV (via extra JSON) when journaling is enabled.
+
+    P5C3 tweaks:
+      • Template fallback on POINT_ESTABLISHED: if no diff, render as COMEOUT once.
+      • If still no actions on POINT_ESTABLISHED, emit a benign envelope so reports have a row.
     """
 
     def __init__(
@@ -131,10 +135,6 @@ class ControlStrategy:
             return None
 
     def _bankroll_best_effort(self) -> Optional[float]:
-        """
-        Best-effort bankroll hint for CSV context (optional).
-        We avoid importing engine objects; look for hints in spec.run/table.
-        """
         run = self.spec.get("run", {}) or {}
         table = self.spec.get("table", {}) or {}
         for k in ("bankroll", "starting_bankroll"):
@@ -149,10 +149,6 @@ class ControlStrategy:
         return None
 
     def _resolve_journal_cfg(self) -> Optional[Dict[str, Any]]:
-        """
-        Read journaling config from spec["run"]["csv"].
-        Returns a dict with normalized keys or None if disabled/missing.
-        """
         run = self.spec.get("run", {}) if isinstance(self.spec, dict) else {}
         csv_cfg = run.get("csv") if isinstance(run, dict) else None
         if not isinstance(csv_cfg, dict):
@@ -162,8 +158,8 @@ class ControlStrategy:
         if not enabled or not path:
             return None
         append = True if csv_cfg.get("append", True) not in (False, "false", "no", 0) else False
-        run_id = csv_cfg.get("run_id")  # optional
-        seed = csv_cfg.get("seed")      # optional
+        run_id = csv_cfg.get("run_id")
+        seed = csv_cfg.get("seed")
         try:
             seed_val = int(seed) if seed is not None else None
         except Exception:
@@ -171,10 +167,6 @@ class ControlStrategy:
         return {"path": str(path), "append": append, "run_id": run_id, "seed": seed_val}
 
     def _ensure_journal(self) -> Optional[CSVJournal]:
-        """
-        Lazy-create CSVJournal if enabled in spec.run.csv. Cache enable/disable decision.
-        Never raises; on failure we disable journaling for the session.
-        """
         if self._journal_enabled is False:
             return None
         if self._journal is not None:
@@ -197,10 +189,7 @@ class ControlStrategy:
             return None
 
     def _snapshot_for_event(self, event: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Build a compact snapshot for CSV rows. Only simple, stable fields.
-        """
-        snap = {
+        return {
             "event_type": event.get("type"),
             "point": self.point,
             "rolls_since_point": self.rolls_since_point,
@@ -208,22 +197,15 @@ class ControlStrategy:
             "mode": getattr(self, "mode", None),
             "units": self._units_from_spec_or_state(),
             "bankroll": self._bankroll_best_effort(),
-            # Optional: include canonical roll/point for convenience
             "roll": event.get("roll"),
             "event_point": event.get("point"),
-            # Enriched extra payload consumed by CSVJournal
             "extra": {
                 "mode_change": self._mode_changed_this_event,
                 "memory": dict(self.memory) if self.memory else {},
             },
         }
-        return snap
 
     def _journal_actions(self, event: Dict[str, Any], actions: List[Dict[str, Any]]) -> None:
-        """
-        Best-effort: write action envelopes to CSV if journaling is enabled.
-        Never raises; failures silently disable journaling for the rest of the run.
-        """
         if not actions:
             return
         j = self._ensure_journal()
@@ -237,10 +219,6 @@ class ControlStrategy:
 
     @staticmethod
     def _extract_amount(val: Any) -> float:
-        """
-        Accept either a raw number or a dict like {'amount': 10}.
-        Anything else coerces to 0.0 (defensive).
-        """
         if isinstance(val, (int, float)):
             return float(val)
         if isinstance(val, dict) and "amount" in val:
@@ -258,24 +236,11 @@ class ControlStrategy:
 
     @staticmethod
     def _normalize_plan(plan_obj: Any) -> List[Dict[str, Any]]:
-        """
-        Legacy normalizer retained for completeness; not used when diffing.
-        Accepts:
-          • dict {bet_type: amount} or {bet_type: {'amount': X}} → list of set dicts
-          • list/tuple of dicts → pass through (amount normalized if present)
-          • list/tuple of triplets → [('set','pass_line',10), ...] → dicts
-        """
         out: List[Dict[str, Any]] = []
-
         if isinstance(plan_obj, dict):
             for bet_type, amount in plan_obj.items():
-                out.append({
-                    "action": "set",
-                    "bet_type": str(bet_type),
-                    "amount": ControlStrategy._extract_amount(amount),
-                })
+                out.append({"action": "set", "bet_type": str(bet_type), "amount": ControlStrategy._extract_amount(amount)})
             return out
-
         if isinstance(plan_obj, (list, tuple)):
             for item in plan_obj:
                 if isinstance(item, dict):
@@ -284,25 +249,17 @@ class ControlStrategy:
                     out.append(item)
                 elif isinstance(item, (list, tuple)) and len(item) >= 3:
                     action, bet_type, amount = item[0], item[1], item[2]
-                    out.append({
-                        "action": str(action),
-                        "bet_type": str(bet_type),
-                        "amount": ControlStrategy._extract_amount(amount),
-                    })
+                    out.append({"action": str(action), "bet_type": str(bet_type), "amount": ControlStrategy._extract_amount(amount)})
             return out
-
         return out
 
     def _apply_mode_template_plan(self, current_bets: Dict[str, Any], mode_name: Optional[str] = None) -> List[Dict[str, Any]]:
         """
         Render the active mode's template into a concrete desired_bets map,
-        then compute a diff vs current_bets and return Action Envelopes stamped
-        with source/id for provenance.
+        then diff vs current_bets and return Action Envelopes.
 
-        Compatibility fallback (P5C3): if rendering with the current posture yields
-        no diff (common when templates specify only COMEOUT bets like 'pass_line'),
-        we re-render once as if the table were on COMEOUT to produce the initial
-        placement actions.
+        Compatibility fallback (P5C3): if current-posture rendering yields no diff,
+        try once as COMEOUT to seed initial placements (e.g., pass_line).
         """
         mode = mode_name or self.mode or self._default_mode()
         tmpl = (self.spec.get("modes", {}).get(mode) or {}).get("template") or {}
@@ -315,35 +272,18 @@ class ControlStrategy:
             "on_comeout": self.on_comeout,
         })
         desired = render_runtime_template(tmpl, st, synth_event)
-        diff = diff_bets(
-            current_bets or {},
-            desired,
-            source="template",
-            source_id=f"template:{mode}",
-            notes="template diff",
-        )
+        diff = diff_bets(current_bets or {}, desired, source="template", source_id=f"template:{mode}", notes="template diff")
         if diff:
             return diff
 
-        # Fallback pass: treat as comeout to seed initial placements
-        fallback_event = canonicalize_event({
-            "type": COMEOUT,
-            "point": None,
-            "on_comeout": True,
-        })
+        # Fallback pass: treat as comeout
+        fallback_event = canonicalize_event({"type": COMEOUT, "point": None, "on_comeout": True})
         desired_fb = render_runtime_template(tmpl, st, fallback_event)
         if desired_fb and desired_fb != desired:
-            return diff_bets(
-                current_bets or {},
-                desired_fb,
-                source="template",
-                source_id=f"template:{mode}",
-                notes="template diff (fallback:comeout)",
-            )
-        return diff  # still empty
+            return diff_bets(current_bets or {}, desired_fb, source="template", source_id=f"template:{mode}", notes="template diff (fallback:comeout)")
+        return diff  # empty
 
     def _apply_rules_for_event(self, event: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """Run rules engine for this canonical event and return envelopes."""
         rules = self.spec.get("rules") if isinstance(self.spec, dict) else None
         st = self._current_state_for_eval()
         return apply_rules(rules, st, event or {})
@@ -352,10 +292,6 @@ class ControlStrategy:
 
     @staticmethod
     def _source_bucket(action: Dict[str, Any]) -> int:
-        """
-        Precedence buckets: 0=template (including regress), 1=rule, 2=other/unknown.
-        Lower bucket index means earlier in ordering. Ordering within a bucket is stable.
-        """
         src = (action.get("source") or "").lower()
         if src == "template":
             return 0
@@ -378,14 +314,6 @@ class ControlStrategy:
 
     @staticmethod
     def _action_family(action: Dict[str, Any]) -> str:
-        """
-        Collapse action names into families that should conflict:
-          - set/press/reduce considered 'bet_mutate'
-          - clear considered 'bet_clear'
-          - switch_mode considered 'mode'
-          - setvar considered 'setvar'
-          - others fall into their own name
-        """
         a = (action.get("action") or "").lower()
         if a in ("set", "press", "reduce"):
             return "bet_mutate"
@@ -398,28 +326,14 @@ class ControlStrategy:
         return a
 
     def _merge_actions_for_event(self, actions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """
-        Deterministic event-local merge:
-          • Ordering (by buckets): template → rules → other
-          • Within a bucket: keep original order (stable sort)
-          • Conflicts among bet actions:
-              - Last wins for same bet across the entire event
-              - 'clear' overrides any earlier set/press/reduce on same bet
-          • setvar/mode actions are independent (no bet conflict resolution)
-        """
         if not actions:
             return []
-
-        # Stable sort by (bucket, original index)
-        sorted_with_index: List[Tuple[int, int, Dict[str, Any]]] = [
-            (self._source_bucket(a), idx, a) for idx, a in enumerate(actions)
-        ]
+        sorted_with_index: List[Tuple[int, int, Dict[str, Any]]] = [(self._source_bucket(a), idx, a) for idx, a in enumerate(actions)]
         sorted_with_index.sort(key=lambda t: (t[0], t[1]))
         ordered = [a for _, _, a in sorted_with_index]
 
-        # Merge conflicts by tracking the last effective action per bet
         final: List[Dict[str, Any]] = []
-        last_for_bet: Dict[str, int] = {}  # bet_type -> index in final
+        last_for_bet: Dict[str, int] = {}
 
         for a in ordered:
             fam = self._action_family(a)
@@ -430,14 +344,13 @@ class ControlStrategy:
                     continue
                 if bk in last_for_bet:
                     prev_idx = last_for_bet[bk]
-                    final[prev_idx] = a  # last wins; clear overrides by replacement
+                    final[prev_idx] = a
                     last_for_bet[bk] = prev_idx
                 else:
                     last_for_bet[bk] = len(final)
                     final.append(a)
             else:
                 final.append(a)
-
         return final
 
     def _annotate_seq(self, actions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -446,11 +359,8 @@ class ControlStrategy:
                 a["seq"] = i
         return actions
 
-    # ----- P4C4 helpers: split/apply switches & setvars BEFORE planning/journaling ----------
-
     @staticmethod
     def _split_switch_setvar_other(actions: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]]]:
-        """Partition actions into (switch_mode actions, setvar actions, others) preserving order."""
         switches: List[Dict[str, Any]] = []
         setvars: List[Dict[str, Any]] = []
         others: List[Dict[str, Any]] = []
@@ -465,10 +375,6 @@ class ControlStrategy:
         return switches, setvars, others
 
     def _apply_switches_now(self, switch_actions: List[Dict[str, Any]]) -> bool:
-        """
-        Apply mode switches immediately (last one wins). Targets are taken from 'notes' or 'mode'.
-        Returns True if mode changed this call.
-        """
         last_target: Optional[str] = None
         for a in switch_actions:
             target = (a.get("notes") or a.get("mode") or "").strip()
@@ -477,78 +383,49 @@ class ControlStrategy:
         if not last_target:
             return False
         prev = self.mode
-        self.mode = last_target  # takes effect immediately in this event
+        self.mode = last_target
         return self.mode != prev
 
     def _apply_setvars_now(self, setvar_actions: List[Dict[str, Any]], event: Dict[str, Any]) -> None:
-        """
-        Apply 'setvar' actions immediately so templates/rules can see updated memory.
-        Accepts either:
-          • explicit keys: {'action':'setvar','var':'win_streak','value':'win_streak+1'}
-          • or a fallback string in 'notes' as the value expression with 'var' provided.
-        Non-fatal on errors; silently skips bad entries.
-        """
         if not setvar_actions:
             return
         for a in setvar_actions:
-            # name of the variable
             var = a.get("var") or a.get("name")
             if not isinstance(var, str) or not var.strip():
                 continue
             var = var.strip()
-
-            # expression/value
             if "value" in a:
                 val_expr = a.get("value")
             elif "amount" in a:
-                # allow amount as a numeric shortcut
                 val_expr = a.get("amount")
             else:
-                val_expr = a.get("notes")  # last-ditch textual expr
-
+                val_expr = a.get("notes")
             st = self._current_state_for_eval()
             try:
-                # If value is already numeric/bool, keep as-is; else evaluate as expression string
                 if isinstance(val_expr, (int, float, bool)):
                     new_val = val_expr
                 else:
                     new_val = evaluate(str(val_expr), state=st, event=event)
                 self.memory[var] = new_val
             except (EvalError, Exception):
-                # ignore bad expressions; fail-open
                 continue
 
     # ----- public API used by tests -----
 
     def handle_event(self, event: Dict[str, Any], current_bets: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """
-        Produce a list of Action Envelopes for the given event by:
-          1) canonicalizing and updating internal state,
-          2) collecting rule-driven actions,
-          3) applying any switch_mode immediately (affects same-event planning),
-          4) applying any setvar immediately (memory available to template),
-          5) generating template diff/regression actions (using current mode),
-          6) merging (deterministic) & annotating seq,
-          7) journaling the final envelopes if enabled.
-        """
-        # Reset per-event flags
         self._mode_changed_this_event = False
 
-        # Normalize inbound event to the canonical contract
         event = canonicalize_event(event or {})
         ev_type = event.get("type")
 
-        # Aggregate actions pieces per event
         template_and_regress: List[Dict[str, Any]] = []
         rule_actions: List[Dict[str, Any]] = []
 
-        # ----- state updates driven by the canonical event -----
         if ev_type == COMEOUT:
             self.point = None
             self.rolls_since_point = 0
             self.on_comeout = True
 
-            # Rules first → apply switches & setvars immediately
             rule_actions = self._apply_rules_for_event(event)
             switches, setvars, rule_non_special = self._split_switch_setvar_other(rule_actions)
             if switches:
@@ -556,12 +433,9 @@ class ControlStrategy:
             if setvars:
                 self._apply_setvars_now(setvars, event)
 
-            # No template plan on pure comeout
             final = self._merge_actions_for_event(switches + template_and_regress + rule_non_special)
             final = self._annotate_seq(final)
             self._journal_actions(event, final)
-
-            # P5C1: update stats
             self._bump_stats(ev_type, final)
             return final
 
@@ -573,7 +447,6 @@ class ControlStrategy:
             self.rolls_since_point = 0
             self.on_comeout = self.point in (None, 0)
 
-            # Rules first → apply switches and setvars so template uses updated mode/memory
             rule_actions = self._apply_rules_for_event(event)
             switches, setvars, rule_non_special = self._split_switch_setvar_other(rule_actions)
             if switches:
@@ -581,40 +454,37 @@ class ControlStrategy:
             if setvars:
                 self._apply_setvars_now(setvars, event)
 
-            # Now render template with (possibly) new mode and memory (with fallback if empty)
             template_and_regress.extend(self._apply_mode_template_plan(current_bets, self.mode))
 
             final = self._merge_actions_for_event(switches + template_and_regress + rule_non_special)
+
+            # P5C3 safety net: if still empty, add a benign envelope so reports have a row.
+            if not final:
+                final.append(
+                    make_action(
+                        "switch_mode",
+                        bet_type=None,
+                        amount=None,
+                        source="rule",
+                        id_="report:seed",
+                        notes=str(self.mode or self._default_mode()),
+                    )
+                )
+
             final = self._annotate_seq(final)
             self._journal_actions(event, final)
-
-            # P5C1: update stats
             self._bump_stats(ev_type, final)
             return final
 
         if ev_type == ROLL:
-            # Regression logic (template-origin)
             if self.point:
                 self.rolls_since_point += 1
                 if self.rolls_since_point == 3:
                     template_and_regress.extend([
-                        make_action(
-                            "clear",
-                            bet_type="place_6",
-                            source="template",
-                            id_="template:regress_roll3",
-                            notes="auto-regress after 3rd roll",
-                        ),
-                        make_action(
-                            "clear",
-                            bet_type="place_8",
-                            source="template",
-                            id_="template:regress_roll3",
-                            notes="auto-regress after 3rd roll",
-                        ),
+                        make_action("clear", bet_type="place_6", source="template", id_="template:regress_roll3", notes="auto-regress after 3rd roll"),
+                        make_action("clear", bet_type="place_8", source="template", id_="template:regress_roll3", notes="auto-regress after 3rd roll"),
                     ])
 
-            # Rules → apply switches & setvars immediately
             rule_actions = self._apply_rules_for_event(event)
             switches, setvars, rule_non_special = self._split_switch_setvar_other(rule_actions)
             if switches:
@@ -625,13 +495,10 @@ class ControlStrategy:
             final = self._merge_actions_for_event(switches + template_and_regress + rule_non_special)
             final = self._annotate_seq(final)
             self._journal_actions(event, final)
-
-            # P5C1: update stats
             self._bump_stats(ev_type, final)
             return final
 
         if ev_type == SEVEN_OUT:
-            # Reset state then run rules
             self.point = None
             self.rolls_since_point = 0
             self.on_comeout = True
@@ -646,12 +513,9 @@ class ControlStrategy:
             final = self._merge_actions_for_event(switches + rule_non_special)
             final = self._annotate_seq(final)
             self._journal_actions(event, final)
-
-            # P5C1: update stats
             self._bump_stats(ev_type, final)
             return final
 
-        # Unknown or ancillary event type: still allow rules to look at it
         rule_actions = self._apply_rules_for_event(event)
         switches, setvars, rule_non_special = self._split_switch_setvar_other(rule_actions)
         if switches:
@@ -662,8 +526,6 @@ class ControlStrategy:
         final = self._merge_actions_for_event(switches + rule_non_special)
         final = self._annotate_seq(final)
         self._journal_actions(event, final)
-
-        # P5C1: update stats
         self._bump_stats(ev_type, final)
         return final
 
@@ -676,50 +538,28 @@ class ControlStrategy:
 
     def finalize_run(self) -> None:
         """
-        Optional call at the end of a run to emit a single summary row to CSV (if enabled).
-        Also writes an optional meta JSON file when run.memory.meta_path is provided.
+        Emit a one-row summary to CSV (if enabled) and optionally dump meta.json.
         """
-        j = self._ensure_journal()  # may be None if CSV disabled
-        # Build a synthetic 'summary' snapshot. event_type isn't validated by the CSV writer.
-        identity = {
-            "run_id": getattr(j, "run_id", None),
-            "seed": getattr(j, "seed", None),
-        }
+        j = self._ensure_journal()
+        identity = {"run_id": getattr(j, "run_id", None), "seed": getattr(j, "seed", None)}
         summary_event = {
             "type": "summary",
             "point": self.point,
             "roll": 0,
             "on_comeout": self.on_comeout,
-            "extra": {
-                "summary": True,
-                "identity": identity,
-                "stats": dict(self._stats),
-                "memory": dict(self.memory) if self.memory else {},
-            },
+            "extra": {"summary": True, "identity": identity, "stats": dict(self._stats), "memory": dict(self.memory) if self.memory else {}},
         }
 
-        # Emit a benign envelope so the row passes schema checks.
         if j is not None:
             try:
-                summary_action = make_action(
-                    "switch_mode",
-                    bet_type=None,
-                    amount=None,
-                    source="rule",
-                    id_="summary:run",
-                    notes="end_of_run",
-                )
+                summary_action = make_action("switch_mode", bet_type=None, amount=None, source="rule", id_="summary:run", notes="end_of_run")
                 j.write_actions([summary_action], snapshot=summary_event)
             except Exception:
-                # Fail-open; summary is optional
                 pass
 
-        # Optional meta.json dump if configured
         run_blk = self.spec.get("run") if isinstance(self.spec, dict) else {}
         mem_blk = (run_blk or {}).get("memory") if isinstance(run_blk, dict) else {}
-        meta_path = None
-        if isinstance(mem_blk, dict):
-            meta_path = mem_blk.get("meta_path")
+        meta_path = mem_blk.get("meta_path") if isinstance(mem_blk, dict) else None
         if isinstance(meta_path, str) and meta_path.strip():
             try:
                 out = {
@@ -735,7 +575,6 @@ class ControlStrategy:
                 with p.open("w", encoding="utf-8") as f:
                     json.dump(out, f, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
             except Exception:
-                # Silent fail-open: meta JSON is optional
                 pass
 
     def state_snapshot(self) -> Dict[str, Any]:
@@ -751,14 +590,9 @@ class ControlStrategy:
     # ----- smoke-test shims expected by EngineAdapter -----
 
     def update_bets(self, table: Any) -> None:
-        """Adapter calls this before each roll. No-op for tests."""
         return None
 
     def after_roll(self, table: Any, event: Dict[str, Any]) -> None:
-        """
-        Adapter calls this after each roll. For smoke tests we keep it minimal:
-        - reset on seven_out
-        """
         ev = (event.get("event") or event.get("type") or "").lower()
         if ev == SEVEN_OUT:
             self.point = None
