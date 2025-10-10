@@ -31,7 +31,7 @@ def _as_str(x: Any) -> str:
         return ""
     if isinstance(x, (dict, list, tuple)):
         try:
-            return json.dumps(x, ensure_ascii=False, separators=(",", ":"))
+            return json.dumps(x, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
         except Exception:
             return str(x)
     return str(x)
@@ -100,9 +100,10 @@ class CSVJournal:
       - append=True  → always append
       - append=False → truncate on the *first* write of this run, then append thereafter
 
-    P5C1/P5C2 compatibility retained. Convenience helpers added for P5C3:
+    P5C1/P5C2 compatibility retained. Convenience helpers added for P5C3/P5C4:
       - identity() returns {"run_id", "seed"}
       - path_str property exposes normalized CSV path
+      - write_cover_sheet(...) writes a comment preamble (#-prefixed rows) only on new files
     """
 
     path: str | os.PathLike[str]
@@ -140,14 +141,46 @@ class CSVJournal:
     def _ensure_parent(self) -> None:
         Path(self.path).parent.mkdir(parents=True, exist_ok=True)
 
+    def _has_header_row(self) -> bool:
+        """
+        Detect whether the CSV file already contains the exact header line.
+        Skips comment lines that start with '#'.
+        """
+        p = Path(self.path)
+        if not p.exists():
+            return False
+        try:
+            with p.open("r", encoding="utf-8") as f:
+                for _ in range(100):  # cheap scan of beginning
+                    line = f.readline()
+                    if not line:
+                        break
+                    s = line.strip()
+                    if not s or s.startswith("#"):
+                        continue
+                    # first non-comment content line
+                    expected_prefix = "ts,run_id,seed,"
+                    return s.startswith(expected_prefix)
+            return False
+        except Exception:
+            # If unreadable, be conservative and say no header
+            return False
+
     def _needs_header(self) -> bool:
+        """
+        We need to write the header if the file either doesn't exist,
+        is empty, or exists with only comment lines and no actual header row.
+        """
         p = Path(self.path)
         if not p.exists():
             return True
         try:
-            return p.stat().st_size == 0
+            if p.stat().st_size == 0:
+                return True
         except Exception:
-            return False
+            # if stat fails, try to write a header
+            return True
+        return not self._has_header_row()
 
     def _open_mode(self) -> str:
         """
@@ -159,12 +192,71 @@ class CSVJournal:
         return "w" if not self._first_write_done else "a"
 
     def ensure_header(self) -> None:
+        """
+        Ensure the canonical CSV header line exists immediately after any optional cover-sheet.
+        """
         self._ensure_parent()
         if not self._needs_header():
             return
-        with open(self.path, "a", newline="", encoding="utf-8") as f:
+        with open(self.path, self._open_mode(), newline="", encoding="utf-8") as f:
             writer = csv.DictWriter(f, fieldnames=self._columns, extrasaction="ignore")
             writer.writeheader()
+        # mark that at least one write happened (controls future mode selection when append=False)
+        self._first_write_done = True
+
+    # ---------------- P5C4: cover-sheet writer (optional, non-breaking) ----------------
+
+    def write_cover_sheet(
+        self,
+        summary: Dict[str, Any] | None = None,
+        source_files: Dict[str, Any] | None = None,
+        identity: Dict[str, Any] | None = None,
+        *,
+        report_version: str = "1",
+        extra: Dict[str, Any] | None = None,
+    ) -> bool:
+        """
+        Write a comment-only preamble to a *new* CSV file.
+        Safe to call multiple times: only writes if the file is empty or missing.
+        Returns True on write, False if skipped or on failure.
+        """
+        try:
+            self._ensure_parent()
+            p = Path(self.path)
+            # Only write a cover if file is missing or empty.
+            if p.exists():
+                try:
+                    if p.stat().st_size > 0:
+                        return False
+                except Exception:
+                    # If stat fails, fall through and try to write
+                    pass
+
+            # Build cover lines (all begin with '# ', followed by a blank line)
+            def _dump(obj: Any) -> str:
+                return json.dumps(obj or {}, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+
+            lines: List[str] = []
+            lines.append(f"# report_version: {report_version}")
+            lines.append(f"# created_utc: {_iso_now()}")
+            lines.append(f"# run_id: {self.run_id if self.run_id is not None else ''}")
+            lines.append(f"# seed: {self.seed if self.seed is not None else ''}")
+            lines.append(f"# identity: {_dump(identity)}")
+            lines.append(f"# source_files: {_dump(source_files)}")
+            lines.append(f"# summary: {_dump(summary)}")
+            if extra:
+                lines.append(f"# extra: {_dump(extra)}")
+            lines.append("")  # blank line before header/content
+
+            with open(self.path, self._open_mode(), encoding="utf-8") as f:
+                f.write("\n".join(lines) + "\n")
+
+            # Do NOT mark _first_write_done here; header/content may still need to be written.
+            return True
+        except Exception:
+            return False
+
+    # ---------------- core event journaling ----------------
 
     def write_actions(self, actions: Iterable[Dict[str, Any]], snapshot: Dict[str, Any] | None = None) -> int:
         acts = list(actions or [])
