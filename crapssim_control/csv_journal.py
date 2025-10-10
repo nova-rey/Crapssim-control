@@ -95,6 +95,10 @@ class CSVJournal:
     Also supports a single-row "summary" record appended by write_summary(...):
       - event_type is set to "summary"
       - 'extra' holds a compact JSON summary object
+
+    Semantics of `append`:
+      - append=True  → always append
+      - append=False → truncate on the *first* write of this run, then append thereafter
     """
 
     path: str | os.PathLike[str]
@@ -110,6 +114,9 @@ class CSVJournal:
         "extra",
     ])
 
+    # Track whether we’ve performed the first write (to control truncate vs append when append=False)
+    _first_write_done: bool = field(default=False, init=False)
+
     def _ensure_parent(self) -> None:
         Path(self.path).parent.mkdir(parents=True, exist_ok=True)
 
@@ -121,6 +128,15 @@ class CSVJournal:
             return p.stat().st_size == 0
         except Exception:
             return False
+
+    def _open_mode(self) -> str:
+        """
+        Decide file mode based on append flag and whether we've already written once.
+        """
+        if self.append:
+            return "a"
+        # append=False → first write should truncate, subsequent writes should append
+        return "w" if not self._first_write_done else "a"
 
     def ensure_header(self) -> None:
         self._ensure_parent()
@@ -137,8 +153,8 @@ class CSVJournal:
             return 0
 
         self._ensure_parent()
+        mode_flag = self._open_mode()
         write_header = self._needs_header()
-        mode_flag = "a" if self.append else "w"
 
         with open(self.path, mode_flag, newline="", encoding="utf-8") as f:
             writer = csv.DictWriter(f, fieldnames=self._columns, extrasaction="ignore")
@@ -194,6 +210,8 @@ class CSVJournal:
                     # Fail-open: skip problematic rows but keep file usable
                     continue
 
+        # mark that at least one write happened (controls future mode selection when append=False)
+        self._first_write_done = True
         return rows_written
 
     # ---------------- P5C1: summary writer ----------------
@@ -205,8 +223,8 @@ class CSVJournal:
         """
         try:
             self._ensure_parent()
+            mode_flag = self._open_mode()
             write_header = self._needs_header()
-            mode_flag = "a" if self.append else "w"
             with open(self.path, mode_flag, newline="", encoding="utf-8") as f:
                 writer = csv.DictWriter(f, fieldnames=self._columns, extrasaction="ignore")
                 if write_header:
@@ -225,7 +243,7 @@ class CSVJournal:
                     "units": _coerce_num(snap.get("units")) or "",
                     "bankroll": _coerce_num(snap.get("bankroll")) or "",
                     "source": "system",
-                    "id": "summary:run",  # <-- match test expectation
+                    "id": "summary:run",
                     "action": "",
                     "bet_type": "",
                     "amount": "",
@@ -233,6 +251,9 @@ class CSVJournal:
                     "extra": _as_str(summary),
                 }
                 writer.writerow(row)
+
+            # mark that at least one write happened (controls future mode selection when append=False)
+            self._first_write_done = True
             return True
         except Exception:
             return False
