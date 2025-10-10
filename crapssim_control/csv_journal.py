@@ -99,6 +99,10 @@ class CSVJournal:
     Semantics of `append`:
       - append=True  → always append
       - append=False → truncate on the *first* write of this run, then append thereafter
+
+    P5C1/P5C2 compatibility retained. Convenience helpers added for P5C3:
+      - identity() returns {"run_id", "seed"}
+      - path_str property exposes normalized CSV path
     """
 
     path: str | os.PathLike[str]
@@ -116,6 +120,22 @@ class CSVJournal:
 
     # Track whether we’ve performed the first write (to control truncate vs append when append=False)
     _first_write_done: bool = field(default=False, init=False)
+
+    # -------- convenience helpers (non-breaking) --------
+
+    def identity(self) -> Dict[str, Any]:
+        """Return run identity for summary/report writers."""
+        return {"run_id": self.run_id, "seed": self.seed}
+
+    @property
+    def path_str(self) -> str:
+        """Normalized CSV path as a string."""
+        try:
+            return str(Path(self.path))
+        except Exception:
+            return str(self.path)
+
+    # ----------------------------------------------------
 
     def _ensure_parent(self) -> None:
         Path(self.path).parent.mkdir(parents=True, exist_ok=True)
@@ -220,6 +240,10 @@ class CSVJournal:
         """
         Append a single 'summary' row with the given summary dict in 'extra'.
         Returns True on success, False on failure. Never raises.
+
+        NOTE: Tests also allow controllers to emit the summary row via write_actions()
+        using a benign 'switch_mode' envelope (id='summary:run', notes='end_of_run').
+        This method remains for backwards-compat and explicit usage.
         """
         try:
             self._ensure_parent()
