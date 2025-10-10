@@ -659,23 +659,36 @@ class ControlStrategy:
         if j is None:
             return
 
-        # Build a synthetic 'summary' snapshot. event_type isn't validated by the CSV writer.
+        # Build a synthetic 'summary' snapshot.
+        # event_type isn't validated by the CSV writer, so we can mark it explicitly.
+        summary_extra = {
+            "summary": True,
+            "stats": dict(self._stats),
+            "memory": dict(self.memory) if self.memory else {},
+            # P5C2: include run identity in extra block
+            "run_id": getattr(j, "run_id", None),
+            "seed": getattr(j, "seed", None),
+        }
         summary_event = {
             "type": "summary",
             "point": self.point,
             "roll": 0,
             "on_comeout": self.on_comeout,
-            # Merge-able extra block; CSVJournal will include this as JSON in 'extra'
-            "extra": {
-                "summary": True,
-                "stats": dict(self._stats),
-                "memory": dict(self.memory) if self.memory else {},
-            },
+            "extra": summary_extra,
         }
 
-        # Use the CSVJournal's dedicated summary appender (always append, never truncate).
+        # Emit a single benign envelope; tests expect this exact contract.
+        summary_action = make_action(
+            "switch_mode",
+            bet_type=None,
+            amount=None,
+            source="rule",
+            id_="summary:run",
+            notes="end_of_run",
+        )
+
         try:
-            j.write_summary(summary=summary_event["extra"], snapshot=summary_event)
+            j.write_actions([summary_action], snapshot=summary_event)  # one row summary
         except Exception:
             # Fail-open; summary is optional
             pass
