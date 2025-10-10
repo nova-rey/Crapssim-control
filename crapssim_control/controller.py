@@ -4,6 +4,9 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional, Tuple
 import json
 from pathlib import Path
+import shutil
+import zipfile
+from datetime import datetime
 
 from .templates_rt import render_template as render_runtime_template, diff_bets
 from .actions import make_action  # Action Envelope helper
@@ -643,10 +646,141 @@ class ControlStrategy:
 
         return report
 
+    # ---------------------- P5C5: export bundle ----------------------
+
+    def _export_cfg_from_spec(self) -> Tuple[Optional[Path], bool]:
+        """
+        Resolve export root and compress flag, lenient across:
+          • run.report.export.{path,compress}
+          • run.export.{path,compress}
+        """
+        run_blk = self.spec.get("run") if isinstance(self.spec, dict) else {}
+        export_root = None
+        compress = False
+
+        if isinstance(run_blk, dict):
+            # Prefer nested under report
+            rep = run_blk.get("report")
+            if isinstance(rep, dict):
+                exp = rep.get("export")
+                if isinstance(exp, dict):
+                    export_root = exp.get("path") or export_root
+                    if "compress" in exp:
+                        compress = bool(exp.get("compress"))
+            # Fall back to run.export
+            exp = run_blk.get("export")
+            if isinstance(exp, dict):
+                export_root = exp.get("path") or export_root
+                if "compress" in exp:
+                    compress = bool(exp.get("compress"))
+
+        return (Path(export_root) if isinstance(export_root, str) and export_root.strip() else None, bool(compress))
+
+    def export_bundle(self, export_root: Optional[str | Path] = None, compress: Optional[bool] = None) -> Optional[Path]:
+        """
+        Export run artifacts (csv/meta/report) into a dated folder or a .zip bundle.
+        Returns the path to the export folder or zip file, or None on failure/no config.
+        """
+        cfg_root, cfg_comp = self._export_cfg_from_spec()
+        if export_root is None:
+            export_root = cfg_root
+        if export_root is None:
+            return None
+        if compress is None:
+            compress = cfg_comp
+
+        export_root = Path(export_root)
+        export_root.mkdir(parents=True, exist_ok=True)
+
+        # Figure out artifacts
+        j = self._ensure_journal()
+        csv_path = Path(getattr(j, "path")) if (j is not None and getattr(j, "path", None)) else None
+        meta_path = self._read_meta_path_from_spec()
+        report_path, _auto = self._report_cfg_from_spec()
+
+        # If report is configured but does not exist yet, try to generate it once.
+        if report_path and not report_path.exists():
+            try:
+                self.generate_report(report_path)
+            except Exception:
+                pass
+
+        # Build identity
+        identity = {
+            "run_id": getattr(j, "run_id", None),
+            "seed": getattr(j, "seed", None),
+        }
+
+        # Destination naming
+        stamp = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+        base_name = (identity.get("run_id") or "run")
+        folder_name = f"{base_name}_{stamp}"
+
+        # Relative names inside bundle
+        rel_csv = "journal.csv" if csv_path else None
+        rel_meta = "meta.json" if meta_path else None
+        rel_report = "report.json" if report_path else None
+
+        if not compress:
+            # Folder export
+            dest_dir = export_root / folder_name
+            dest_dir.mkdir(parents=True, exist_ok=True)
+
+            artifacts: Dict[str, str | None] = {}
+
+            if csv_path and csv_path.exists():
+                shutil.copy2(csv_path, dest_dir / "journal.csv")
+                artifacts["csv"] = "journal.csv"
+            if meta_path and meta_path.exists():
+                shutil.copy2(meta_path, dest_dir / "meta.json")
+                artifacts["meta"] = "meta.json"
+            else:
+                artifacts["meta"] = None
+            if report_path and report_path.exists():
+                shutil.copy2(report_path, dest_dir / "report.json")
+                artifacts["report"] = "report.json"
+
+            manifest = {
+                "identity": identity,
+                "artifacts": artifacts,
+            }
+            (dest_dir / "manifest.json").write_text(
+                json.dumps(manifest, ensure_ascii=False, separators=(",", ":"), sort_keys=True),
+                encoding="utf-8",
+            )
+            return dest_dir
+
+        # Zip export
+        zip_path = export_root / f"{folder_name}.zip"
+        artifacts_zip: Dict[str, str | None] = {}
+        with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            if csv_path and csv_path.exists():
+                zf.write(csv_path, arcname="journal.csv")
+                artifacts_zip["csv"] = "journal.csv"
+            if meta_path and meta_path.exists():
+                zf.write(meta_path, arcname="meta.json")
+                artifacts_zip["meta"] = "meta.json"
+            else:
+                artifacts_zip["meta"] = None
+            if report_path and report_path.exists():
+                zf.write(report_path, arcname="report.json")
+                artifacts_zip["report"] = "report.json"
+
+            manifest = {
+                "identity": identity,
+                "artifacts": artifacts_zip,
+            }
+            zf.writestr(
+                "manifest.json",
+                json.dumps(manifest, ensure_ascii=False, separators=(",", ":"), sort_keys=True),
+            )
+
+        return zip_path
+
     def finalize_run(self) -> None:
         """
         Emit a one-row summary to CSV (if enabled), optionally write meta.json,
-        and generate a report if auto-report is enabled in the spec.
+        generate a report if auto-report is enabled, and export a bundle if configured.
         """
         j = self._ensure_journal()  # may be None if CSV disabled
 
@@ -705,6 +839,15 @@ class ControlStrategy:
         report_path, auto = self._report_cfg_from_spec()
         if auto and report_path is not None:
             self.generate_report(report_path)
+
+        # P5C5: auto-export if configured
+        exp_root, _comp = self._export_cfg_from_spec()
+        if exp_root is not None:
+            try:
+                self.export_bundle(exp_root)  # use configured compress flag by default
+            except Exception:
+                # fail-open: exporting is optional
+                pass
 
     def state_snapshot(self) -> Dict[str, Any]:
         return {
