@@ -8,8 +8,8 @@ def _spec(csv_path):
         "table": {},
         "variables": {"units": 10},
         "modes": {
-            # Use a place bet so the template applies AFTER comeout.
-            "Main": {"template": {"place_6": 12}},
+            # The template content is irrelevant to these tests now.
+            "Main": {"template": {}},
         },
         "run": {
             "csv": {
@@ -20,7 +20,14 @@ def _spec(csv_path):
                 "seed": 123,
             }
         },
-        "rules": [],
+        # Guarantee at least one action at point_established via a simple rule.
+        "rules": [
+            {
+                "name": "kick_action_for_stats",
+                "on": {"event": "point_established"},
+                "do": ["set place_6 12"],
+            }
+        ],
     }
 
 def test_finalize_run_emits_summary_row_and_stats(tmp_path):
@@ -32,7 +39,7 @@ def test_finalize_run_emits_summary_row_and_stats(tmp_path):
     acts0 = c.handle_event({"type": COMEOUT}, current_bets={})
     assert acts0 == []
 
-    # 2) POINT_ESTABLISHED → template should set place_6
+    # 2) POINT_ESTABLISHED → rule should create a 'set place_6'
     acts1 = c.handle_event({"type": POINT_ESTABLISHED, "point": 6}, current_bets={})
     assert len(acts1) >= 1
     assert any(a["action"] == "set" and a.get("bet_type") == "place_6" for a in acts1)
@@ -49,7 +56,8 @@ def test_finalize_run_emits_summary_row_and_stats(tmp_path):
     summary = rows[-1]
     assert summary["event_type"] == "summary"
     assert summary["id"] == "summary:run"
-    assert summary["action"] == "switch_mode"  # benign envelope for summary row
+    # benign envelope for summary row (contract choice from controller.finalize_run)
+    assert summary["action"] == "switch_mode"
     assert summary["notes"] == "end_of_run"
 
     extra = summary.get("extra", "")
@@ -72,10 +80,16 @@ def test_finalize_run_no_csv_enabled_is_noop(tmp_path):
     spec = {
         "table": {},
         "variables": {"units": 10},
-        # Again, use a place bet so it applies after comeout.
-        "modes": {"Main": {"template": {"place_6": 12}}},
+        "modes": {"Main": {"template": {}}},
         "run": {"csv": {"enabled": False}},
-        "rules": [],
+        # Same simple rule to guarantee an action on point_established.
+        "rules": [
+            {
+                "name": "kick_action_for_stats",
+                "on": {"event": "point_established"},
+                "do": ["set place_6 12"],
+            }
+        ],
     }
     c = ControlStrategy(spec)
     c.handle_event({"type": COMEOUT}, current_bets={})
@@ -86,4 +100,4 @@ def test_finalize_run_no_csv_enabled_is_noop(tmp_path):
     snap = c.state_snapshot()
     st = snap.get("stats") or {}
     assert st.get("events_total") == 2
-    assert st.get("actions_total", 0) >= 1  # at least the template "set"
+    assert st.get("actions_total", 0) >= 1
