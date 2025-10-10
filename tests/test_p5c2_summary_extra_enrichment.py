@@ -10,8 +10,7 @@ def _spec(csv_path: Path):
     return {
         "table": {},
         "variables": {"units": 10},
-        # Ensure an action occurs on point_established
-        "modes": {"Main": {"template": {"place_6": 12}}},
+        "modes": {"Main": {"template": {"pass_line": 10}}},
         "run": {
             "csv": {
                 "enabled": True,
@@ -21,7 +20,15 @@ def _spec(csv_path: Path):
                 "seed": 7,
             }
         },
-        "rules": [],
+        # Guarantee an action on point_established so the assertions are stable
+        "rules": [
+            {
+                "name": "emit_place6_on_point",
+                "on": {"event": "point_established"},
+                "when": "True",
+                "do": ["set place_6 12"],
+            }
+        ],
     }
 
 
@@ -33,7 +40,7 @@ def test_summary_row_extra_includes_run_identity(tmp_path):
     # COMEOUT → no actions
     assert c.handle_event({"type": COMEOUT}, current_bets={}) == []
 
-    # POINT_ESTABLISHED → template diff produces at least one action
+    # POINT_ESTABLISHED → rule guarantees at least one action
     acts = c.handle_event({"type": POINT_ESTABLISHED, "point": 6}, current_bets={})
     assert len(acts) >= 1
 
