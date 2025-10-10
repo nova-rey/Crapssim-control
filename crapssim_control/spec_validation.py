@@ -23,13 +23,14 @@ def assert_valid_spec(spec: Dict[str, Any]) -> None:
 
 
 # Allowed action verbs for object-form steps
-_ALLOWED_ACTIONS = {"set", "clear", "press", "reduce", "switch_mode"}
+_ALLOWED_ACTIONS = {"set", "clear", "press", "reduce", "switch_mode", "setvar"}
 _ACTION_NEEDS_AMOUNT = {
     "set": True,
     "clear": False,
     "press": True,
     "reduce": True,
     "switch_mode": False,
+    "setvar": False,  # setvar requires var + value/expr, not numeric amount specifically
 }
 # Legacy free-form starters (string steps) we allow without strict parsing
 _FREEFORM_STARTERS = {"units"}  # e.g., "units 10"
@@ -48,6 +49,7 @@ def validate_spec(spec: Dict[str, Any]) -> List[str]:
       • Strictly validated (action/bet/amount as appropriate)
       • Accept both 'bet' and 'bet_type'
       • 'amount' may be a number OR a string expression (evaluated at runtime)
+      • P5C1: 'setvar' accepts keys: var/name + (value|amount|notes expr)
     """
     errors: List[str] = []
 
@@ -149,6 +151,18 @@ def validate_spec(spec: Dict[str, Any]) -> List[str]:
                         else:
                             errors.append(f"{step_ctx} must be a string or an object")
 
+    # run.memory (optional; shape-only)
+    run_blk = spec.get("run")
+    if isinstance(run_blk, dict) and "memory" in run_blk:
+        mem = run_blk.get("memory")
+        if not isinstance(mem, dict):
+            errors.append("run.memory must be an object")
+        else:
+            if "enabled" in mem and not isinstance(mem.get("enabled"), bool):
+                errors.append("run.memory.enabled must be a boolean")
+            if "meta_path" in mem and not isinstance(mem.get("meta_path"), str):
+                errors.append("run.memory.meta_path must be a string")
+
     # OPTIONAL: table_rules (shape-only checks)
     if "table_rules" in spec and spec.get("table_rules"):
         errors.extend(_validate_table_rules_block(spec["table_rules"]))
@@ -199,10 +213,12 @@ def _validate_do_string(step: str, ctx: str, errors: List[str]) -> None:
 def _validate_do_object(step: Dict[str, Any], ctx: str, errors: List[str]) -> None:
     """
     Object form:
-        { "action": "set"|"clear"|"press"|"reduce"|"switch_mode",
-          "bet" or "bet_type": "<bet_type>",   # not required for switch_mode
+        { "action": "set"|"clear"|"press"|"reduce"|"switch_mode"|"setvar",
+          "bet" or "bet_type": "<bet_type>",   # not required for switch_mode/setvar
           "amount": <number|string>,            # required for set/press/reduce
           "mode": "<name>",                     # optional for switch_mode
+          "var"/"name": "<var>",                # required for setvar
+          "value": <number|string>,             # optional for setvar (or use amount/notes expr)
           "notes": "<free text>" }              # optional
     """
     action = step.get("action")
@@ -215,8 +231,8 @@ def _validate_do_object(step: Dict[str, Any], ctx: str, errors: List[str]) -> No
         errors.append(f"{ctx}.action must be one of {{{allowed}}}")
         return
 
-    # bet required for all except switch_mode
-    if action_lc != "switch_mode":
+    # bet required for all except switch_mode / setvar
+    if action_lc not in ("switch_mode", "setvar"):
         bet = step.get("bet", step.get("bet_type"))
         if not isinstance(bet, str) or not bet.strip():
             errors.append(f"{ctx}.bet must be a non-empty string for action '{action_lc}'")
@@ -231,6 +247,12 @@ def _validate_do_object(step: Dict[str, Any], ctx: str, errors: List[str]) -> No
             if not (_is_number(amt) or isinstance(amt, str)):
                 errors.append(f"{ctx}.amount must be a number or string expression")
 
+    # setvar shape (var/name + (value|amount|notes))
+    if action_lc == "setvar":
+        var = step.get("var", step.get("name"))
+        if not isinstance(var, str) or not var.strip():
+            errors.append(f"{ctx}.var (or name) must be a non-empty string for 'setvar'")
+        # value can be missing here; controller evaluates at runtime from value|amount|notes
 
 def _validate_table_rules_block(tr: Any) -> List[str]:
     errs: List[str] = []
