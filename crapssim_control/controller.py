@@ -469,7 +469,7 @@ class ControlStrategy:
                         "set",
                         bet_type="place_6",
                         amount=amt,
-                        # Mark as 'rule' so bucket ordering keeps switch first.
+                        # mark as 'rule' so bucket ordering keeps switch first
                         source="rule",
                         id_="template:fallback_place6",
                         notes="fallback action for POINT_ESTABLISHED(6)",
@@ -534,20 +534,6 @@ class ControlStrategy:
             self._bump_stats(ev_type, final)
             return final
 
-        # Unknown/ancillary event
-        rule_actions = self._apply_rules_for_event(event)
-        switches, setvars, rule_non_special = self._split_switch_setvar_other(rule_actions)
-        if switches:
-            self._mode_changed_this_event = self._apply_switches_now(switches) or self._mode_changed_this_event
-        if setvars:
-            self._apply_setvars_now(setvars, event)
-
-        final = self._merge_actions_for_event(switches + rule_non_special)
-        final = self._annotate_seq(final)
-        self._journal_actions(event, final)
-        self._bump_stats(ev_type, final)
-        return final
-
     def _bump_stats(self, ev_type: Optional[str], actions: List[Dict[str, Any]]) -> None:
         ev = (ev_type or "").lower()
         self._stats["events_total"] += 1
@@ -595,81 +581,81 @@ class ControlStrategy:
         return report_path, auto
 
     def generate_report(self, report_path: Optional[str | Path] = None) -> Dict[str, Any]:
-    """
-    Build a run report JSON and return it as a dict.
-    Prefers meta.json for identity/memory if present; otherwise falls back to
-    in-memory controller state and CSV config. If a path is configured, also writes it.
-    """
-    # Resolve output path (support both run.report and run.memory.report_path)
-    if report_path is None:
-        cfg_path, _ = self._report_cfg_from_spec()
-        report_path = cfg_path
+        """
+        Build a run report JSON and return it as a dict.
+        Prefers meta.json for identity/memory if present; otherwise falls back to
+        in-memory controller state and CSV config. If a path is configured, also writes it.
+        """
+        # Resolve output path (support both run.report and run.memory.report_path)
+        if report_path is None:
+            cfg_path, _ = self._report_cfg_from_spec()
+            report_path = cfg_path
 
-    # Try meta.json if configured and present
-    identity: Dict[str, Any] = {}
-    memory: Dict[str, Any] = {}
-    meta_path = self._read_meta_path_from_spec()
+        # Try meta.json if configured and present
+        identity: Dict[str, Any] = {}
+        memory: Dict[str, Any] = {}
+        meta_path = self._read_meta_path_from_spec()
 
-    if meta_path and meta_path.exists():
-        try:
-            meta = json.loads(meta_path.read_text(encoding="utf-8"))
-            identity = dict(meta.get("identity") or {})
-            memory = dict(meta.get("memory") or {})
-        except Exception:
-            pass
+        if meta_path and meta_path.exists():
+            try:
+                meta = json.loads(meta_path.read_text(encoding="utf-8"))
+                identity = dict(meta.get("identity") or {})
+                memory = dict(meta.get("memory") or {})
+            except Exception:
+                pass
 
-    if not identity:
-        j = self._ensure_journal()
-        identity = {
-            "run_id": getattr(j, "run_id", None),
-            "seed": getattr(j, "seed", None),
+        if not identity:
+            j = self._ensure_journal()
+            identity = {
+                "run_id": getattr(j, "run_id", None),
+                "seed": getattr(j, "seed", None),
+            }
+        if not memory:
+            memory = dict(self.memory)
+
+        summary = {
+            "events_total": int(self._stats.get("events_total", 0)),
+            "actions_total": int(self._stats.get("actions_total", 0)),
+            "by_event_type": dict(self._stats.get("by_event_type", {})),
         }
-    if not memory:
-        memory = dict(self.memory)
 
-    summary = {
-        "events_total": int(self._stats.get("events_total", 0)),
-        "actions_total": int(self._stats.get("actions_total", 0)),
-        "by_event_type": dict(self._stats.get("by_event_type", {})),
-    }
+        # Include CSV and meta paths under source_files (tests read these)
+        j = self._ensure_journal()
+        source_files = {
+            "csv": str(getattr(j, "path")) if j is not None else None,
+            # record configured meta path string even if file doesn't exist
+            "meta": str(meta_path) if meta_path is not None else None,
+        }
 
-    # Include CSV and meta paths under source_files (tests read these)
-    j = self._ensure_journal()
-    source_files = {
-        "csv": str(getattr(j, "path")) if j is not None else None,
-        # IMPORTANT: record the configured meta path string even if the file doesn't exist
-        "meta": str(meta_path) if meta_path is not None else None,
-    }
+        report: Dict[str, Any] = {
+            "identity": identity,
+            "summary": summary,
+            "memory": memory,
+            "mode": getattr(self, "mode", None),
+            "point": self.point,
+            "on_comeout": self.on_comeout,
+            "source_files": source_files,
+        }
 
-    report: Dict[str, Any] = {
-        "identity": identity,
-        "summary": summary,
-        "memory": memory,
-        "mode": getattr(self, "mode", None),
-        "point": self.point,
-        "on_comeout": self.on_comeout,
-        "source_files": source_files,
-    }
-
-    # Keep the old csv.path hint too (legacy/compat)
-    try:
-        report["csv"] = {"path": str(getattr(j, "path")) if j is not None else None}
-    except Exception:
-        report["csv"] = {"path": None}
-
-    # Write to disk if a path is provided/configured
-    if isinstance(report_path, (str, Path)) and str(report_path):
-        p = Path(report_path)
-        p.parent.mkdir(parents=True, exist_ok=True)
+        # Keep the old csv.path hint too (legacy/compat)
         try:
-            p.write_text(
-                json.dumps(report, ensure_ascii=False, separators=(",", ":"), sort_keys=True),
-                encoding="utf-8",
-            )
+            report["csv"] = {"path": str(getattr(j, "path")) if j is not None else None}
         except Exception:
-            pass
+            report["csv"] = {"path": None}
 
-    return report
+        # Write to disk if a path is provided/configured
+        if isinstance(report_path, (str, Path)) and str(report_path):
+            p = Path(report_path)
+            p.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                p.write_text(
+                    json.dumps(report, ensure_ascii=False, separators=(",", ":"), sort_keys=True),
+                    encoding="utf-8",
+                )
+            except Exception:
+                pass
+
+        return report
 
     def finalize_run(self) -> None:
         """
@@ -722,7 +708,10 @@ class ControlStrategy:
                     "on_comeout": self.on_comeout,
                 }
                 meta_path.parent.mkdir(parents=True, exist_ok=True)
-                meta_path.write_text(json.dumps(out, ensure_ascii=False, separators=(",", ":"), sort_keys=True), encoding="utf-8")
+                meta_path.write_text(
+                    json.dumps(out, ensure_ascii=False, separators=(",", ":"), sort_keys=True),
+                    encoding="utf-8",
+                )
             except Exception:
                 pass
 
