@@ -13,13 +13,9 @@
     "Main": {
       "template": {
         "pass": "units",
-        "place": {
-          "6": "units*2",
-          "8": "units*2"
-        },
-        "odds": {
-          "pass": "units*2"
-        }
+        "place_6": "units*2",
+        "place_8": "units*2",
+        "odds_pass": "units*2"
       }
     }
   },
