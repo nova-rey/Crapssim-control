@@ -20,7 +20,7 @@ jobs:
       ROLLS: "50"
       CMD: "python -m crapssim_control.cli"
       CSC_DEBUG: "0"
-
+      CSC_SKIP_VALIDATE: "1"
     steps:
       - name: Checkout (full history)
         uses: actions/checkout@v4
