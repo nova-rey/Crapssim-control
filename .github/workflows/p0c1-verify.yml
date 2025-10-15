@@ -1,4 +1,4 @@
-name: P0C1 – Verify (min)
+name: P0C1 – Verify
 
 on:
   push:
@@ -6,7 +6,50 @@ on:
   workflow_dispatch:
 
 jobs:
-  hello:
+  verify:
     runs-on: ubuntu-latest
+    env:
+      SPEC_PATH: examples/quickstart_spec.json
+      SEED: "123"
+      ROLLS: "50"
+      PYTHONUNBUFFERED: "1"
+      PYTHONHASHSEED: "0"
+
     steps:
-      - run: echo "hello from verify"
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Sanity
+        run: |
+          set -euxo pipefail
+          echo "SHA: $(git rev-parse HEAD)"
+          ls -la
+          test -f "$SPEC_PATH" || (echo "Spec not found: $SPEC_PATH"; exit 1)
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install pinned engine + package
+        run: |
+          set -euxo pipefail
+          python -m pip install -U pip
+          pip install "crapssim" "PyYAML>=6.0"
+          pip install -e .
+          python - <<'PY'
+import importlib.metadata as m
+print("crapssim=="+m.version("crapssim"))
+print("crapssim_control OK")
+PY
+
+      - name: Dry run CLI
+        run: |
+          set -euxo pipefail
+          python - <<'PY'
+from crapssim_control.cli import main
+import sys
+sys.exit(main(['run', '${{ env.SPEC_PATH }}', '--seed', '${{ env.SEED }}', '--rolls', '${{ env.ROLLS }}']))
+PY
