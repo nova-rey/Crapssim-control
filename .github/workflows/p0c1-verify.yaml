@@ -1,4 +1,4 @@
-name: P0C1 Verify
+name: P0C1 Verify Lite
 
 on:
   push:
@@ -16,54 +16,19 @@ jobs:
       PYTHONHASHSEED: "0"
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+        with: { fetch-depth: 0 }
 
-      - name: Show repo & spec
-        run: |
-          set -euxo pipefail
-          ls -la
-          ls -la examples || true
-          ls -la crapssim_control || true
-          test -f "$SPEC_PATH" || (echo "Spec not found: $SPEC_PATH" && exit 1)
+      - name: Repo & spec check
+        run: ls -la && (ls -la examples || true) && (ls -la crapssim_control || true) && [ -f "$SPEC_PATH" ] || (echo "Spec not found: $SPEC_PATH" && exit 1)
 
       - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
+        with: { python-version: "3.11" }
 
       - name: Install engine & package
-        run: |
-          set -euxo pipefail
-          python -m pip install -U pip
-          pip install crapssim PyYAML
-          pip install -e .
-          python - <<'PY'
-import importlib.metadata as m
-print("crapssim=="+m.version("crapssim"))
-print("crapssim_control OK")
-PY
+        run: python -m pip install -U pip && pip install crapssim PyYAML && pip install -e . && python -c "import importlib.metadata as m; print('crapssim=='+m.version('crapssim'))"
 
       - name: Run (plain)
-        run: |
-          set -euxo pipefail
-          python - <<'PY'
-from crapssim_control.cli import main
-import sys, os
-sys.exit(main(['run', os.environ['SPEC_PATH'], '--seed', os.environ['SEED'], '--rolls', os.environ['ROLLS']]))
-PY
+        run: python -c "from crapssim_control.cli import main; import sys,os; sys.exit(main(['run', os.environ['SPEC_PATH'], '--seed', os.environ['SEED'], '--rolls', os.environ['ROLLS']]))"
 
-      - name: Run (with flags) — must match stdout
-        run: |
-          set -euxo pipefail
-          python - <<'PY' > out_plain.txt 2>&1 || true
-from crapssim_control.cli import main
-import sys, os
-sys.exit(main(['run', os.environ['SPEC_PATH'], '--seed', os.environ['SEED'], '--rolls', os.environ['ROLLS']]))
-PY
-          python - <<'PY' > out_flags.txt 2>&1 || true
-from crapssim_control.cli import main
-import sys, os
-sys.exit(main(['run', os.environ['SPEC_PATH'], '--seed', os.environ['SEED'], '--rolls', os.environ['ROLLS'],
-               '--demo-fallbacks','--strict','--no-embed-analytics']))
-PY
-          diff -u out_plain.txt out_flags.txt
+      - name: Run (flags) and compare to plain
+        run: sh -lc "python -c 'from crapssim_control.cli import main; import sys,os; sys.exit(main([\"run\", os.environ[\"SPEC_PATH\"], \"--seed\", os.environ[\"SEED\"], \"--rolls\", os.environ[\"ROLLS\"]]))' > out_plain.txt 2>&1 || true; python -c 'from crapssim_control.cli import main; import sys,os; sys.exit(main([\"run\", os.environ[\"SPEC_PATH\"], \"--seed\", os.environ[\"SEED\"], \"--rolls\", os.environ[\"ROLLS\"], \"--demo-fallbacks\", \"--strict\", \"--no-embed-analytics\"]))' > out_flags.txt 2>&1 || true; diff -u out_plain.txt out_flags.txt"
