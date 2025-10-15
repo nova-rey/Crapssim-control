@@ -16,6 +16,11 @@ from .csv_journal import CSVJournal  # Per-event journaling
 from .events import canonicalize_event, COMEOUT, POINT_ESTABLISHED, ROLL, SEVEN_OUT
 from .eval import evaluate, EvalError
 
+# -------------------- P0·C2: schema labels (non-breaking) --------------------
+JOURNAL_SCHEMA_VERSION = "1.1"
+SUMMARY_SCHEMA_VERSION = "1.1"
+# -----------------------------------------------------------------------------
+
 
 class ControlStrategy:
     """
@@ -168,6 +173,11 @@ class ControlStrategy:
             return None
         try:
             j = CSVJournal(cfg["path"], append=cfg["append"], run_id=cfg.get("run_id"), seed=cfg.get("seed"))
+            # P0·C2: tag the in-memory journal object with schema version (non-breaking)
+            try:
+                setattr(j, "schema_version", JOURNAL_SCHEMA_VERSION)
+            except Exception:
+                pass
             self._journal = j
             self._journal_enabled = True
             return j
@@ -637,6 +647,9 @@ class ControlStrategy:
             "meta": str(meta_path) if meta_path is not None else None,
         }
 
+        # P0·C2: include schema labels in the report JSON (non-breaking)
+        journal_schema = getattr(j, "schema_version", JOURNAL_SCHEMA_VERSION) if j is not None else JOURNAL_SCHEMA_VERSION
+
         report: Dict[str, Any] = {
             "identity": identity,
             "summary": summary,
@@ -645,6 +658,8 @@ class ControlStrategy:
             "point": self.point,
             "on_comeout": self.on_comeout,
             "source_files": source_files,
+            "summary_schema_version": SUMMARY_SCHEMA_VERSION,
+            "journal_schema_version": journal_schema,
         }
 
         # Keep the old csv.path hint too (legacy/compat)
@@ -824,10 +839,15 @@ class ControlStrategy:
                 artifacts["report"] = str(dst.relative_to(dest_dir))
                 fingerprints["report"] = fp
 
+            # P0·C2: include schema labels in manifest (non-breaking)
             manifest = {
                 "identity": identity,
                 "artifacts": artifacts,
                 "fingerprints": fingerprints,
+                "schema": {
+                    "journal": getattr(j, "schema_version", JOURNAL_SCHEMA_VERSION) if j is not None else JOURNAL_SCHEMA_VERSION,
+                    "summary": SUMMARY_SCHEMA_VERSION,
+                },
             }
             (dest_dir / "manifest.json").write_text(
                 json.dumps(manifest, ensure_ascii=False, separators=(",", ":"), sort_keys=True),
@@ -841,7 +861,7 @@ class ControlStrategy:
         with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
             if csv_path and csv_path.exists():
                 zf.write(csv_path, arcname=rel_csv or "journal.csv")
-                artifacts_zip["csv"] = rel_csv or "journal.csv"
+                artifacts_zip["csv"] = rel_csv or "journal.csv")
             if meta_path and meta_path.exists():
                 zf.write(meta_path, arcname=rel_meta or "meta.json")
                 artifacts_zip["meta"] = rel_meta or "meta.json"
@@ -851,9 +871,14 @@ class ControlStrategy:
                 zf.write(report_path, arcname=rel_report or "report.json")
                 artifacts_zip["report"] = rel_report or "report.json"
 
+            # P0·C2: include schema in zip manifest too
             manifest = {
                 "identity": identity,
                 "artifacts": artifacts_zip,
+                "schema": {
+                    "journal": getattr(j, "schema_version", JOURNAL_SCHEMA_VERSION) if j is not None else JOURNAL_SCHEMA_VERSION,
+                    "summary": SUMMARY_SCHEMA_VERSION,
+                },
             }
             zf.writestr(
                 "manifest.json",
