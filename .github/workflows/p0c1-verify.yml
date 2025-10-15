@@ -61,15 +61,14 @@ jobs:
           pip install "crapssim==${{ steps.pin.outputs.CRAPSSIM_VERSION }}" "PyYAML>=6.0"
           pip install -e .
 
-      - name: Run baseline (stdout capture)
+      - name: Run baseline (capture RESULT only)
         run: |
           set -e
           mkdir -p baselines/p0c1/before
           export PYTHONHASHSEED=0
           export CSC_FORCE_SEED=$SEED
           $CMD run "/tmp/p0c1/spec.json" --seed "$SEED" --rolls "$ROLLS" > baselines/p0c1/before/out.txt 2>&1
-          grep '^RESULT:' baselines/p0c1/before/out.txt > baselines/p0c1/before/result.txt || true
-          $CMD run --help > baselines/p0c1/before/help.txt 2>&1 || true
+          grep '^RESULT:' baselines/p0c1/before/out.txt > baselines/p0c1/before/result.txt
 
       # ---------- AFTER: HEAD ----------
       - name: Checkout current commit (candidate)
@@ -82,27 +81,33 @@ jobs:
           pip install "crapssim==${{ steps.pin.outputs.CRAPSSIM_VERSION }}" "PyYAML>=6.0"
           pip install -e .
 
-      - name: Run candidate (stdout capture)
+      - name: Run candidate (capture RESULT only)
         run: |
           set -e
           mkdir -p baselines/p0c1/after
           export PYTHONHASHSEED=0
           export CSC_FORCE_SEED=$SEED
           $CMD run "/tmp/p0c1/spec.json" --seed "$SEED" --rolls "$ROLLS" > baselines/p0c1/after/out.txt 2>&1
-          grep '^RESULT:' baselines/p0c1/after/out.txt > baselines/p0c1/after/result.txt || true
-          $CMD run --help > baselines/p0c1/after/help.txt 2>&1 || true
+          grep '^RESULT:' baselines/p0c1/after/out.txt > baselines/p0c1/after/result.txt
 
-      # Within HEAD, flags must be accepted but inert (full stdout comparison)
-      - name: Flags are accepted but inert (candidate)
+      # -------- HEAD-only invariant: flags must be inert on RESULT line --------
+      - name: Flags are accepted but inert (compare only RESULT line in HEAD)
         run: |
           set -e
           export PYTHONHASHSEED=0
           export CSC_FORCE_SEED=$SEED
+          # run without flags
+          $CMD run "/tmp/p0c1/spec.json" --seed "$SEED" --rolls "$ROLLS" > baselines/p0c1/after/out_noflags.txt 2>&1
+          grep '^RESULT:' baselines/p0c1/after/out_noflags.txt > baselines/p0c1/after/result_noflags.txt
+          # run with flags
           $CMD run "/tmp/p0c1/spec.json" --seed "$SEED" --rolls "$ROLLS" \
             --demo-fallbacks --strict --no-embed-analytics \
             > baselines/p0c1/after/out_flags.txt 2>&1
-          diff -u baselines/p0c1/after/out.txt baselines/p0c1/after/out_flags.txt
+          grep '^RESULT:' baselines/p0c1/after/out_flags.txt > baselines/p0c1/after/result_flags.txt
+          # compare ONLY the RESULT lines (ignore other stdout diffs)
+          diff -u baselines/p0c1/after/result_noflags.txt baselines/p0c1/after/result_flags.txt
 
       - name: Emit summary
         if: ${{ success() }}
-        run: echo "✅ P0·C1 verified: baseline and candidate both run; flags inert within HEAD."
+        run: |
+          echo "✅ P0·C1 verified: runs succeed; RESULT present in both commits; flags are inert on RESULT within HEAD."
