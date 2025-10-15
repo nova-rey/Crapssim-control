@@ -1,0 +1,69 @@
+name: P0C1 Verify
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    env:
+      SPEC_PATH: examples/quickstart_spec.json
+      SEED: "123"
+      ROLLS: "50"
+      PYTHONUNBUFFERED: "1"
+      PYTHONHASHSEED: "0"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Show repo & spec
+        run: |
+          set -euxo pipefail
+          ls -la
+          ls -la examples || true
+          ls -la crapssim_control || true
+          test -f "$SPEC_PATH" || (echo "Spec not found: $SPEC_PATH" && exit 1)
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install engine & package
+        run: |
+          set -euxo pipefail
+          python -m pip install -U pip
+          pip install crapssim PyYAML
+          pip install -e .
+          python - <<'PY'
+import importlib.metadata as m
+print("crapssim=="+m.version("crapssim"))
+print("crapssim_control OK")
+PY
+
+      - name: Run (plain)
+        run: |
+          set -euxo pipefail
+          python - <<'PY'
+from crapssim_control.cli import main
+import sys, os
+sys.exit(main(['run', os.environ['SPEC_PATH'], '--seed', os.environ['SEED'], '--rolls', os.environ['ROLLS']]))
+PY
+
+      - name: Run (with flags) — must match stdout
+        run: |
+          set -euxo pipefail
+          python - <<'PY' > out_plain.txt 2>&1 || true
+from crapssim_control.cli import main
+import sys, os
+sys.exit(main(['run', os.environ['SPEC_PATH'], '--seed', os.environ['SEED'], '--rolls', os.environ['ROLLS']]))
+PY
+          python - <<'PY' > out_flags.txt 2>&1 || true
+from crapssim_control.cli import main
+import sys, os
+sys.exit(main(['run', os.environ['SPEC_PATH'], '--seed', os.environ['SEED'], '--rolls', os.environ['ROLLS'],
+               '--demo-fallbacks','--strict','--no-embed-analytics']))
+PY
+          diff -u out_plain.txt out_flags.txt
