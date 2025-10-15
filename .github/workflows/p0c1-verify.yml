@@ -65,6 +65,8 @@ jobs:
         run: |
           set -e
           mkdir -p baselines/p0c1/before
+          export PYTHONHASHSEED=0
+          export CSC_FORCE_SEED=$SEED
           $CMD run "/tmp/p0c1/spec.json" --seed "$SEED" --rolls "$ROLLS" > baselines/p0c1/before/out.txt 2>&1
           grep '^RESULT:' baselines/p0c1/before/out.txt > baselines/p0c1/before/result.txt || true
           $CMD run --help > baselines/p0c1/before/help.txt 2>&1 || true
@@ -84,6 +86,8 @@ jobs:
         run: |
           set -e
           mkdir -p baselines/p0c1/after
+          export PYTHONHASHSEED=0
+          export CSC_FORCE_SEED=$SEED
           $CMD run "/tmp/p0c1/spec.json" --seed "$SEED" --rolls "$ROLLS" > baselines/p0c1/after/out.txt 2>&1
           grep '^RESULT:' baselines/p0c1/after/out.txt > baselines/p0c1/after/result.txt || true
           $CMD run --help > baselines/p0c1/after/help.txt 2>&1 || true
@@ -97,6 +101,8 @@ jobs:
       - name: Flags are accepted but inert (candidate)
         run: |
           set -e
+          export PYTHONHASHSEED=0
+          export CSC_FORCE_SEED=$SEED
           $CMD run "/tmp/p0c1/spec.json" --seed "$SEED" --rolls "$ROLLS" \
             --demo-fallbacks --strict --no-embed-analytics \
             > baselines/p0c1/after/out_flags.txt 2>&1
@@ -104,4 +110,4 @@ jobs:
 
       - name: Emit summary
         if: ${{ success() }}
-        run: echo "✅ P0·C1 verified (pinned engine, frozen spec, RESULT stable; flags inert)."
+        run: echo "✅ P0·C1 verified (pinned engine, frozen spec, RNG frozen; flags inert)."
