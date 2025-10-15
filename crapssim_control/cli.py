@@ -39,12 +39,6 @@ def _load_spec_file(path: str | Path) -> Dict[str, Any]:
 
 
 def _normalize_validate_result(res):
-    """
-    Accept either:
-      • (ok: bool, hard_errs: list[str], soft_warns: list[str])
-      • hard_errs: list[str]
-    Return (ok, hard_errs, soft_warns)
-    """
     if isinstance(res, tuple) and len(res) == 3:
         ok, hard_errs, soft_warns = res
         return bool(ok), list(hard_errs), list(soft_warns)
@@ -54,9 +48,6 @@ def _normalize_validate_result(res):
 
 
 def _engine_unavailable(reason: str | Exception = "missing or incompatible engine") -> int:
-    """
-    Standardized failure for tests, while logging the real reason.
-    """
     msg = "CrapsSim engine not available (pip install crapssim)."
     log.error("%s Reason: %s", msg, reason)
     print(f"failed: {msg}", file=sys.stderr)
@@ -74,11 +65,6 @@ def _smart_seed(seed: Optional[int]) -> None:
 
 
 def _run_table_rolls(table: Any, rolls: int) -> Tuple[bool, str]:
-    """
-    Try several ways to drive the Table for N rolls.
-    Returns (ok, detail). Never raises.
-    """
-    # 1) table.play(rolls=...)
     if hasattr(table, "play"):
         try:
             table.play(rolls=rolls)
@@ -86,7 +72,6 @@ def _run_table_rolls(table: Any, rolls: int) -> Tuple[bool, str]:
         except Exception as e:
             log.debug("table.play failed: %s", e)
 
-    # 2) table.run(rolls)  or  table.run(rolls=...)
     if hasattr(table, "run"):
         try:
             table.run(rolls)  # type: ignore[arg-type]
@@ -100,7 +85,6 @@ def _run_table_rolls(table: Any, rolls: int) -> Tuple[bool, str]:
         except Exception as e:
             log.debug("table.run failed: %s", e)
 
-    # 3) Manual loop: table.roll()
     if hasattr(table, "roll"):
         try:
             for _ in range(rolls):
@@ -109,7 +93,6 @@ def _run_table_rolls(table: Any, rolls: int) -> Tuple[bool, str]:
         except Exception as e:
             log.debug("loop table.roll failed: %s", e)
 
-    # 4) Manual loop with Dice: dice.roll() + table.process_roll/on_roll
     try:
         from crapssim.dice import Dice  # type: ignore
         dice = Dice()
@@ -129,10 +112,6 @@ def _run_table_rolls(table: Any, rolls: int) -> Tuple[bool, str]:
 
 
 def _write_csv_summary(path: str | Path, row: Dict[str, Any]) -> None:
-    """
-    Append a one-line summary CSV. Creates file and header if needed.
-    Fields (in order): spec, rolls, final_bankroll, seed, note
-    """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     fieldnames = ["spec", "rolls", "final_bankroll", "seed", "note"]
@@ -186,23 +165,9 @@ def _csv_journal_info(spec: Dict[str, Any]) -> Optional[str]:
     return f"[journal] enabled → {path} (append={'on' if append else 'off'})"
 
 
-# --------------------------- P0·C1 inert env scrub --------------------------- #
-
-def _scrub_inert_env() -> None:
-    """
-    Phase 0 contract: flags are accepted but MUST be inert.
-    We **only** scrub CSC_FORCE_SEED so --seed is the single RNG source.
-    """
-    try:
-        os.environ.pop("CSC_FORCE_SEED", None)
-    except Exception:
-        pass
-
-
 # --------------------------- Skip-validate switch ---------------------------- #
 
 def _skip_validate_env() -> bool:
-    """Return True when CSC_SKIP_VALIDATE is set to 1/true/yes."""
     return os.environ.get("CSC_SKIP_VALIDATE", "").lower() in ("1", "true", "yes")
 
 
@@ -246,12 +211,11 @@ def _cmd_journal_summarize(args: argparse.Namespace) -> int:
 
 def run(args: argparse.Namespace) -> int:
     """
-    Run path:
-      1) Load & validate spec
-      2) Compute rolls/seed
-      3) Attach engine via EngineAdapter
-      4) Drive the table
-      5) Print result summary
+    1) Load & (optionally) validate spec
+    2) Compute rolls/seed
+    3) Attach engine via EngineAdapter
+    4) Drive the table
+    5) Print result summary
     """
     # Load spec
     spec_path = Path(args.spec)
@@ -262,7 +226,7 @@ def run(args: argparse.Namespace) -> int:
     rolls = int(args.rolls) if args.rolls is not None else int(spec_run.get("rolls", 1000))
     seed = args.seed if args.seed is not None else spec_run.get("seed")
 
-    # Flags (inert)
+    # P0·C1 flags (inert)
     demo_fallbacks = bool(getattr(args, "demo_fallbacks", False))
     strict = bool(getattr(args, "strict", False))
     embed_analytics = not bool(getattr(args, "no_embed_analytics", False))
@@ -286,7 +250,7 @@ def run(args: argparse.Namespace) -> int:
     if info:
         print(info)
 
-    # Seed RNGs (this is the only seed source)
+    # Seed RNGs for Python/Numpy (user-facing)
     seed_int = None
     if seed is not None:
         try:
@@ -294,6 +258,10 @@ def run(args: argparse.Namespace) -> int:
         except Exception:
             seed_int = None
     _smart_seed(seed_int)
+
+    # ALSO tell the engine its seed (engine honors CSC_FORCE_SEED on import/attach)
+    if seed_int is not None and not os.environ.get("CSC_FORCE_SEED"):
+        os.environ["CSC_FORCE_SEED"] = str(seed_int)
 
     # Attach engine
     try:
@@ -435,7 +403,6 @@ def _build_parser() -> argparse.ArgumentParser:
     p_run.add_argument("--rolls", type=int, help="Number of rolls (overrides spec)")
     p_run.add_argument("--seed", type=int, help="Seed RNG for reproducibility")
     p_run.add_argument("--export", type=str, help="Path to CSV summary export (optional)")
-    # inert flag framework
     p_run.add_argument("--demo-fallbacks", action="store_true",
                        help="(scaffold) Enable demo fallbacks. P0·C1: no behavior change.")
     p_run.add_argument("--strict", action="store_true",
@@ -458,8 +425,6 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: List[str] | None = None) -> int:
-    # P0·C1: only scrub CSC_FORCE_SEED; do NOT touch argv.
-    _scrub_inert_env()
     if argv is None:
         argv = sys.argv[1:]
     parser = _build_parser()
