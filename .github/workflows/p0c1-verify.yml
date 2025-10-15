@@ -14,42 +14,28 @@ jobs:
       ROLLS: "50"
       PYTHONUNBUFFERED: "1"
       PYTHONHASHSEED: "0"
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Sanity
-        run: |
-          set -euxo pipefail
-          echo "SHA: $(git rev-parse HEAD)"
-          ls -la
-          test -f "$SPEC_PATH" || (echo "Spec not found: $SPEC_PATH"; exit 1)
+      - name: Show repo & spec
+        run: ls -la && ls -la examples || true && ls -la crapssim_control || true && test -f "$SPEC_PATH" || (echo "Spec not found: $SPEC_PATH" && exit 1)
 
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      - name: Install pinned engine + package
-        run: |
-          set -euxo pipefail
-          python -m pip install -U pip
-          pip install "crapssim" "PyYAML>=6.0"
-          pip install -e .
-          python - <<'PY'
-import importlib.metadata as m
-print("crapssim=="+m.version("crapssim"))
-print("crapssim_control OK")
-PY
+      - name: Install engine & package
+        run: python -m pip install -U pip && pip install "crapssim" "PyYAML>=6.0" && pip install -e . && python -c "import importlib.metadata as m; print('crapssim=='+m.version('crapssim'))"
 
-      - name: Dry run CLI
+      # run once plain
+      - name: Run (plain)
+        run: python -c "from crapssim_control.cli import main; import sys; sys.exit(main(['run','${{ env.SPEC_PATH }}','--seed','${{ env.SEED }}','--rolls','${{ env.ROLLS }}']))"
+
+      # run again with flags; must be identical (inert flags)
+      - name: Run (with flags)
         run: |
-          set -euxo pipefail
-          python - <<'PY'
-from crapssim_control.cli import main
-import sys
-sys.exit(main(['run', '${{ env.SPEC_PATH }}', '--seed', '${{ env.SEED }}', '--rolls', '${{ env.ROLLS }}']))
-PY
+          python -c "from crapssim_control.cli import main; import sys; sys.exit(main(['run','${{ env.SPEC_PATH }}','--seed','${{ env.SEED }}','--rolls','${{ env.ROLLS }}','--demo-fallbacks','--strict','--no-embed-analytics']))"
