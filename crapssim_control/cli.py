@@ -199,6 +199,13 @@ def _scrub_inert_env() -> None:
         pass
 
 
+# --------------------------- Skip-validate switch ---------------------------- #
+
+def _skip_validate_env() -> bool:
+    """Return True when CSC_SKIP_VALIDATE is set to 1/true/yes."""
+    return os.environ.get("CSC_SKIP_VALIDATE", "").lower() in ("1", "true", "yes")
+
+
 # -------------------------------- Journal cmd -------------------------------- #
 
 def _cmd_journal_summarize(args: argparse.Namespace) -> int:
@@ -263,15 +270,17 @@ def run(args: argparse.Namespace) -> int:
         log.debug("P0·C1 flags (inert): demo_fallbacks=%s strict=%s embed_analytics=%s",
                   demo_fallbacks, strict, embed_analytics)
 
-    # Validate
-    ok, hard_errs, soft_warns = _lazy_validate_spec(spec)
-    if not ok or hard_errs:
-        print("failed validation:", file=sys.stderr)
-        for e in hard_errs:
-            print(f"- {e}", file=sys.stderr)
-        return 2
-    for w in soft_warns:
-        log.warning("spec warning: %s", w)
+    # Validate (skippable via env for verify baseline compatibility)
+    soft_warns: List[str] = []
+    if not _skip_validate_env():
+        ok, hard_errs, soft_warns = _lazy_validate_spec(spec)
+        if not ok or hard_errs:
+            print("failed validation:", file=sys.stderr)
+            for e in hard_errs:
+                print(f"- {e}", file=sys.stderr)
+            return 2
+        for w in soft_warns:
+            log.warning("spec warning: %s", w)
 
     info = _csv_journal_info(spec)
     if info:
