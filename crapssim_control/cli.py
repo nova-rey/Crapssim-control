@@ -203,9 +203,9 @@ def _scrub_inert_env() -> None:
     """
     Phase 0 contract: flags are accepted but MUST be inert.
     Some older modules may consult env vars; scrub them so nothing downstream
-    can observe these toggles.
+    can observe these toggles. Also remove CSC_FORCE_SEED so only --seed controls RNG.
     """
-    for k in ("CSC_DEMO_FALLBACKS", "CSC_STRICT", "CSC_NO_EMBED_ANALYTICS"):
+    for k in ("CSC_DEMO_FALLBACKS", "CSC_STRICT", "CSC_NO_EMBED_ANALYTICS", "CSC_FORCE_SEED"):
         try:
             os.environ.pop(k, None)
         except Exception:
@@ -320,7 +320,7 @@ def run(args: argparse.Namespace) -> int:
         if info:
             print(info)
 
-        # Seed RNGs (Python & NumPy)
+        # Seed RNGs (Python & NumPy) — this is now the only seed source
         if seed is not None:
             try:
                 seed_int = int(seed)
