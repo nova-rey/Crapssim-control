@@ -212,6 +212,20 @@ def _scrub_inert_env() -> None:
             pass
 
 
+def _hide_argv() -> List[str]:
+    """
+    Temporarily hide argv so downstream modules that parse/peek at sys.argv
+    can't see scaffold flags. Returns the previous argv for restoration.
+    """
+    prev = sys.argv[:]  # copy
+    try:
+        # Keep only program name; drop subcommand/flags entirely.
+        sys.argv = [prev[0]] if prev else ["crapssim-ctl"]
+    except Exception:
+        pass
+    return prev
+
+
 # -------------------------------- Journal cmd -------------------------------- #
 
 def _cmd_journal_summarize(args: argparse.Namespace) -> int:
@@ -265,8 +279,9 @@ def run(args: argparse.Namespace) -> int:
     NOTE (P0·C1): Flag framework is scaffolded here; flags are accepted & stored,
     but not consumed by any behavior. Outputs remain identical to pre-C1 runs.
     """
-    # P0·C1: ensure flags cannot leak via env to engine or helpers
+    # P0·C1: ensure flags cannot leak via env or argv to engine or helpers
     _scrub_inert_env()
+    _prev_argv = _hide_argv()
 
     # Load spec (JSON or YAML)
     spec_path = Path(args.spec)
@@ -286,7 +301,6 @@ def run(args: argparse.Namespace) -> int:
     embed_analytics = not bool(getattr(args, "no_embed_analytics", False))
 
     # Store for possible future use (no behavior change in C1)
-    # We deliberately do not mutate the spec or engine config in this checkpoint.
     if log.isEnabledFor(logging.DEBUG):
         log.debug("P0·C1 flags (inert): demo_fallbacks=%s strict=%s embed_analytics=%s",
                   demo_fallbacks, strict, embed_analytics)
@@ -297,6 +311,8 @@ def run(args: argparse.Namespace) -> int:
         print("failed validation:", file=sys.stderr)
         for e in hard_errs:
             print(f"- {e}", file=sys.stderr)
+        # restore argv before exit
+        sys.argv = _prev_argv
         return 2
     for w in soft_warns:
         log.warning("spec warning: %s", w)
@@ -316,7 +332,7 @@ def run(args: argparse.Namespace) -> int:
     else:
         seed_int = None
 
-    # Attach engine (modern adapter handles CrapsSim 0.3+; legacy fallback inside)
+    # Attach engine (hide argv while importing/attaching), then restore
     try:
         from crapssim_control.engine_adapter import EngineAdapter  # lazy
         adapter = EngineAdapter()
@@ -330,7 +346,14 @@ def run(args: argparse.Namespace) -> int:
             print("\n--- CSC DEBUG TRACEBACK (attach) ---", flush=True)
             traceback.print_exc()
             print("--- END CSC DEBUG ---\n", flush=True)
+        sys.argv = _prev_argv
         return _engine_unavailable(e)
+    finally:
+        # Always restore argv
+        try:
+            sys.argv = _prev_argv
+        except Exception:
+            pass
 
     # Drive the table
     log.info("Starting run: rolls=%s seed=%s", rolls, seed_int)
