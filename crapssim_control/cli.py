@@ -75,8 +75,7 @@ def _smart_seed(seed: Optional[int]) -> None:
 
 def _reseed_engine(seed: Optional[int]) -> None:
     """
-    Ensure CrapsSim's dice RNG is reset before each run in this process.
-    This helps repeated CLI invocations (with/without flags) be deterministic.
+    Reset any module-level engine RNGs (best-effort).
     """
     if seed is None:
         return
@@ -91,6 +90,46 @@ def _reseed_engine(seed: Optional[int]) -> None:
                 d.seed(seed)
     except Exception as e:
         log.debug("Engine reseed skipped: %s", e)
+
+
+def _force_seed_on_table(table: Any, seed: Optional[int]) -> None:
+    """
+    Ensure the *actual* dice/RNG instance the table uses is seeded.
+    Tries common attributes without raising if not present.
+    """
+    if seed is None:
+        return
+
+    def _try_seed(obj: Any) -> bool:
+        try:
+            if hasattr(obj, "set_seed"):
+                obj.set_seed(seed)  # type: ignore[attr-defined]
+                return True
+            if hasattr(obj, "seed"):
+                obj.seed(seed)      # type: ignore[attr-defined]
+                return True
+        except Exception:
+            return False
+        return False
+
+    # Common patterns
+    for attr in ("dice", "_dice", "rng", "_rng"):
+        if hasattr(table, attr):
+            if _try_seed(getattr(table, attr)):
+                return
+
+    # Some tables hang dice on a game/engine member
+    for parent_attr in ("game", "engine", "_engine", "_game"):
+        parent = getattr(table, parent_attr, None)
+        if parent is None:
+            continue
+        for attr in ("dice", "_dice", "rng", "_rng"):
+            obj = getattr(parent, attr, None)
+            if obj is not None and _try_seed(obj):
+                return
+
+    # Best effort done; if we can't find it, no exception—just log at debug.
+    log.debug("Could not locate dice/rng on table to force seed")
 
 
 def _run_table_rolls(table: Any, rolls: int) -> Tuple[bool, str]:
@@ -294,7 +333,7 @@ def run(args: argparse.Namespace) -> int:
     if info:
         print(info)
 
-    # Seed RNGs (this is the only seed source we control directly)
+    # Seed RNGs under our control
     seed_int = None
     if seed is not None:
         try:
@@ -310,6 +349,9 @@ def run(args: argparse.Namespace) -> int:
         adapter = EngineAdapter()
         attach_result = adapter.attach(spec)
         table = attach_result.table
+        # CRITICAL: seed the actual dice/rng instance now that it exists
+        _force_seed_on_table(table, seed_int)
+
         log.debug("attach meta: %s", getattr(attach_result, "meta", {}))
         if os.environ.get("CSC_DEBUG", "0").lower() in ("1", "true", "yes"):
             print("DEBUG attach_result:", getattr(attach_result, "meta", {}))
@@ -467,7 +509,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: List[str] | None = None) -> int:
-    _scrub_inert_env()  # now a no-op; keeps CSC_FORCE_SEED intact
+    _scrub_inert_env()  # keep CSC_FORCE_SEED intact
     if argv is None:
         argv = sys.argv[1:]
     parser = _build_parser()
