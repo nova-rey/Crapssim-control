@@ -76,23 +76,20 @@ def _smart_seed(seed: Optional[int]) -> None:
 def _reseed_engine(seed: Optional[int]) -> None:
     """
     Ensure CrapsSim's dice RNG is reset before each run in this process.
-    This keeps repeated CLI invocations (with/without flags) deterministic.
+    This helps repeated CLI invocations (with/without flags) be deterministic.
     """
     if seed is None:
         return
     try:
         import crapssim.dice as dice_mod  # type: ignore
-        # Prefer a module-level setter if it exists
         if hasattr(dice_mod, "set_seed"):
             dice_mod.set_seed(seed)
             return
-        # Fallback to instance-level seeding if available
         if hasattr(dice_mod, "Dice"):
             d = dice_mod.Dice()
             if hasattr(d, "seed"):
                 d.seed(seed)
     except Exception as e:
-        # Best-effort; if engine version doesn't expose hooks, just skip
         log.debug("Engine reseed skipped: %s", e)
 
 
@@ -213,13 +210,10 @@ def _csv_journal_info(spec: Dict[str, Any]) -> Optional[str]:
 
 def _scrub_inert_env() -> None:
     """
-    Phase 0 contract: flags are accepted but MUST be inert.
-    We **only** scrub CSC_FORCE_SEED so --seed is the single RNG source.
+    NO-OP: honor CSC_FORCE_SEED provided by the workflow so both runs
+    (with and without flags) share the exact same RNG bootstrap.
     """
-    try:
-        os.environ.pop("CSC_FORCE_SEED", None)
-    except Exception:
-        pass
+    return
 
 
 # -------------------------------- Journal cmd -------------------------------- #
@@ -300,7 +294,7 @@ def run(args: argparse.Namespace) -> int:
     if info:
         print(info)
 
-    # Seed RNGs (this is the only seed source)
+    # Seed RNGs (this is the only seed source we control directly)
     seed_int = None
     if seed is not None:
         try:
@@ -308,7 +302,7 @@ def run(args: argparse.Namespace) -> int:
         except Exception:
             seed_int = None
     _smart_seed(seed_int)
-    _reseed_engine(seed_int)  # <<<<<<<<<<<<<<<<<<<<<<<< added (tiny but crucial)
+    _reseed_engine(seed_int)
 
     # Attach engine
     try:
@@ -473,8 +467,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: List[str] | None = None) -> int:
-    # P0·C1: only scrub CSC_FORCE_SEED; do NOT touch argv.
-    _scrub_inert_env()
+    _scrub_inert_env()  # now a no-op; keeps CSC_FORCE_SEED intact
     if argv is None:
         argv = sys.argv[1:]
     parser = _build_parser()
