@@ -1,0 +1,49 @@
+name: P0C1 Smoke
+
+on:
+  push:
+    branches: [ "**" ]
+    paths:
+      - ".github/workflows/p0c1-*.yml"
+      - "crapssim_control/**"
+      - "examples/**"
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    env:
+      SPEC_PATH: "examples/quickstart_spec.json"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Print context
+        run: |
+          set -euxo pipefail
+          echo "GITHUB_REF=$GITHUB_REF"
+          echo "GITHUB_SHA=$GITHUB_SHA"
+          echo "Runner: $RUNNER_OS"
+          uname -a
+          git --version
+          python3 --version
+
+      - name: Show repo tree (top level)
+        run: |
+          set -euxo pipefail
+          ls -la
+          echo "---- examples ----"
+          ls -la examples || true
+          echo "---- crapssim_control ----"
+          ls -la crapssim_control || true
+
+      - name: Verify spec exists
+        run: |
+          set -euxo pipefail
+          test -f "$SPEC_PATH" || (echo "Spec not found at $SPEC_PATH"; exit 1)
+          head -n 20 "$SPEC_PATH" || true
+
+      - name: Done
+        run: echo "✅ Smoke passed"
