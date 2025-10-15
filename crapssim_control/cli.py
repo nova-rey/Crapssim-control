@@ -283,122 +283,119 @@ def run(args: argparse.Namespace) -> int:
     _scrub_inert_env()
     _prev_argv = _hide_argv()
 
-    # Load spec (JSON or YAML)
-    spec_path = Path(args.spec)
-    spec = _load_spec_file(spec_path)
-
-    # --- Read runtime settings from the spec (optional) ---
-    spec_run = spec.get("run", {}) if isinstance(spec.get("run", {}), dict) else {}
-
-    # Prefer CLI; otherwise spec; fallback default
-    rolls = int(args.rolls) if args.rolls is not None else int(spec_run.get("rolls", 1000))
-    seed = args.seed if args.seed is not None else spec_run.get("seed")
-
-    # P0·C1 FLAGS (inert)
-    demo_fallbacks = bool(getattr(args, "demo_fallbacks", False))
-    strict = bool(getattr(args, "strict", False))
-    # embed_analytics default is True; CLI can negate with --no-embed-analytics
-    embed_analytics = not bool(getattr(args, "no_embed_analytics", False))
-
-    # Store for possible future use (no behavior change in C1)
-    if log.isEnabledFor(logging.DEBUG):
-        log.debug("P0·C1 flags (inert): demo_fallbacks=%s strict=%s embed_analytics=%s",
-                  demo_fallbacks, strict, embed_analytics)
-
-    # Validate first (fail fast)
-    ok, hard_errs, soft_warns = _lazy_validate_spec(spec)
-    if not ok or hard_errs:
-        print("failed validation:", file=sys.stderr)
-        for e in hard_errs:
-            print(f"- {e}", file=sys.stderr)
-        # restore argv before exit
-        sys.argv = _prev_argv
-        return 2
-    for w in soft_warns:
-        log.warning("spec warning: %s", w)
-
-    # Friendly FYI if journaling is configured in the spec
-    info = _csv_journal_info(spec)
-    if info:
-        print(info)
-
-    # Seed RNGs (Python & NumPy)
-    if seed is not None:
-        try:
-            seed_int = int(seed)
-        except Exception:
-            seed_int = None
-        _smart_seed(seed_int)
-    else:
-        seed_int = None
-
-    # Attach engine (hide argv while importing/attaching), then restore
     try:
-        from crapssim_control.engine_adapter import EngineAdapter  # lazy
-        adapter = EngineAdapter()
-        attach_result = adapter.attach(spec)  # -> EngineAttachResult
-        table = attach_result.table
-        log.debug("attach meta: %s", getattr(attach_result, "meta", {}))
-        if os.environ.get("CSC_DEBUG", "0").lower() in ("1", "true", "yes"):
-            print("DEBUG attach_result:", getattr(attach_result, "meta", {}))
-    except Exception as e:
-        if os.environ.get("CSC_DEBUG", "0").lower() in ("1", "true", "yes"):
-            print("\n--- CSC DEBUG TRACEBACK (attach) ---", flush=True)
-            traceback.print_exc()
-            print("--- END CSC DEBUG ---\n", flush=True)
-        sys.argv = _prev_argv
-        return _engine_unavailable(e)
+        # Load spec (JSON or YAML)
+        spec_path = Path(args.spec)
+        spec = _load_spec_file(spec_path)
+
+        # --- Read runtime settings from the spec (optional) ---
+        spec_run = spec.get("run", {}) if isinstance(spec.get("run", {}), dict) else {}
+
+        # Prefer CLI; otherwise spec; fallback default
+        rolls = int(args.rolls) if args.rolls is not None else int(spec_run.get("rolls", 1000))
+        seed = args.seed if args.seed is not None else spec_run.get("seed")
+
+        # P0·C1 FLAGS (inert)
+        demo_fallbacks = bool(getattr(args, "demo_fallbacks", False))
+        strict = bool(getattr(args, "strict", False))
+        # embed_analytics default is True; CLI can negate with --no-embed-analytics
+        embed_analytics = not bool(getattr(args, "no_embed_analytics", False))
+
+        if log.isEnabledFor(logging.DEBUG):
+            log.debug("P0·C1 flags (inert): demo_fallbacks=%s strict=%s embed_analytics=%s",
+                      demo_fallbacks, strict, embed_analytics)
+
+        # Validate first (fail fast)
+        ok, hard_errs, soft_warns = _lazy_validate_spec(spec)
+        if not ok or hard_errs:
+            print("failed validation:", file=sys.stderr)
+            for e in hard_errs:
+                print(f"- {e}", file=sys.stderr)
+            return 2
+        for w in soft_warns:
+            log.warning("spec warning: %s", w)
+
+        # Friendly FYI if journaling is configured in the spec
+        info = _csv_journal_info(spec)
+        if info:
+            print(info)
+
+        # Seed RNGs (Python & NumPy)
+        if seed is not None:
+            try:
+                seed_int = int(seed)
+            except Exception:
+                seed_int = None
+            _smart_seed(seed_int)
+        else:
+            seed_int = None
+
+        # Attach engine (argv hidden during entire run())
+        try:
+            from crapssim_control.engine_adapter import EngineAdapter  # lazy
+            adapter = EngineAdapter()
+            attach_result = adapter.attach(spec)  # -> EngineAttachResult
+            table = attach_result.table
+            log.debug("attach meta: %s", getattr(attach_result, "meta", {}))
+            if os.environ.get("CSC_DEBUG", "0").lower() in ("1", "true", "yes"):
+                print("DEBUG attach_result:", getattr(attach_result, "meta", {}))
+        except Exception as e:
+            if os.environ.get("CSC_DEBUG", "0").lower() in ("1", "true", "yes"):
+                print("\n--- CSC DEBUG TRACEBACK (attach) ---", flush=True)
+                traceback.print_exc()
+                print("--- END CSC DEBUG ---\n", flush=True)
+            return _engine_unavailable(e)
+
+        # Drive the table
+        log.info("Starting run: rolls=%s seed=%s", rolls, seed_int)
+        ok, used = _run_table_rolls(table, rolls)
+        if not ok:
+            msg = f"Could not run {rolls} rolls. {used}."
+            if os.environ.get("CSC_DEBUG", "0").lower() in ("1", "true", "yes"):
+                print("\n--- CSC DEBUG: run failure ---", msg, "\n", flush=True)
+            return _engine_unavailable(msg)
+
+        # Summarize results (best-effort)
+        bankroll = None
+        try:
+            players = getattr(table, "players", None)
+            if players and len(players) > 0:
+                p0 = players[0]
+                bankroll = getattr(p0, "bankroll", None)
+        except Exception:
+            pass
+
+        if bankroll is not None:
+            print(f"RESULT: rolls={rolls} bankroll={float(bankroll):.2f}")
+        else:
+            print(f"RESULT: rolls={rolls}")
+
+        # Optional CSV export (end-of-run summary)
+        if getattr(args, "export", None):
+            try:
+                _write_csv_summary(
+                    args.export,
+                    {
+                        "spec": str(spec_path),
+                        "rolls": rolls,
+                        "final_bankroll": float(bankroll) if bankroll is not None else None,
+                        "seed": seed_int,
+                        "note": getattr(getattr(attach_result, "meta", {}), "get", lambda _k, _d=None: _d)("mode", ""),
+                    },
+                )
+                log.info("Exported summary CSV → %s", args.export)
+                if os.environ.get("CSC_DEBUG", "0").lower() in ("1", "true", "yes"):
+                    print(f"[CSV] wrote summary to {args.export}")
+            except Exception as e:
+                print(f"warn: export failed: {e}", file=sys.stderr)
+
+        return 0
     finally:
-        # Always restore argv
+        # Always restore argv at the very end of run()
         try:
             sys.argv = _prev_argv
         except Exception:
             pass
-
-    # Drive the table
-    log.info("Starting run: rolls=%s seed=%s", rolls, seed_int)
-    ok, used = _run_table_rolls(table, rolls)
-    if not ok:
-        msg = f"Could not run {rolls} rolls. {used}."
-        if os.environ.get("CSC_DEBUG", "0").lower() in ("1", "true", "yes"):
-            print("\n--- CSC DEBUG: run failure ---", msg, "\n", flush=True)
-        return _engine_unavailable(msg)
-
-    # Summarize results (best-effort)
-    bankroll = None
-    try:
-        players = getattr(table, "players", None)
-        if players and len(players) > 0:
-            p0 = players[0]
-            bankroll = getattr(p0, "bankroll", None)
-    except Exception:
-        pass
-
-    if bankroll is not None:
-        print(f"RESULT: rolls={rolls} bankroll={float(bankroll):.2f}")
-    else:
-        print(f"RESULT: rolls={rolls}")
-
-    # Optional CSV export (end-of-run summary)
-    if getattr(args, "export", None):
-        try:
-            _write_csv_summary(
-                args.export,
-                {
-                    "spec": str(spec_path),
-                    "rolls": rolls,
-                    "final_bankroll": float(bankroll) if bankroll is not None else None,
-                    "seed": seed_int,
-                    "note": getattr(getattr(attach_result, "meta", {}), "get", lambda _k, _d=None: _d)("mode", ""),
-                },
-            )
-            log.info("Exported summary CSV → %s", args.export)
-            if os.environ.get("CSC_DEBUG", "0").lower() in ("1", "true", "yes"):
-                print(f"[CSV] wrote summary to {args.export}")
-        except Exception as e:
-            print(f"warn: export failed: {e}", file=sys.stderr)
-
-    return 0
 
 
 # ------------------------------ Parser/Main --------------------------------- #
