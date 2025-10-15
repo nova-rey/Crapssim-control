@@ -442,14 +442,69 @@ class EngineAdapter:
         self.table = table
         self.player = player
         self.strategy = strategy
+        self.meta: Dict[str, Any] = {}
 
     # --- Modern attach path used by the CLI ---
     def attach(self, spec: Dict[str, Any]) -> EngineAttachResult:
-        return attach_engine(spec)
+        res = attach_engine(spec)
+        # Cache for helpers (harmless QoL)
+        self.table = res.table
+        self.player = res.controller_player
+        self.meta = dict(res.meta or {})
+        return res
 
     @classmethod
     def attach_cls(cls, spec: Dict[str, Any]) -> EngineAttachResult:
         return attach_engine(spec)
+
+    # --- Best-effort reseeding hook (future-proof, safe no-op today) ---
+    def set_seed(self, seed: int | None) -> None:
+        """
+        Try to reseed per-instance RNGs if the engine exposes any.
+        This NEVER raises and is a no-op if nothing is available.
+        """
+        if seed is None:
+            return
+        try:
+            table = getattr(self, "table", None)
+            if table is None:
+                return
+
+            # 1) Table-level seed methods (common in engines)
+            for meth in ("set_seed", "seed"):
+                fn = getattr(table, meth, None)
+                if callable(fn):
+                    try:
+                        fn(int(seed))
+                        return
+                    except Exception:
+                        pass
+
+            # 2) Known attributes that may own RNGs / dice
+            for attr_name in ("rng", "random", "prng", "dice", "shooter"):
+                obj = getattr(table, attr_name, None)
+                if obj is None:
+                    continue
+                seed_fn = getattr(obj, "seed", None)
+                if callable(seed_fn):
+                    try:
+                        seed_fn(int(seed))
+                        return
+                    except Exception:
+                        pass
+
+            # 3) Optional meta-provided hook (if engine surfaces one)
+            meta = getattr(self, "meta", {}) or {}
+            reseed = meta.get("set_seed") if isinstance(meta, dict) else None
+            if callable(reseed):
+                try:
+                    reseed(int(seed))
+                    return
+                except Exception:
+                    pass
+        except Exception:
+            # Absolutely never let reseeding break the caller.
+            return
 
     # --- Offline smoke runner expected by tests ---
     def play(self, shooters: int = 1, rolls: int = 3) -> Dict[str, Any]:
