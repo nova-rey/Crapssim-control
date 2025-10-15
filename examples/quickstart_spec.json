@@ -1,32 +1,22 @@
 {
-  "table": {
-    "bubble": false,
-    "level": 10,
-    "place_410_increment": 5,
-    "max_odds_multiple": 3.0
-  },
-  "variables": {
-    "units": 5,
-    "mode": "Main"
-  },
-  "modes": {
-    "Main": {
-      "template": {
-        "pass_line": { "amount": 5 },
-        "place_6":   { "amount": 10 },
-        "place_8":   { "amount": 10 },
-        "odds_pass": { "amount": 10 }
-      }
-    }
-  },
+  "table": { "bubble": false, "level": 10 },
+  "variables": { "units": 10 },
+  "modes": { "Main": { "template": { "pass": "units", "place": { "6": "units*2", "8": "units*2" } } } },
   "rules": [],
   "run": {
-    "rolls": 50,
-    "seed": 123,
     "csv": {
       "enabled": true,
-      "path": "journal.csv",
-      "append": false
+      "path": ".artifacts/journal.csv",
+      "append": true
+    },
+    "memory": {
+      "meta_path": ".artifacts/meta.json",
+      "report_path": ".artifacts/report.json"
+    },
+    "report": {
+      "path": ".artifacts/report.json",
+      "auto": false,
+      "export": { "path": ".artifacts/exports", "compress": false }
     }
   }
 }
