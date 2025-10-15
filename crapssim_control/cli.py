@@ -186,32 +186,17 @@ def _csv_journal_info(spec: Dict[str, Any]) -> Optional[str]:
     return f"[journal] enabled → {path} (append={'on' if append else 'off'})"
 
 
-# --------------------------- P0·C1 inert flag scrub -------------------------- #
+# --------------------------- P0·C1 inert env scrub --------------------------- #
 
 def _scrub_inert_env() -> None:
     """
     Phase 0 contract: flags are accepted but MUST be inert.
-    Scrub env toggles so nothing downstream can observe them, and remove
-    CSC_FORCE_SEED so --seed is the only RNG source.
+    We **only** scrub CSC_FORCE_SEED so --seed is the single RNG source.
     """
-    for k in ("CSC_DEMO_FALLBACKS", "CSC_STRICT", "CSC_NO_EMBED_ANALYTICS", "CSC_FORCE_SEED"):
-        try:
-            os.environ.pop(k, None)
-        except Exception:
-            pass
-
-
-def _hide_argv() -> List[str]:
-    """
-    Temporarily hide argv so downstream modules that parse/peek at sys.argv
-    can't see scaffold flags. Returns the previous argv for restoration.
-    """
-    prev = sys.argv[:]
     try:
-        sys.argv = [prev[0]] if prev else ["crapssim-ctl"]
+        os.environ.pop("CSC_FORCE_SEED", None)
     except Exception:
         pass
-    return prev
 
 
 # -------------------------------- Journal cmd -------------------------------- #
@@ -464,22 +449,14 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: List[str] | None = None) -> int:
-    # P0·C1: scrub env + hide argv BEFORE anything else, then parse/dispatch.
+    # P0·C1: only scrub CSC_FORCE_SEED; do NOT touch argv.
     _scrub_inert_env()
-    prev_argv = _hide_argv()
-    try:
-        if argv is None:
-            argv = sys.argv[1:]
-        parser = _build_parser()
-        args = parser.parse_args(argv)
-        setup_logging(args.verbose)
-        return args.func(args)
-    finally:
-        # restore argv on exit
-        try:
-            sys.argv = prev_argv
-        except Exception:
-            pass
+    if argv is None:
+        argv = sys.argv[1:]
+    parser = _build_parser()
+    args = parser.parse_args(argv)
+    setup_logging(args.verbose)
+    return args.func(args)
 
 
 if __name__ == "__main__":  # pragma: no cover
