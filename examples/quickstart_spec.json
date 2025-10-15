@@ -12,10 +12,9 @@
   "modes": {
     "Main": {
       "template": {
-        "pass_line": { "amount": 5 },
-        "place_6":   { "amount": 10 },
-        "place_8":   { "amount": 10 },
-        "odds_pass": { "amount": 10 }
+        "pass": "units",
+        "place": { "6": "units*2", "8": "units*2" },
+        "odds": { "pass": "units*2" }
       }
     }
   },
@@ -23,25 +22,10 @@
   "run": {
     "rolls": 50,
     "seed": 123,
-
     "csv": {
       "enabled": true,
-      "path": ".artifacts/journal.csv",
+      "path": "journal.csv",
       "append": false
-    },
-
-    "memory": {
-      "meta_path": ".artifacts/meta.json",
-      "report_path": ".artifacts/report.json"
-    },
-
-    "report": {
-      "path": ".artifacts/report.json",
-      "auto": false,
-      "export": {
-        "path": ".artifacts/exports",
-        "compress": false
-      }
     }
   }
 }
