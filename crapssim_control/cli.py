@@ -39,12 +39,6 @@ def _load_spec_file(path: str | Path) -> Dict[str, Any]:
 
 
 def _normalize_validate_result(res):
-    """
-    Accept either:
-      • (ok: bool, hard_errs: list[str], soft_warns: list[str])
-      • hard_errs: list[str]
-    Return (ok, hard_errs, soft_warns)
-    """
     if isinstance(res, tuple) and len(res) == 3:
         ok, hard_errs, soft_warns = res
         return bool(ok), list(hard_errs), list(soft_warns)
@@ -54,9 +48,6 @@ def _normalize_validate_result(res):
 
 
 def _engine_unavailable(reason: str | Exception = "missing or incompatible engine") -> int:
-    """
-    Standardized failure for tests, while logging the real reason.
-    """
     msg = "CrapsSim engine not available (pip install crapssim)."
     log.error("%s Reason: %s", msg, reason)
     print(f"failed: {msg}", file=sys.stderr)
@@ -68,24 +59,19 @@ def _smart_seed(seed: Optional[int]) -> None:
         random.seed(seed)
         try:
             import numpy as _np  # type: ignore
-            _np.random.seed(seed)  # affects legacy RandomState only
+            _np.random.seed(seed)
         except Exception:
             pass
 
 
 def _reseed_engine(seed: Optional[int]) -> None:
-    """
-    Reset any module-level engine RNGs (best-effort).
-    """
     if seed is None:
         return
     try:
         import crapssim.dice as dice_mod  # type: ignore
-        # Prefer an explicit module hook, if present
         if hasattr(dice_mod, "set_seed"):
             dice_mod.set_seed(seed)
             return
-        # Fall back to a Dice() helper, if it exposes a seed method
         if hasattr(dice_mod, "Dice"):
             d = dice_mod.Dice()
             if hasattr(d, "seed"):
@@ -95,19 +81,8 @@ def _reseed_engine(seed: Optional[int]) -> None:
 
 
 def _force_seed_on_table(table: Any, seed: Optional[int]) -> None:
-    """
-    Ensure the *actual* dice/RNG instance the table uses is seeded.
-    Handles:
-      • objects exposing .set_seed(...) or .seed(...)
-      • objects carrying a Python random.Random in .random / ._random
-      • objects carrying a NumPy Generator in .rng / ._rng (default_rng)
-      • 'dice' containers that themselves have an inner .rng / .random
-    Never raises; logs at DEBUG on best-effort failures.
-    """
     if seed is None:
         return
-
-    # Lazy import numpy only if we need it
     try:
         import numpy as _np  # type: ignore
         _has_numpy = True
@@ -116,22 +91,18 @@ def _force_seed_on_table(table: Any, seed: Optional[int]) -> None:
         _has_numpy = False
 
     def _is_np_generator(obj: Any) -> bool:
-        # Heuristic: new API Generators have .bit_generator and .random method
         return _has_numpy and hasattr(obj, "bit_generator") and callable(getattr(obj, "random", None))
 
     def _try_seed_leaf(obj: Any) -> bool:
-        # Direct seeding hooks
         try:
             if hasattr(obj, "set_seed"):
-                obj.set_seed(seed)  # type: ignore[attr-defined]
+                obj.set_seed(seed)
                 return True
             if hasattr(obj, "seed"):
-                obj.seed(seed)      # type: ignore[attr-defined]
+                obj.seed(seed)
                 return True
         except Exception:
             pass
-
-        # random.Random instances living on the object
         try:
             for attr in ("random", "_random"):
                 r = getattr(obj, attr, None)
@@ -140,26 +111,20 @@ def _force_seed_on_table(table: Any, seed: Optional[int]) -> None:
                     return True
         except Exception:
             pass
-
-        # NumPy Generator: replace with a freshly seeded one
         if _has_numpy:
             try:
                 for attr in ("rng", "_rng"):
                     g = getattr(obj, attr, None)
                     if g is not None and _is_np_generator(g):
-                        setattr(obj, attr, _np.random.default_rng(seed))  # type: ignore[attr-defined]
+                        setattr(obj, attr, _np.random.default_rng(seed))
                         return True
             except Exception:
                 pass
-
         return False
 
-    # Common attachment points on the table
     for attr in ("dice", "_dice", "rng", "_rng"):
         if hasattr(table, attr) and _try_seed_leaf(getattr(table, attr)):
             return
-
-    # Some tables hang dice on a game/engine member
     for parent_attr in ("game", "engine", "_engine", "_game"):
         parent = getattr(table, parent_attr, None)
         if parent is None:
@@ -168,27 +133,19 @@ def _force_seed_on_table(table: Any, seed: Optional[int]) -> None:
             obj = getattr(parent, attr, None)
             if obj is not None and _try_seed_leaf(obj):
                 return
-
     log.debug("Could not locate dice/rng on table to force seed")
 
 
 def _run_table_rolls(table: Any, rolls: int) -> Tuple[bool, str]:
-    """
-    Try several ways to drive the Table for N rolls.
-    Returns (ok, detail). Never raises.
-    """
-    # 1) table.play(rolls=...)
     if hasattr(table, "play"):
         try:
             table.play(rolls=rolls)
             return True, "table.play(rolls=...)"
         except Exception as e:
             log.debug("table.play failed: %s", e)
-
-    # 2) table.run(rolls)  or  table.run(rolls=...)
     if hasattr(table, "run"):
         try:
-            table.run(rolls)  # type: ignore[arg-type]
+            table.run(rolls)
             return True, "table.run(rolls)"
         except TypeError:
             try:
@@ -198,8 +155,6 @@ def _run_table_rolls(table: Any, rolls: int) -> Tuple[bool, str]:
                 log.debug("table.run failed: %s", e)
         except Exception as e:
             log.debug("table.run failed: %s", e)
-
-    # 3) Manual loop: table.roll()
     if hasattr(table, "roll"):
         try:
             for _ in range(rolls):
@@ -207,31 +162,21 @@ def _run_table_rolls(table: Any, rolls: int) -> Tuple[bool, str]:
             return True, "loop: table.roll()"
         except Exception as e:
             log.debug("loop table.roll failed: %s", e)
-
-    # 4) Manual loop with Dice: dice.roll() + table.process_roll/on_roll
     try:
         from crapssim.dice import Dice  # type: ignore
         dice = Dice()
         process = getattr(table, "process_roll", None) or getattr(table, "on_roll", None)
         if callable(process):
-            try:
-                for _ in range(rolls):
-                    r = dice.roll()
-                    process(r)
-                return True, "loop: dice.roll() -> table.process_roll/on_roll"
-            except Exception as e:
-                log.debug("loop dice->process failed: %s", e)
+            for _ in range(rolls):
+                r = dice.roll()
+                process(r)
+            return True, "loop: dice.roll() -> table.process_roll/on_roll"
     except Exception as e:
         log.debug("Dice path unavailable: %s", e)
-
     return False, "No compatible run method found"
 
 
 def _write_csv_summary(path: str | Path, row: Dict[str, Any]) -> None:
-    """
-    Append a one-line summary CSV. Creates file and header if needed.
-    Fields (in order): spec, rolls, final_bankroll, seed, note
-    """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     fieldnames = ["spec", "rolls", "final_bankroll", "seed", "note"]
@@ -257,8 +202,6 @@ def _write_csv_summary(path: str | Path, row: Dict[str, Any]) -> None:
         writer.writerow(safe_row)
 
 
-# ------------------------------ Validation ---------------------------------- #
-
 def _lazy_validate_spec(spec: Dict[str, Any]) -> Tuple[bool, List[str], List[str]]:
     try:
         from . import spec_validation as _sv  # lazy
@@ -268,8 +211,6 @@ def _lazy_validate_spec(spec: Dict[str, Any]) -> Tuple[bool, List[str], List[str
         return False, [f"Validation logic unavailable: {e!r}"], []
     return _normalize_validate_result(res)
 
-
-# ------------------------------ CSV Journal FYI ------------------------------ #
 
 def _csv_journal_info(spec: Dict[str, Any]) -> Optional[str]:
     run = spec.get("run", {}) if isinstance(spec.get("run", {}), dict) else {}
@@ -285,35 +226,23 @@ def _csv_journal_info(spec: Dict[str, Any]) -> Optional[str]:
     return f"[journal] enabled → {path} (append={'on' if append else 'off'})"
 
 
-# --------------------------- P0·C1 inert env scrub --------------------------- #
-
 def _scrub_inert_env() -> None:
-    """
-    NO-OP: we keep CSC_FORCE_SEED intact so both runs in verify share the same
-    bootstrap seed path. We do not mutate argv or environment here.
-    """
     return
 
 
-# -------------------------------- Journal cmd -------------------------------- #
-
 def _cmd_journal_summarize(args: argparse.Namespace) -> int:
     from .csv_summary import summarize_journal, write_summary_csv
-
     jp = Path(args.journal)
     if not jp.exists():
         print(f"failed: journal not found: {jp}", file=sys.stderr)
         return 2
-
     summaries = summarize_journal(journal_path=jp, group_by_run_id=not args.no_group)
-
     if args.out:
         try:
             write_summary_csv(summaries, args.out, append=args.append)
         except Exception as e:
             print(f"failed: {e}", file=sys.stderr)
             return 2
-
     cols = [
         "run_id", "rows_total", "actions_total",
         "sets", "clears", "presses", "reduces", "switch_mode",
@@ -327,31 +256,17 @@ def _cmd_journal_summarize(args: argparse.Namespace) -> int:
     for s in summaries:
         row = [str(s.get(c, "")) for c in cols]
         print("\t".join(row))
-
     return 0
 
 
-# --------------------------------- Run -------------------------------------- #
-
 def run(args: argparse.Namespace) -> int:
-    """
-    Run path:
-      1) Load & validate spec
-      2) Compute rolls/seed
-      3) Attach engine via EngineAdapter
-      4) Drive the table
-      5) Print result summary
-    """
-    # Load spec
     spec_path = Path(args.spec)
     spec = _load_spec_file(spec_path)
 
-    # spec-level runtime
     spec_run = spec.get("run", {}) if isinstance(spec.get("run", {}), dict) else {}
     rolls = int(args.rolls) if args.rolls is not None else int(spec_run.get("rolls", 1000))
     seed = args.seed if args.seed is not None else spec_run.get("seed")
 
-    # Flags (inert)
     demo_fallbacks = bool(getattr(args, "demo_fallbacks", False))
     strict = bool(getattr(args, "strict", False))
     embed_analytics = not bool(getattr(args, "no_embed_analytics", False))
@@ -359,7 +274,6 @@ def run(args: argparse.Namespace) -> int:
         log.debug("P0·C1 flags (inert): demo_fallbacks=%s strict=%s embed_analytics=%s",
                   demo_fallbacks, strict, embed_analytics)
 
-    # Validate (can be bypassed by workflow env)
     if os.environ.get("CSC_SKIP_VALIDATE", "0").lower() not in ("1", "true", "yes"):
         ok, hard_errs, soft_warns = _lazy_validate_spec(spec)
         if not ok or hard_errs:
@@ -374,7 +288,6 @@ def run(args: argparse.Namespace) -> int:
     if info:
         print(info)
 
-    # Seed RNGs under our control
     seed_int = None
     if seed is not None:
         try:
@@ -384,14 +297,23 @@ def run(args: argparse.Namespace) -> int:
     _smart_seed(seed_int)
     _reseed_engine(seed_int)
 
-    # Attach engine
     try:
-        from crapssim_control.engine_adapter import EngineAdapter  # lazy
+        from crapssim_control.engine_adapter import EngineAdapter
         adapter = EngineAdapter()
         attach_result = adapter.attach(spec)
         table = attach_result.table
-        # CRITICAL: seed the actual dice/rng instance now that it exists
         _force_seed_on_table(table, seed_int)
+
+        # NEW: post-attach reseed hook and optional audit
+        try:
+            adapter.set_seed(seed_int)
+        except Exception:
+            pass
+
+        rng_audit = bool(getattr(args, "rng_audit", False)) or os.environ.get("CSC_RNG_AUDIT", "") in ("1", "true", "yes")
+        if rng_audit:
+            src = "CLI --seed" if seed_int is not None else "spec/run.seed or default"
+            print(f"[rng-audit] seeded python.random + numpy.random (legacy); adapter.set_seed invoked; source={src}")
 
         log.debug("attach meta: %s", getattr(attach_result, "meta", {}))
         if os.environ.get("CSC_DEBUG", "0").lower() in ("1", "true", "yes"):
@@ -403,7 +325,6 @@ def run(args: argparse.Namespace) -> int:
             print("--- END CSC DEBUG ---\n", flush=True)
         return _engine_unavailable(e)
 
-    # Drive the table
     log.info("Starting run: rolls=%s seed=%s", rolls, seed_int)
     ok, used = _run_table_rolls(table, rolls)
     if not ok:
@@ -412,7 +333,6 @@ def run(args: argparse.Namespace) -> int:
             print("\n--- CSC DEBUG: run failure ---", msg, "\n", flush=True)
         return _engine_unavailable(msg)
 
-    # Summarize
     bankroll = None
     try:
         players = getattr(table, "players", None)
@@ -427,7 +347,6 @@ def run(args: argparse.Namespace) -> int:
     else:
         print(f"RESULT: rolls={rolls}")
 
-    # Optional CSV export
     if getattr(args, "export", None):
         try:
             _write_csv_summary(
@@ -449,8 +368,6 @@ def run(args: argparse.Namespace) -> int:
     return 0
 
 
-# ------------------------------ Parser/Main --------------------------------- #
-
 def _cmd_validate(args: argparse.Namespace) -> int:
     spec_path = Path(args.spec)
     try:
@@ -458,13 +375,11 @@ def _cmd_validate(args: argparse.Namespace) -> int:
     except Exception as e:
         print(f"failed validation:\n- Could not load spec: {e}", file=sys.stderr)
         return 2
-
     ok, hard_errs, soft_warns = _lazy_validate_spec(spec)
-
     notes: List[str] = []
     if getattr(args, "guardrails", False):
         try:
-            from .guardrails import apply_guardrails  # lazy import
+            from .guardrails import apply_guardrails
             _spec2, note_lines = apply_guardrails(
                 spec,
                 hot_table=getattr(args, "hot_table", False),
@@ -473,7 +388,6 @@ def _cmd_validate(args: argparse.Namespace) -> int:
             notes.extend(note_lines)
         except Exception:
             pass
-
     if ok and not hard_errs:
         print(f"OK: {spec_path}")
         if notes and args.verbose:
@@ -483,7 +397,6 @@ def _cmd_validate(args: argparse.Namespace) -> int:
             for w in soft_warns:
                 print(f"warn: {w}")
         return 0
-
     print("failed validation:", file=sys.stderr)
     for e in hard_errs:
         print(f"- {e}", file=sys.stderr)
@@ -512,7 +425,6 @@ def _build_parser() -> argparse.ArgumentParser:
                         help="increase verbosity (use -vv for debug)")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
-    # validate
     p_val = sub.add_parser("validate", help="Validate a strategy spec (JSON or YAML)")
     p_val.add_argument("spec", help="Path to spec file")
     p_val.add_argument("--hot-table", action="store_true", dest="hot_table",
@@ -521,43 +433,20 @@ def _build_parser() -> argparse.ArgumentParser:
                        help="Print guardrail planning notes (no behavior change yet)")
     p_val.set_defaults(func=_cmd_validate)
 
-    # run
     p_run = sub.add_parser("run", help="Run a simulation for a given spec")
     p_run.add_argument("spec", help="Path to spec file")
     p_run.add_argument("--rolls", type=int, help="Number of rolls (overrides spec)")
     p_run.add_argument("--seed", type=int, help="Seed RNG for reproducibility")
     p_run.add_argument("--export", type=str, help="Path to CSV summary export (optional)")
-    # inert flag framework
     p_run.add_argument("--demo-fallbacks", action="store_true",
                        help="(scaffold) Enable demo fallbacks. P0·C1: no behavior change.")
     p_run.add_argument("--strict", action="store_true",
                        help="(scaffold) Enable strict/advisory enforcement. P0·C1: no behavior change.")
     p_run.add_argument("--no-embed-analytics", action="store_true", dest="no_embed_analytics",
                        help="(scaffold) Disable embedding analytics in CSV. P0·C1: no behavior change.")
+    # NEW FLAG
+    p_run.add_argument("--rng-audit", action="store_true",
+                       help="Print RNG seeding audit info (debug aid; no behavior change).")
     p_run.set_defaults(func=_cmd_run)
 
-    # journal summarize
-    p_j = sub.add_parser("journal", help="CSV journal utilities")
-    p_j_sub = p_j.add_subparsers(dest="journal_cmd", required=True)
-    p_js = p_j_sub.add_parser("summarize", help="Summarize a per-event journal CSV")
-    p_js.add_argument("journal", help="Path to journal.csv")
-    p_js.add_argument("--out", type=str, default=None, help="Write summary CSV to this path")
-    p_js.add_argument("--append", action="store_true", help="Append to --out if it exists")
-    p_js.add_argument("--no-group", action="store_true", help="Do not group by run_id; summarize whole file")
-    p_js.set_defaults(func=_cmd_journal_summarize)
-
-    return parser
-
-
-def main(argv: List[str] | None = None) -> int:
-    _scrub_inert_env()  # keep CSC_FORCE_SEED intact
-    if argv is None:
-        argv = sys.argv[1:]
-    parser = _build_parser()
-    args = parser.parse_args(argv)
-    setup_logging(args.verbose)
-    return args.func(args)
-
-
-if __name__ == "__main__":  # pragma: no cover
-    raise SystemExit(main())
+    p_j = sub.add_parser("
