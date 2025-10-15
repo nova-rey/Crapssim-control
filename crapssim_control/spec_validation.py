@@ -163,6 +163,22 @@ def validate_spec(spec: Dict[str, Any]) -> List[str]:
             if "meta_path" in mem and not isinstance(mem.get("meta_path"), str):
                 errors.append("run.memory.meta_path must be a string")
 
+    # ---------------- P0·C1: run flags & csv scaffold (type checks only) -------------
+    if isinstance(run_blk, dict):
+        if "demo_fallbacks" in run_blk and not isinstance(run_blk.get("demo_fallbacks"), bool):
+            errors.append("run.demo_fallbacks must be a boolean")
+        if "strict" in run_blk and not isinstance(run_blk.get("strict"), bool):
+            errors.append("run.strict must be a boolean")
+
+        if "csv" in run_blk:
+            csv_blk = run_blk.get("csv")
+            if not isinstance(csv_blk, dict):
+                errors.append("run.csv must be an object")
+            else:
+                if "embed_analytics" in csv_blk and not isinstance(csv_blk.get("embed_analytics"), bool):
+                    errors.append("run.csv.embed_analytics must be a boolean")
+    # -------------------------------------------------------------------------------
+
     # OPTIONAL: table_rules (shape-only checks)
     if "table_rules" in spec and spec.get("table_rules"):
         errors.extend(_validate_table_rules_block(spec["table_rules"]))
@@ -253,6 +269,7 @@ def _validate_do_object(step: Dict[str, Any], ctx: str, errors: List[str]) -> No
         if not isinstance(var, str) or not var.strip():
             errors.append(f"{ctx}.var (or name) must be a non-empty string for 'setvar'")
         # value can be missing here; controller evaluates at runtime from value|amount|notes
+
 
 def _validate_table_rules_block(tr: Any) -> List[str]:
     errs: List[str] = []
