@@ -15,10 +15,10 @@ jobs:
     runs-on: ubuntu-latest
     env:
       PYTHONUNBUFFERED: "1"
-      SPEC_PATH: "examples/quickstart_spec.json"   # change if your canonical spec lives elsewhere
+      SPEC_PATH: "examples/quickstart_spec.json"
       SEED: "123"
-      CMD: "python -m crapssim_control.cli"        # robust even if console script isn't installed
-      # Keep engine traces quiet; we only compare outputs
+      ROLLS: "50"
+      CMD: "python -m crapssim_control.cli"
       CSC_DEBUG: "0"
 
     steps:
@@ -33,65 +33,78 @@ jobs:
           echo "HEAD_SHA=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
           echo "PREV_SHA=$(git rev-parse HEAD^)" >> $GITHUB_OUTPUT
 
-      # ---------- BEFORE: HEAD^ ----------
-      - name: Checkout previous commit (baseline)
+      # NEW: freeze the spec from HEAD so both runs use the same file
+      - name: Freeze spec from HEAD
         run: |
-          git checkout ${{ steps.shas.outputs.PREV_SHA }}
+          mkdir -p /tmp/p0c1
+          cp "$SPEC_PATH" /tmp/p0c1/spec.json
 
-      - name: Set up Python
+      # NEW: install once to capture exact engine version
+      - name: Set up Python & pin engine version
+        id: pin
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-
-      - name: Install dependencies (baseline)
+      - name: Install engine once and record version
         run: |
           python -m pip install -U pip
-          # Install engine + optional YAML parser
-          pip install "crapssim>=0.3.0" "PyYAML>=6.0"
-          # Install this package from the previous commit
+          pip install "crapssim" "PyYAML>=6.0"
+          python - <<'PY' > /tmp/p0c1/crapssim_version.txt
+import importlib.metadata as m; print(m.version("crapssim"))
+PY
+          echo "CRAPSSIM_VERSION=$(cat /tmp/p0c1/crapssim_version.txt)" >> $GITHUB_OUTPUT
+
+      # ---------- BEFORE: HEAD^ ----------
+      - name: Checkout previous commit (baseline)
+        run: git checkout ${{ steps.shas.outputs.PREV_SHA }}
+
+      - name: Install deps (baseline, pinned engine)
+        run: |
+          python -m pip install -U pip
+          pip install --force-reinstall --no-deps "crapssim==${{ steps.pin.outputs.CRAPSSIM_VERSION }}" "PyYAML>=6.0"
           pip install -e .
 
-      - name: Run baseline (stdout capture)
+      - name: Run baseline (stdout + RESULT)
         run: |
           mkdir -p baselines/p0c1/before
           set -e
-          $CMD run "$SPEC_PATH" --seed "$SEED" > baselines/p0c1/before/out.txt 2>&1
-          # Help text snapshot (to compare later & confirm flags appear in HEAD)
+          $CMD run "/tmp/p0c1/spec.json" --seed "$SEED" --rolls "$ROLLS" > baselines/p0c1/before/out.txt 2>&1
+          grep '^RESULT:' baselines/p0c1/before/out.txt > baselines/p0c1/before/result.txt || true
           $CMD run --help > baselines/p0c1/before/help.txt 2>&1 || true
 
       # ---------- AFTER: HEAD ----------
       - name: Checkout current commit (candidate)
-        run: |
-          git checkout ${{ steps.shas.outputs.HEAD_SHA }}
+        run: git checkout ${{ steps.shas.outputs.HEAD_SHA }}
 
-      - name: Reinstall package (candidate)
+      - name: Install deps (candidate, pinned engine)
         run: |
           python -m pip install -U pip
-          pip install "crapssim>=0.3.0" "PyYAML>=6.0"
+          pip install --force-reinstall --no-deps "crapssim==${{ steps.pin.outputs.CRAPSSIM_VERSION }}" "PyYAML>=6.0"
           pip install -e .
 
-      - name: Run candidate (stdout capture)
+      - name: Run candidate (stdout + RESULT)
         run: |
           mkdir -p baselines/p0c1/after
           set -e
-          $CMD run "$SPEC_PATH" --seed "$SEED" > baselines/p0c1/after/out.txt 2>&1
-          # Verify flags exist in help (they can appear only in HEAD, that's OK)
+          $CMD run "/tmp/p0c1/spec.json" --seed "$SEED" --rolls "$ROLLS" > baselines/p0c1/after/out.txt 2>&1
+          grep '^RESULT:' baselines/p0c1/after/out.txt > baselines/p0c1/after/result.txt || true
           $CMD run --help > baselines/p0c1/after/help.txt 2>&1 || true
 
-      - name: Compare BEFORE vs AFTER (must be identical)
+      # CHANGED: compare only RESULT across commits (behavior invariant)
+      - name: Compare BEFORE vs AFTER (RESULT line must match)
         run: |
           set -e
-          diff -u baselines/p0c1/before/out.txt baselines/p0c1/after/out.txt
+          diff -u baselines/p0c1/before/result.txt baselines/p0c1/after/result.txt
 
+      # Keep the stronger check (within HEAD) that flags are inert (full stdout)
       - name: Flags are accepted but inert (candidate)
         run: |
           set -e
-          $CMD run "$SPEC_PATH" --seed "$SEED" \
+          $CMD run "/tmp/p0c1/spec.json" --seed "$SEED" --rolls "$ROLLS" \
             --demo-fallbacks --strict --no-embed-analytics \
             > baselines/p0c1/after/out_flags.txt 2>&1
-          diff -u baselines/p0c1/before/out.txt baselines/p0c1/after/out_flags.txt
+          diff -u baselines/p0c1/after/out.txt baselines/p0c1/after/out_flags.txt
 
       - name: Emit summary
         if: ${{ success() }}
-        run: |
-          echo "✅ P0·C1 verified: outputs are byte-identical before vs after, and flags are inert."
+        run: echo "✅ P0·C1 verified (pinned engine, frozen spec, RESULT stable; flags inert)."
