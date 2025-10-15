@@ -22,7 +22,9 @@ except Exception:  # pragma: no cover
     yaml = None
 
 
-# ------------------------------- Helpers ------------------------------------ #
+# --------------------------------------------------------------------------- #
+# Helpers
+# --------------------------------------------------------------------------- #
 
 def _load_spec_file(path: str | Path) -> Dict[str, Any]:
     p = Path(path)
@@ -64,6 +66,27 @@ def _smart_seed(seed: Optional[int]) -> None:
             pass
 
 
+def _reseed_engine(seed: Optional[int]) -> None:
+    """
+    Reseed CrapsSim engine dice RNG so consecutive runs in the same process
+    stay deterministic.
+    """
+    if seed is None:
+        return
+    try:
+        import crapssim.dice as dice_mod  # type: ignore
+        if hasattr(dice_mod, "set_seed"):
+            dice_mod.set_seed(seed)
+            log.debug("Engine reseeded via Dice.set_seed(%s)", seed)
+        elif hasattr(dice_mod, "Dice"):
+            d = dice_mod.Dice()
+            if hasattr(d, "seed"):
+                d.seed(seed)
+                log.debug("Engine reseeded via Dice.seed(%s)", seed)
+    except Exception as e:
+        log.debug("Engine reseed skipped: %s", e)
+
+
 def _run_table_rolls(table: Any, rolls: int) -> Tuple[bool, str]:
     if hasattr(table, "play"):
         try:
@@ -71,7 +94,6 @@ def _run_table_rolls(table: Any, rolls: int) -> Tuple[bool, str]:
             return True, "table.play(rolls=...)"
         except Exception as e:
             log.debug("table.play failed: %s", e)
-
     if hasattr(table, "run"):
         try:
             table.run(rolls)  # type: ignore[arg-type]
@@ -84,7 +106,6 @@ def _run_table_rolls(table: Any, rolls: int) -> Tuple[bool, str]:
                 log.debug("table.run failed: %s", e)
         except Exception as e:
             log.debug("table.run failed: %s", e)
-
     if hasattr(table, "roll"):
         try:
             for _ in range(rolls):
@@ -92,22 +113,17 @@ def _run_table_rolls(table: Any, rolls: int) -> Tuple[bool, str]:
             return True, "loop: table.roll()"
         except Exception as e:
             log.debug("loop table.roll failed: %s", e)
-
     try:
         from crapssim.dice import Dice  # type: ignore
         dice = Dice()
         process = getattr(table, "process_roll", None) or getattr(table, "on_roll", None)
         if callable(process):
-            try:
-                for _ in range(rolls):
-                    r = dice.roll()
-                    process(r)
-                return True, "loop: dice.roll() -> table.process_roll/on_roll"
-            except Exception as e:
-                log.debug("loop dice->process failed: %s", e)
+            for _ in range(rolls):
+                r = dice.roll()
+                process(r)
+            return True, "loop: dice.roll() -> table.process_roll/on_roll"
     except Exception as e:
         log.debug("Dice path unavailable: %s", e)
-
     return False, "No compatible run method found"
 
 
@@ -115,14 +131,12 @@ def _write_csv_summary(path: str | Path, row: Dict[str, Any]) -> None:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     fieldnames = ["spec", "rolls", "final_bankroll", "seed", "note"]
-
     write_header = True
     if path.exists():
         try:
             write_header = path.stat().st_size == 0
         except Exception:
             write_header = False
-
     with path.open("a", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         if write_header:
@@ -137,19 +151,19 @@ def _write_csv_summary(path: str | Path, row: Dict[str, Any]) -> None:
         writer.writerow(safe_row)
 
 
-# ------------------------------ Validation ---------------------------------- #
+# --------------------------------------------------------------------------- #
+# Validation + CSV Journal
+# --------------------------------------------------------------------------- #
 
 def _lazy_validate_spec(spec: Dict[str, Any]) -> Tuple[bool, List[str], List[str]]:
     try:
-        from . import spec_validation as _sv  # lazy
+        from . import spec_validation as _sv
         res = _sv.validate_spec(spec)
     except Exception as e:
         log.debug("validate_spec unavailable or failed: %r", e)
         return False, [f"Validation logic unavailable: {e!r}"], []
     return _normalize_validate_result(res)
 
-
-# ------------------------------ CSV Journal FYI ------------------------------ #
 
 def _csv_journal_info(spec: Dict[str, Any]) -> Optional[str]:
     run = spec.get("run", {}) if isinstance(spec.get("run", {}), dict) else {}
@@ -165,68 +179,53 @@ def _csv_journal_info(spec: Dict[str, Any]) -> Optional[str]:
     return f"[journal] enabled → {path} (append={'on' if append else 'off'})"
 
 
-# --------------------------- Skip-validate switch ---------------------------- #
-
 def _skip_validate_env() -> bool:
     return os.environ.get("CSC_SKIP_VALIDATE", "").lower() in ("1", "true", "yes")
 
 
-# -------------------------------- Journal cmd -------------------------------- #
+# --------------------------------------------------------------------------- #
+# Journal summarize subcommand
+# --------------------------------------------------------------------------- #
 
 def _cmd_journal_summarize(args: argparse.Namespace) -> int:
     from .csv_summary import summarize_journal, write_summary_csv
-
     jp = Path(args.journal)
     if not jp.exists():
         print(f"failed: journal not found: {jp}", file=sys.stderr)
         return 2
-
     summaries = summarize_journal(journal_path=jp, group_by_run_id=not args.no_group)
-
     if args.out:
         try:
             write_summary_csv(summaries, args.out, append=args.append)
         except Exception as e:
             print(f"failed: {e}", file=sys.stderr)
             return 2
-
     cols = [
-        "run_id", "rows_total", "actions_total",
-        "sets", "clears", "presses", "reduces", "switch_mode",
-        "unique_bets", "modes_used", "points_seen",
-        "roll_events", "regress_events",
+        "run_id", "rows_total", "actions_total", "sets", "clears",
+        "presses", "reduces", "switch_mode", "unique_bets", "modes_used",
+        "points_seen", "roll_events", "regress_events",
         "sum_amount_set", "sum_amount_press", "sum_amount_reduce",
-        "first_timestamp", "last_timestamp",
-        "path",
+        "first_timestamp", "last_timestamp", "path",
     ]
     print("\t".join(["run_id_or_file"] + cols[1:]))
     for s in summaries:
         row = [str(s.get(c, "")) for c in cols]
         print("\t".join(row))
-
     return 0
 
 
-# --------------------------------- Run -------------------------------------- #
+# --------------------------------------------------------------------------- #
+# Run
+# --------------------------------------------------------------------------- #
 
 def run(args: argparse.Namespace) -> int:
-    """
-    1) Load & (optionally) validate spec
-    2) Compute rolls/seed
-    3) Attach engine via EngineAdapter
-    4) Drive the table
-    5) Print result summary
-    """
-    # Load spec
     spec_path = Path(args.spec)
     spec = _load_spec_file(spec_path)
 
-    # spec-level runtime
     spec_run = spec.get("run", {}) if isinstance(spec.get("run", {}), dict) else {}
     rolls = int(args.rolls) if args.rolls is not None else int(spec_run.get("rolls", 1000))
     seed = args.seed if args.seed is not None else spec_run.get("seed")
 
-    # P0·C1 flags (inert)
     demo_fallbacks = bool(getattr(args, "demo_fallbacks", False))
     strict = bool(getattr(args, "strict", False))
     embed_analytics = not bool(getattr(args, "no_embed_analytics", False))
@@ -234,7 +233,7 @@ def run(args: argparse.Namespace) -> int:
         log.debug("P0·C1 flags (inert): demo_fallbacks=%s strict=%s embed_analytics=%s",
                   demo_fallbacks, strict, embed_analytics)
 
-    # Validate (skippable via env for verify baseline compatibility)
+    # validation (skippable)
     soft_warns: List[str] = []
     if not _skip_validate_env():
         ok, hard_errs, soft_warns = _lazy_validate_spec(spec)
@@ -250,49 +249,37 @@ def run(args: argparse.Namespace) -> int:
     if info:
         print(info)
 
-    # Seed RNGs for Python/Numpy (user-facing)
-    seed_int = None
+    # unify RNG domains
+    seed_int: Optional[int] = None
     if seed is not None:
         try:
             seed_int = int(seed)
         except Exception:
             seed_int = None
     _smart_seed(seed_int)
+    _reseed_engine(seed_int)
 
-    # ALSO tell the engine its seed (engine honors CSC_FORCE_SEED on import/attach)
     if seed_int is not None and not os.environ.get("CSC_FORCE_SEED"):
         os.environ["CSC_FORCE_SEED"] = str(seed_int)
 
-    # Attach engine
+    # attach + run
     try:
         from crapssim_control.engine_adapter import EngineAdapter  # lazy
         adapter = EngineAdapter()
         attach_result = adapter.attach(spec)
         table = attach_result.table
-        log.debug("attach meta: %s", getattr(attach_result, "meta", {}))
-        if os.environ.get("CSC_DEBUG", "0").lower() in ("1", "true", "yes"):
-            print("DEBUG attach_result:", getattr(attach_result, "meta", {}))
     except Exception as e:
-        if os.environ.get("CSC_DEBUG", "0").lower() in ("1", "true", "yes"):
-            print("\n--- CSC DEBUG TRACEBACK (attach) ---", flush=True)
-            traceback.print_exc()
-            print("--- END CSC DEBUG ---\n", flush=True)
         return _engine_unavailable(e)
 
-    # Drive the table
     log.info("Starting run: rolls=%s seed=%s", rolls, seed_int)
     ok, used = _run_table_rolls(table, rolls)
     if not ok:
-        msg = f"Could not run {rolls} rolls. {used}."
-        if os.environ.get("CSC_DEBUG", "0").lower() in ("1", "true", "yes"):
-            print("\n--- CSC DEBUG: run failure ---", msg, "\n", flush=True)
-        return _engine_unavailable(msg)
+        return _engine_unavailable(f"Could not run {rolls} rolls. {used}.")
 
-    # Summarize
     bankroll = None
     try:
         players = getattr(table, "players", None)
-        if players and len(players) > 0:
+        if players:
             p0 = players[0]
             bankroll = getattr(p0, "bankroll", None)
     except Exception:
@@ -303,7 +290,6 @@ def run(args: argparse.Namespace) -> int:
     else:
         print(f"RESULT: rolls={rolls}")
 
-    # Optional CSV export
     if getattr(args, "export", None):
         try:
             _write_csv_summary(
@@ -316,16 +302,14 @@ def run(args: argparse.Namespace) -> int:
                     "note": getattr(getattr(attach_result, "meta", {}), "get", lambda _k, _d=None: _d)("mode", ""),
                 },
             )
-            log.info("Exported summary CSV → %s", args.export)
-            if os.environ.get("CSC_DEBUG", "0").lower() in ("1", "true", "yes"):
-                print(f"[CSV] wrote summary to {args.export}")
         except Exception as e:
             print(f"warn: export failed: {e}", file=sys.stderr)
-
     return 0
 
 
-# ------------------------------ Parser/Main --------------------------------- #
+# --------------------------------------------------------------------------- #
+# Parser + Main
+# --------------------------------------------------------------------------- #
 
 def _cmd_validate(args: argparse.Namespace) -> int:
     spec_path = Path(args.spec)
@@ -334,37 +318,16 @@ def _cmd_validate(args: argparse.Namespace) -> int:
     except Exception as e:
         print(f"failed validation:\n- Could not load spec: {e}", file=sys.stderr)
         return 2
-
     ok, hard_errs, soft_warns = _lazy_validate_spec(spec)
-
-    notes: List[str] = []
-    if getattr(args, "guardrails", False):
-        try:
-            from .guardrails import apply_guardrails  # lazy import
-            _spec2, note_lines = apply_guardrails(
-                spec,
-                hot_table=getattr(args, "hot_table", False),
-                guardrails=True,
-            )
-            notes.extend(note_lines)
-        except Exception:
-            pass
-
     if ok and not hard_errs:
         print(f"OK: {spec_path}")
-        if notes and args.verbose:
-            for w in notes:
-                print(f"note: {w}")
-        if soft_warns and args.verbose:
+        if args.verbose:
             for w in soft_warns:
                 print(f"warn: {w}")
         return 0
-
     print("failed validation:", file=sys.stderr)
     for e in hard_errs:
         print(f"- {e}", file=sys.stderr)
-    if any("Missing required section: 'modes'" in e for e in hard_errs):
-        print("- modes section is required", file=sys.stderr)
     return 2
 
 
@@ -373,9 +336,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
         return run(args)
     except Exception:
         if os.environ.get("CSC_DEBUG", "0").lower() in ("1", "true", "yes"):
-            print("\n--- CSC DEBUG TRACEBACK ---", flush=True)
             traceback.print_exc()
-            print("--- END CSC DEBUG ---\n", flush=True)
         raise
 
 
@@ -384,43 +345,31 @@ def _build_parser() -> argparse.ArgumentParser:
         prog="crapssim-ctl",
         description="Crapssim Control - validate specs and run simulations",
     )
-    parser.add_argument("-v", "--verbose", action="count", default=0,
-                        help="increase verbosity (use -vv for debug)")
+    parser.add_argument("-v", "--verbose", action="count", default=0)
     sub = parser.add_subparsers(dest="cmd", required=True)
 
-    # validate
-    p_val = sub.add_parser("validate", help="Validate a strategy spec (JSON or YAML)")
+    p_val = sub.add_parser("validate", help="Validate a strategy spec")
     p_val.add_argument("spec", help="Path to spec file")
-    p_val.add_argument("--hot-table", action="store_true", dest="hot_table",
-                       help='Plan with "hot table" defaults (no behavior change yet)')
-    p_val.add_argument("--guardrails", action="store_true",
-                       help="Print guardrail planning notes (no behavior change yet)")
     p_val.set_defaults(func=_cmd_validate)
 
-    # run
     p_run = sub.add_parser("run", help="Run a simulation for a given spec")
     p_run.add_argument("spec", help="Path to spec file")
-    p_run.add_argument("--rolls", type=int, help="Number of rolls (overrides spec)")
-    p_run.add_argument("--seed", type=int, help="Seed RNG for reproducibility")
-    p_run.add_argument("--export", type=str, help="Path to CSV summary export (optional)")
-    p_run.add_argument("--demo-fallbacks", action="store_true",
-                       help="(scaffold) Enable demo fallbacks. P0·C1: no behavior change.")
-    p_run.add_argument("--strict", action="store_true",
-                       help="(scaffold) Enable strict/advisory enforcement. P0·C1: no behavior change.")
-    p_run.add_argument("--no-embed-analytics", action="store_true", dest="no_embed_analytics",
-                       help="(scaffold) Disable embedding analytics in CSV. P0·C1: no behavior change.")
+    p_run.add_argument("--rolls", type=int)
+    p_run.add_argument("--seed", type=int)
+    p_run.add_argument("--export", type=str)
+    p_run.add_argument("--demo-fallbacks", action="store_true")
+    p_run.add_argument("--strict", action="store_true")
+    p_run.add_argument("--no-embed-analytics", action="store_true", dest="no_embed_analytics")
     p_run.set_defaults(func=_cmd_run)
 
-    # journal summarize
     p_j = sub.add_parser("journal", help="CSV journal utilities")
     p_j_sub = p_j.add_subparsers(dest="journal_cmd", required=True)
-    p_js = p_j_sub.add_parser("summarize", help="Summarize a per-event journal CSV")
+    p_js = p_j_sub.add_parser("summarize", help="Summarize a journal CSV")
     p_js.add_argument("journal", help="Path to journal.csv")
-    p_js.add_argument("--out", type=str, default=None, help="Write summary CSV to this path")
-    p_js.add_argument("--append", action="store_true", help="Append to --out if it exists")
-    p_js.add_argument("--no-group", action="store_true", help="Do not group by run_id; summarize whole file")
+    p_js.add_argument("--out", type=str, default=None)
+    p_js.add_argument("--append", action="store_true")
+    p_js.add_argument("--no-group", action="store_true")
     p_js.set_defaults(func=_cmd_journal_summarize)
-
     return parser
 
 
