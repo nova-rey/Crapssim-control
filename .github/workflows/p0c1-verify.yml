@@ -20,7 +20,7 @@ jobs:
       ROLLS: "50"
       CMD: "python -m crapssim_control.cli"
       CSC_DEBUG: "0"
-      CSC_SKIP_VALIDATE: "1"
+      CSC_SKIP_VALIDATE: "1"   # skip validation to isolate runtime invariance
     steps:
       - name: Checkout (full history)
         uses: actions/checkout@v4
@@ -38,14 +38,18 @@ jobs:
         with:
           python-version: "3.11"
 
-      # Install engine once (from HEAD), record exact version, and freeze the spec file
+      # Install engine once (HEAD), record exact version, and freeze the spec file
       - name: Pin engine version and freeze spec
         id: pin
         run: |
           set -e
           python -m pip install -U pip
           pip install "crapssim>=0.3.0" "PyYAML>=6.0"
-          ver=$(python -c 'import importlib.metadata as m; print(m.version("crapssim"))')
+          ver=$(python - <<'PY'
+import importlib.metadata as m
+print(m.version("crapssim"))
+PY
+)
           echo "CRAPSSIM_VERSION=$ver" >> $GITHUB_OUTPUT
           mkdir -p /tmp/p0c1
           cp "$SPEC_PATH" /tmp/p0c1/spec.json
@@ -99,9 +103,9 @@ jobs:
           # run without flags
           $CMD run "/tmp/p0c1/spec.json" --seed "$SEED" --rolls "$ROLLS" > baselines/p0c1/after/out_noflags.txt 2>&1
           grep '^RESULT:' baselines/p0c1/after/out_noflags.txt > baselines/p0c1/after/result_noflags.txt
-          # run with flags
+          # run with inert flags (+ optional RNG audit text which we ignore)
           $CMD run "/tmp/p0c1/spec.json" --seed "$SEED" --rolls "$ROLLS" \
-            --demo-fallbacks --strict --no-embed-analytics \
+            --demo-fallbacks --strict --no-embed-analytics --rng-audit \
             > baselines/p0c1/after/out_flags.txt 2>&1
           grep '^RESULT:' baselines/p0c1/after/out_flags.txt > baselines/p0c1/after/result_flags.txt
           # compare ONLY the RESULT lines (ignore other stdout diffs)
