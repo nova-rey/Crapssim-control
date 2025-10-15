@@ -20,7 +20,13 @@ from .eval import evaluate, EvalError
 class ControlStrategy:
     """
     Minimal, test-oriented controller.
-    (docstring unchanged for brevity)
+
+    P0·C1 NOTE:
+      We introduce inert runtime flags (read from spec only; no behavior change):
+        - run.demo_fallbacks (bool, default False)
+        - run.strict (bool, default False)
+        - run.csv.embed_analytics (bool, default True)
+      They are stored in self._flags for later phases but NOT consumed yet.
     """
 
     def __init__(
@@ -34,6 +40,17 @@ class ControlStrategy:
         self.point: Optional[int] = None
         self.rolls_since_point: int = 0
         self.on_comeout: bool = True
+
+        # -------- P0·C1: Inert flag framework (spec-only, no behavior change) --------
+        run_blk = spec.get("run") if isinstance(spec, dict) else {}
+        csv_blk = (run_blk or {}).get("csv") if isinstance(run_blk, dict) else {}
+        # Defaults: demo_fallbacks=False, strict=False, embed_analytics=True
+        self._flags: Dict[str, bool] = {
+            "demo_fallbacks": bool((run_blk or {}).get("demo_fallbacks", False)) if isinstance(run_blk, dict) else False,
+            "strict": bool((run_blk or {}).get("strict", False)) if isinstance(run_blk, dict) else False,
+            "embed_analytics": bool((csv_blk or {}).get("embed_analytics", True)) if isinstance(csv_blk, dict) else True,
+        }
+        # ------------------------------------------------------------------------------
 
         self.ctrl_state = ctrl_state
         if self.ctrl_state is not None:
@@ -173,6 +190,9 @@ class ControlStrategy:
             "extra": {
                 "mode_change": self._mode_changed_this_event,
                 "memory": dict(self.memory) if self.memory else {},
+                # P0·C1: include flags in snapshot only if helpful for debugging later (optional)
+                # Commented out to keep byte-identical outputs in Phase 0.
+                # "flags": dict(self._flags),
             },
         }
         return snap
