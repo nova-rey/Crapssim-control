@@ -197,6 +197,21 @@ def _csv_journal_info(spec: Dict[str, Any]) -> Optional[str]:
     return f"[journal] enabled → {path} (append={'on' if append else 'off'})"
 
 
+# --------------------------- P0·C1 inert flag scrub -------------------------- #
+
+def _scrub_inert_env() -> None:
+    """
+    Phase 0 contract: flags are accepted but MUST be inert.
+    Some older modules may consult env vars; scrub them so nothing downstream
+    can observe these toggles.
+    """
+    for k in ("CSC_DEMO_FALLBACKS", "CSC_STRICT", "CSC_NO_EMBED_ANALYTICS"):
+        try:
+            os.environ.pop(k, None)
+        except Exception:
+            pass
+
+
 # -------------------------------- Journal cmd -------------------------------- #
 
 def _cmd_journal_summarize(args: argparse.Namespace) -> int:
@@ -250,6 +265,9 @@ def run(args: argparse.Namespace) -> int:
     NOTE (P0·C1): Flag framework is scaffolded here; flags are accepted & stored,
     but not consumed by any behavior. Outputs remain identical to pre-C1 runs.
     """
+    # P0·C1: ensure flags cannot leak via env to engine or helpers
+    _scrub_inert_env()
+
     # Load spec (JSON or YAML)
     spec_path = Path(args.spec)
     spec = _load_spec_file(spec_path)
