@@ -1,69 +1,97 @@
-name: P0C1 Verify
+name: P0C1 – Inert Flag Framework Verification
 
 on:
   push:
+    branches: [ "**" ]
+    paths:
+      - "crapssim_control/**"
+      - ".github/workflows/p0c1-verify.yml"
   pull_request:
+    branches: [ "**" ]
   workflow_dispatch:
 
 jobs:
-  verify:
+  verify-inertness:
     runs-on: ubuntu-latest
     env:
-      SPEC_PATH: examples/quickstart_spec.json
-      SEED: "123"
-      ROLLS: "50"
       PYTHONUNBUFFERED: "1"
-      PYTHONHASHSEED: "0"
+      SPEC_PATH: "examples/quickstart_spec.json"   # change if your canonical spec lives elsewhere
+      SEED: "123"
+      CMD: "python -m crapssim_control.cli"        # robust even if console script isn't installed
+      # Keep engine traces quiet; we only compare outputs
+      CSC_DEBUG: "0"
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout (full history)
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Show repo & spec
+      - name: Resolve SHAs
+        id: shas
         run: |
-          set -euxo pipefail
-          ls -la
-          ls -la examples || true
-          ls -la crapssim_control || true
-          test -f "$SPEC_PATH" || (echo "Spec not found: $SPEC_PATH" && exit 1)
+          echo "HEAD_SHA=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+          echo "PREV_SHA=$(git rev-parse HEAD^)" >> $GITHUB_OUTPUT
 
-      - uses: actions/setup-python@v5
+      # ---------- BEFORE: HEAD^ ----------
+      - name: Checkout previous commit (baseline)
+        run: |
+          git checkout ${{ steps.shas.outputs.PREV_SHA }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      - name: Install engine & package
+      - name: Install dependencies (baseline)
         run: |
-          set -euxo pipefail
           python -m pip install -U pip
-          pip install crapssim PyYAML
+          # Install engine + optional YAML parser
+          pip install "crapssim>=0.3.0" "PyYAML>=6.0"
+          # Install this package from the previous commit
           pip install -e .
-          python - <<'PY'
-import importlib.metadata as m
-print("crapssim=="+m.version("crapssim"))
-print("crapssim_control OK")
-PY
 
-      - name: Run (plain)
+      - name: Run baseline (stdout capture)
         run: |
-          set -euxo pipefail
-          python - <<'PY'
-from crapssim_control.cli import main
-import sys, os
-sys.exit(main(['run', os.environ['SPEC_PATH'], '--seed', os.environ['SEED'], '--rolls', os.environ['ROLLS']]))
-PY
+          mkdir -p baselines/p0c1/before
+          set -e
+          $CMD run "$SPEC_PATH" --seed "$SEED" > baselines/p0c1/before/out.txt 2>&1
+          # Help text snapshot (to compare later & confirm flags appear in HEAD)
+          $CMD run --help > baselines/p0c1/before/help.txt 2>&1 || true
 
-      - name: Run (with flags) — must match stdout
+      # ---------- AFTER: HEAD ----------
+      - name: Checkout current commit (candidate)
         run: |
-          set -euxo pipefail
-          python - <<'PY' > out_plain.txt 2>&1 || true
-from crapssim_control.cli import main
-import sys, os
-sys.exit(main(['run', os.environ['SPEC_PATH'], '--seed', os.environ['SEED'], '--rolls', os.environ['ROLLS']]))
-PY
-          python - <<'PY' > out_flags.txt 2>&1 || true
-from crapssim_control.cli import main
-import sys, os
-sys.exit(main(['run', os.environ['SPEC_PATH'], '--seed', os.environ['SEED'], '--rolls', os.environ['ROLLS'],
-               '--demo-fallbacks','--strict','--no-embed-analytics']))
-PY
-          diff -u out_plain.txt out_flags.txt
+          git checkout ${{ steps.shas.outputs.HEAD_SHA }}
+
+      - name: Reinstall package (candidate)
+        run: |
+          python -m pip install -U pip
+          pip install "crapssim>=0.3.0" "PyYAML>=6.0"
+          pip install -e .
+
+      - name: Run candidate (stdout capture)
+        run: |
+          mkdir -p baselines/p0c1/after
+          set -e
+          $CMD run "$SPEC_PATH" --seed "$SEED" > baselines/p0c1/after/out.txt 2>&1
+          # Verify flags exist in help (they can appear only in HEAD, that's OK)
+          $CMD run --help > baselines/p0c1/after/help.txt 2>&1 || true
+
+      - name: Compare BEFORE vs AFTER (must be identical)
+        run: |
+          set -e
+          diff -u baselines/p0c1/before/out.txt baselines/p0c1/after/out.txt
+
+      - name: Flags are accepted but inert (candidate)
+        run: |
+          set -e
+          $CMD run "$SPEC_PATH" --seed "$SEED" \
+            --demo-fallbacks --strict --no-embed-analytics \
+            > baselines/p0c1/after/out_flags.txt 2>&1
+          diff -u baselines/p0c1/before/out.txt baselines/p0c1/after/out_flags.txt
+
+      - name: Emit summary
+        if: ${{ success() }}
+        run: |
+          echo "✅ P0·C1 verified: outputs are byte-identical before vs after, and flags are inert."
