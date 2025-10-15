@@ -246,6 +246,9 @@ def run(args: argparse.Namespace) -> int:
       3) Attach engine via EngineAdapter (modern strategy attach)
       4) Drive the table for N rolls using the most compatible method found
       5) Print result summary (+ optional CSV export)
+
+    NOTE (P0·C1): Flag framework is scaffolded here; flags are accepted & stored,
+    but not consumed by any behavior. Outputs remain identical to pre-C1 runs.
     """
     # Load spec (JSON or YAML)
     spec_path = Path(args.spec)
@@ -257,6 +260,18 @@ def run(args: argparse.Namespace) -> int:
     # Prefer CLI; otherwise spec; fallback default
     rolls = int(args.rolls) if args.rolls is not None else int(spec_run.get("rolls", 1000))
     seed = args.seed if args.seed is not None else spec_run.get("seed")
+
+    # P0·C1 FLAGS (inert)
+    demo_fallbacks = bool(getattr(args, "demo_fallbacks", False))
+    strict = bool(getattr(args, "strict", False))
+    # embed_analytics default is True; CLI can negate with --no-embed-analytics
+    embed_analytics = not bool(getattr(args, "no_embed_analytics", False))
+
+    # Store for possible future use (no behavior change in C1)
+    # We deliberately do not mutate the spec or engine config in this checkpoint.
+    if log.isEnabledFor(logging.DEBUG):
+        log.debug("P0·C1 flags (inert): demo_fallbacks=%s strict=%s embed_analytics=%s",
+                  demo_fallbacks, strict, embed_analytics)
 
     # Validate first (fail fast)
     ok, hard_errs, soft_warns = _lazy_validate_spec(spec)
@@ -432,6 +447,21 @@ def _build_parser() -> argparse.ArgumentParser:
     p_run.add_argument("--rolls", type=int, help="Number of rolls (overrides spec)")
     p_run.add_argument("--seed", type=int, help="Seed RNG for reproducibility")
     p_run.add_argument("--export", type=str, help="Path to CSV summary export (optional)")
+
+    # P0·C1: inert flag framework (scaffold; no behavior change)
+    p_run.add_argument(
+        "--demo-fallbacks", action="store_true",
+        help="(scaffold) Enable demo fallbacks. P0·C1: no behavior change."
+    )
+    p_run.add_argument(
+        "--strict", action="store_true",
+        help="(scaffold) Enable strict/advisory enforcement. P0·C1: no behavior change."
+    )
+    p_run.add_argument(
+        "--no-embed-analytics", action="store_true", dest="no_embed_analytics",
+        help="(scaffold) Disable embedding analytics in CSV. P0·C1: no behavior change."
+    )
+
     p_run.set_defaults(func=_cmd_run)
 
     # journal summarize
