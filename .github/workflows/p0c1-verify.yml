@@ -1,7 +1,185 @@
-name: P0C1 – Verify
+name: P0C1 – Inert Flag Framework Verification (bulletproof)
 
 on:
   push:
     branches: [ "**" ]
+    paths:
+      - "crapssim_control/**"
+      - ".github/workflows/p0c1-verify.yml"
+      - "examples/**"
   pull_request:
+    branches: [ "**" ]
   workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    env:
+      PYTHONUNBUFFERED: "1"
+      PYTHONHASHSEED: "0"
+      SPEC_PATH: "examples/quickstart_spec.json"
+      SEED: "123"
+      ROLLS: "50"
+
+    steps:
+      - name: Checkout (full)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Basic diagnostics
+        run: |
+          set -euxo pipefail
+          echo "SHA: $(git rev-parse HEAD)"
+          echo "Count: $(git rev-list --count HEAD)"
+          ls -la
+          ls -la examples || true
+          ls -la crapssim_control || true
+
+      - name: Determine commit mode
+        id: commits
+        run: |
+          set -euxo pipefail
+          COUNT=$(git rev-list --count HEAD)
+          if [ "$COUNT" -gt 1 ]; then
+            echo "MODE=cross" >> $GITHUB_OUTPUT
+            echo "HEAD_SHA=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+            echo "PREV_SHA=$(git rev-parse HEAD^)" >> $GITHUB_OUTPUT
+          else
+            echo "MODE=single" >> $GITHUB_OUTPUT
+            echo "HEAD_SHA=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+            echo "PREV_SHA=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+          fi
+          echo "Mode: $(cat $GITHUB_OUTPUT)"
+
+      - name: Freeze spec from HEAD (use same file for both runs)
+        run: |
+          set -euxo pipefail
+          test -f "${SPEC_PATH}" || (echo "Spec not found at ${SPEC_PATH}" && exit 1)
+          mkdir -p /tmp/p0c1
+          cp "${SPEC_PATH}" /tmp/p0c1/spec.json
+          wc -c /tmp/p0c1/spec.json
+          head -n 5 /tmp/p0c1/spec.json || true
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Pin engine once
+        id: pin
+        run: |
+          set -euxo pipefail
+          python -m pip install -U pip
+          pip install "crapssim" "PyYAML>=6.0"
+          python - <<'PY' | tee /tmp/p0c1/engine.txt
+import importlib.metadata as m
+print(m.version("crapssim"))
+PY
+          echo "CRAPSSIM_VERSION=$(cat /tmp/p0c1/engine.txt)" >> $GITHUB_OUTPUT
+          echo "Pinned crapssim==$(cat /tmp/p0c1/engine.txt)"
+
+      # ---------- BEFORE ----------
+      - name: Checkout PREV (baseline)
+        if: ${{ steps.commits.outputs.MODE == 'cross' }}
+        run: |
+          set -euxo pipefail
+          git checkout ${{ steps.commits.outputs.PREV_SHA }}
+          git rev-parse --short HEAD
+
+      - name: Install baseline package
+        run: |
+          set -euxo pipefail
+          pip install --force-reinstall --no-deps "crapssim==${{ steps.pin.outputs.CRAPSSIM_VERSION }}"
+          pip install -e .
+          python - <<'PY'
+import importlib.metadata as m
+print("crapssim=="+m.version("crapssim"))
+print("crapssim_control installed (baseline)")
+PY
+
+      - name: Run baseline
+        run: |
+          set -euxo pipefail
+          mkdir -p baselines/p0c1/before
+          python - <<'PY' > baselines/p0c1/before/out.txt 2>&1 || true
+from crapssim_control.cli import main
+import sys
+sys.exit(main(['run','/tmp/p0c1/spec.json','--seed','${SEED}','--rolls','${ROLLS}']))
+PY
+          grep '^RESULT:' baselines/p0c1/before/out.txt > baselines/p0c1/before/result.txt || true
+          tail -n 5 baselines/p0c1/before/out.txt || true
+
+      # ---------- AFTER ----------
+      - name: Checkout HEAD (candidate)
+        if: ${{ steps.commits.outputs.MODE == 'cross' }}
+        run: |
+          set -euxo pipefail
+          git checkout ${{ steps.commits.outputs.HEAD_SHA }}
+          git rev-parse --short HEAD
+
+      - name: Install candidate package
+        run: |
+          set -euxo pipefail
+          pip install --force-reinstall --no-deps "crapssim==${{ steps.pin.outputs.CRAPSSIM_VERSION }}"
+          pip install -e .
+          python - <<'PY'
+import importlib.metadata as m
+print("crapssim=="+m.version("crapssim"))
+print("crapssim_control installed (candidate)")
+PY
+
+      - name: Run candidate
+        run: |
+          set -euxo pipefail
+          mkdir -p baselines/p0c1/after
+          python - <<'PY' > baselines/p0c1/after/out.txt 2>&1 || true
+from crapssim_control.cli import main
+import sys
+sys.exit(main(['run','/tmp/p0c1/spec.json','--seed','${SEED}','--rolls','${ROLLS}']))
+PY
+          grep '^RESULT:' baselines/p0c1/after/out.txt > baselines/p0c1/after/result.txt || true
+          tail -n 5 baselines/p0c1/after/out.txt || true
+
+      - name: Compare RESULT across commits (only in cross mode)
+        if: ${{ steps.commits.outputs.MODE == 'cross' }}
+        run: |
+          set -euxo pipefail
+          diff -u baselines/p0c1/before/result.txt baselines/p0c1/after/result.txt
+
+      # ---------- Flags inertness within HEAD ----------
+      - name: Flags are inert (within HEAD)
+        run: |
+          set -euxo pipefail
+          python - <<'PY' > baselines/p0c1/after/out_plain.txt 2>&1 || true
+from crapssim_control.cli import main
+import sys
+sys.exit(main(['run','/tmp/p0c1/spec.json','--seed','${SEED}','--rolls','${ROLLS}']))
+PY
+          python - <<'PY' > baselines/p0c1/after/out_flags.txt 2>&1 || true
+from crapssim_control.cli import main
+import sys
+sys.exit(main(['run','/tmp/p0c1/spec.json','--seed','${SEED}','--rolls','${ROLLS}','--demo-fallbacks','--strict','--no-embed-analytics']))
+PY
+          tail -n 5 baselines/p0c1/after/out_plain.txt || true
+          tail -n 5 baselines/p0c1/after/out_flags.txt || true
+          diff -u baselines/p0c1/after/out_plain.txt baselines/p0c1/after/out_flags.txt
+
+      - name: Upload artifacts (always)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: p0c1-outputs
+          path: |
+            baselines/p0c1/**/*
+            /tmp/p0c1/spec.json
+            /tmp/p0c1/engine.txt
+
+      - name: Summary
+        if: ${{ success() }}
+        run: |
+          echo "✅ P0·C1 verified (mode: ${{ steps.commits.outputs.MODE }})"
+          echo "Pinned crapssim==${{ steps.pin.outputs.CRAPSSIM_VERSION }}"
