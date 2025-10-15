@@ -92,14 +92,15 @@ jobs:
           grep '^RESULT:' baselines/p0c1/after/out.txt > baselines/p0c1/after/result.txt || true
           $CMD run --help > baselines/p0c1/after/help.txt 2>&1 || true
 
-      # --- SOFT CHECK: show diff but don't fail job ---
+      # --- ONLY CHANGE: show diff but never fail the step/job
       - name: Compare BEFORE vs AFTER (informational)
         run: |
-          set +e
+          set -e
           echo "----- RESULT DIFF (informational) -----"
-          diff -u baselines/p0c1/before/result.txt baselines/p0c1/after/result.txt
+          if ! diff -u baselines/p0c1/before/result.txt baselines/p0c1/after/result.txt; then
+            echo "::warning title=P0C1 RNG drift::Baseline vs Candidate RESULT differs (expected while refactoring)."
+          fi
           echo "---------------------------------------"
-          exit 0
 
       # Within HEAD, flags must be accepted but inert (full stdout comparison)
       - name: Flags are accepted but inert (candidate)
