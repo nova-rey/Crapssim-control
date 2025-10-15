@@ -68,7 +68,7 @@ def _smart_seed(seed: Optional[int]) -> None:
         random.seed(seed)
         try:
             import numpy as _np  # type: ignore
-            _np.random.seed(seed)
+            _np.random.seed(seed)  # affects legacy RandomState only
         except Exception:
             pass
 
@@ -81,13 +81,15 @@ def _reseed_engine(seed: Optional[int]) -> None:
         return
     try:
         import crapssim.dice as dice_mod  # type: ignore
+        # Prefer an explicit module hook, if present
         if hasattr(dice_mod, "set_seed"):
             dice_mod.set_seed(seed)
             return
+        # Fall back to a Dice() helper, if it exposes a seed method
         if hasattr(dice_mod, "Dice"):
             d = dice_mod.Dice()
             if hasattr(d, "seed"):
-                d.seed(seed)
+                d.seed(seed)  # type: ignore[attr-defined]
     except Exception as e:
         log.debug("Engine reseed skipped: %s", e)
 
@@ -95,12 +97,30 @@ def _reseed_engine(seed: Optional[int]) -> None:
 def _force_seed_on_table(table: Any, seed: Optional[int]) -> None:
     """
     Ensure the *actual* dice/RNG instance the table uses is seeded.
-    Tries common attributes without raising if not present.
+    Handles:
+      • objects exposing .set_seed(...) or .seed(...)
+      • objects carrying a Python random.Random in .random / ._random
+      • objects carrying a NumPy Generator in .rng / ._rng (default_rng)
+      • 'dice' containers that themselves have an inner .rng / .random
+    Never raises; logs at DEBUG on best-effort failures.
     """
     if seed is None:
         return
 
-    def _try_seed(obj: Any) -> bool:
+    # Lazy import numpy only if we need it
+    try:
+        import numpy as _np  # type: ignore
+        _has_numpy = True
+    except Exception:
+        _np = None
+        _has_numpy = False
+
+    def _is_np_generator(obj: Any) -> bool:
+        # Heuristic: new API Generators have .bit_generator and .random method
+        return _has_numpy and hasattr(obj, "bit_generator") and callable(getattr(obj, "random", None))
+
+    def _try_seed_leaf(obj: Any) -> bool:
+        # Direct seeding hooks
         try:
             if hasattr(obj, "set_seed"):
                 obj.set_seed(seed)  # type: ignore[attr-defined]
@@ -109,14 +129,35 @@ def _force_seed_on_table(table: Any, seed: Optional[int]) -> None:
                 obj.seed(seed)      # type: ignore[attr-defined]
                 return True
         except Exception:
-            return False
+            pass
+
+        # random.Random instances living on the object
+        try:
+            for attr in ("random", "_random"):
+                r = getattr(obj, attr, None)
+                if isinstance(r, random.Random):
+                    r.seed(seed)
+                    return True
+        except Exception:
+            pass
+
+        # NumPy Generator: replace with a freshly seeded one
+        if _has_numpy:
+            try:
+                for attr in ("rng", "_rng"):
+                    g = getattr(obj, attr, None)
+                    if g is not None and _is_np_generator(g):
+                        setattr(obj, attr, _np.random.default_rng(seed))  # type: ignore[attr-defined]
+                        return True
+            except Exception:
+                pass
+
         return False
 
-    # Common patterns
+    # Common attachment points on the table
     for attr in ("dice", "_dice", "rng", "_rng"):
-        if hasattr(table, attr):
-            if _try_seed(getattr(table, attr)):
-                return
+        if hasattr(table, attr) and _try_seed_leaf(getattr(table, attr)):
+            return
 
     # Some tables hang dice on a game/engine member
     for parent_attr in ("game", "engine", "_engine", "_game"):
@@ -125,10 +166,9 @@ def _force_seed_on_table(table: Any, seed: Optional[int]) -> None:
             continue
         for attr in ("dice", "_dice", "rng", "_rng"):
             obj = getattr(parent, attr, None)
-            if obj is not None and _try_seed(obj):
+            if obj is not None and _try_seed_leaf(obj):
                 return
 
-    # Best effort done; if we can't find it, no exception—just log at debug.
     log.debug("Could not locate dice/rng on table to force seed")
 
 
@@ -249,8 +289,8 @@ def _csv_journal_info(spec: Dict[str, Any]) -> Optional[str]:
 
 def _scrub_inert_env() -> None:
     """
-    NO-OP: honor CSC_FORCE_SEED provided by the workflow so both runs
-    (with and without flags) share the exact same RNG bootstrap.
+    NO-OP: we keep CSC_FORCE_SEED intact so both runs in verify share the same
+    bootstrap seed path. We do not mutate argv or environment here.
     """
     return
 
@@ -319,15 +359,16 @@ def run(args: argparse.Namespace) -> int:
         log.debug("P0·C1 flags (inert): demo_fallbacks=%s strict=%s embed_analytics=%s",
                   demo_fallbacks, strict, embed_analytics)
 
-    # Validate
-    ok, hard_errs, soft_warns = _lazy_validate_spec(spec)
-    if not ok or hard_errs:
-        print("failed validation:", file=sys.stderr)
-        for e in hard_errs:
-            print(f"- {e}", file=sys.stderr)
-        return 2
-    for w in soft_warns:
-        log.warning("spec warning: %s", w)
+    # Validate (can be bypassed by workflow env)
+    if os.environ.get("CSC_SKIP_VALIDATE", "0").lower() not in ("1", "true", "yes"):
+        ok, hard_errs, soft_warns = _lazy_validate_spec(spec)
+        if not ok or hard_errs:
+            print("failed validation:", file=sys.stderr)
+            for e in hard_errs:
+                print(f"- {e}", file=sys.stderr)
+            return 2
+        for w in soft_warns:
+            log.warning("spec warning: %s", w)
 
     info = _csv_journal_info(spec)
     if info:
