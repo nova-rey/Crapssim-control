@@ -1,0 +1,34 @@
+# --- baseline capture extension ---
+  baseline:
+    name: Baseline Capture (P0·C3)
+    runs-on: ubuntu-latest
+    needs: test            # run after the test job
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies (editable)
+        run: |
+          python -m venv .venv
+          . .venv/bin/activate
+          pip install --upgrade pip wheel
+          pip install -e .
+
+      - name: Run deterministic baseline capture
+        run: |
+          chmod +x scripts/capture_baseline_p0c3.sh
+          ./scripts/capture_baseline_p0c3.sh
+
+      - name: Upload baseline artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: baseline-p0c3
+          path: |
+            baselines/p0c3/journal.csv
+            baselines/p0c3/report.json
+            baselines/p0c3/manifest.json
