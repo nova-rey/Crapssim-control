@@ -1,7 +1,38 @@
+# Byte-compiled / cache
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
 .pytest_cache/
+
+# Virtual environments
 .venv/
+env/
+venv/
+
+# Build artifacts
 dist/
 build/
 *.egg-info/
+*.egg
+
+# Baselines & temp data
+baselines/_tmp/
+
+# Default ignore CSV/JSON…
+*.csv
+*.json
+# …but keep example specs and baseline artifacts
+!examples/*.json
+!baselines/**/*.csv
+!baselines/**/*.json
+
+# Editor / OS junk
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Reports & coverage
+coverage.xml
+htmlcov/
+*.log
