@@ -1,0 +1,13 @@
+{
+  "artifacts": [
+    {
+      "name": "report.json",
+      "path": "baselines/p0c3/report.json",
+      "size": 241
+    }
+  ],
+  "fingerprints": {
+    "report.json": "cb2d4801fe96e6e53c51ada92968a9ef12c870dc9e8eecf5c350ac74dc0f351b"
+  },
+  "note": "P0C3 fallback manifest"
+}
