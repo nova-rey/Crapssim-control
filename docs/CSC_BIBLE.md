@@ -46,3 +46,52 @@ Beginning with Phase 1, CrapsSim-Control enters full Agent-mode development.
 - Commit / tag / checkpoint discipline enforced via automated workflow.
 
 Phase 0 closed at `v0.29.0-phase0c3-baseline` with deterministic CI verification.
+
+# CrapsSim-Control Bible  
+**Version 3 Runtime Development Narrative**
+
+---
+
+## Phase 0 Summary — Staging & Safeguards (Complete)
+Phase 0 established a safe, deterministic baseline with inert feature flags and schema labeling.
+- Added config flags: `run.demo_fallbacks`, `run.strict`, `run.csv.embed_analytics`
+- Introduced schema versioning: `journal_schema_version`, `summary_schema_version`
+- Hardened `.gitignore`, cleaned caches
+- Captured deterministic baseline (`baselines/p0c3/`)
+- CI verified and tagged `v0.29.0-phase0c3-baseline`
+
+Outcome: Stable and reproducible foundation for Phase 1.
+
+---
+
+## Phase 1 Overview — Defaults & Nuisance Removal (Active)
+**Objective:** Shift from prototype-safe defaults to production-safe behavior while maintaining full backward compatibility.
+
+**Goals**
+1. Turn off demo fallbacks by default.
+2. Add CLI flags for explicit control (`--demo-fallbacks`, `--strict`).
+3. Embed `validation_engine: "v1"` in output.
+4. Verify both fallback modes produce valid results.
+5. Tag stable baseline `v0.29.1-phase1-preflight`.
+
+**Design Guardrails**
+- No deep refactors.
+- Each checkpoint passes CI independently.
+- One Agent run per checkpoint.
+- Preserve deterministic reproducibility.
+
+---
+
+## Agent-Mode Protocol (Ongoing)
+- Entrypoint: `NOVA_AGENT_ENTRYPOINT.yaml`
+- Documentation roots: `/docs/`
+- Commit format: `P<phase>C<checkpoint>: <title>`
+- Tag end-of-phase: `v0.<minor>.0-phase<phase>-baseline`
+- Agents handle mechanics (code edits, tests, CI).
+- Rey handles reasoning, approvals, and planning.
+
+---
+
+**Current Tag:** `v0.29.0-phase0c3-baseline`  
+**Next Tag:** `v0.29.1-phase1-preflight`
+
