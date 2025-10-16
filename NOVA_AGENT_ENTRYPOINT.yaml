@@ -1,0 +1,55 @@
+# === NOVA AGENT ENTRYPOINT ================================================
+# This is the first file Agent Mode should read. It tells Agent where to look,
+# what checkpoint we’re on, and the exact task to run. Keep it short & canonical.
+# ==========================================================================
+
+project: CrapsSim-Control
+owner: Rey
+maintainer: Nova
+version_tag: v0.29.0-phase0-baseline
+
+# Canonical pointers (Agent MUST read these next)
+paths:
+  snapshot: docs/CSC_SNAPSHOT.yaml
+  checklist: docs/PHASE_CHECKLIST.md
+  bible: docs/CSC_BIBLE.md
+  workflow: docs/DEV_WORKFLOW.md
+
+phase:
+  number: 0
+  checkpoint: 3
+  title: "Baseline Capture & Verification"
+
+policy:
+  agent_runs_per_checkpoint: 1
+  allow_behavior_change: false     # Phase 0: no behavior change
+  require_tests_green: true
+  require_update_snapshot: true
+  require_bible_append: true
+
+intent:
+  summary: >
+    Capture baseline artifacts (journal.csv, report.json, manifest.json)
+    under baselines/phase0/ with zero behavioral change.
+  success_criteria:
+    - "pytest -q is green before and after"
+    - "Artifacts written to baselines/phase0/"
+    - "Commit created: 'P0C3: Capture baseline artifacts'"
+    - "CSC_SNAPSHOT.yaml updated; CSC_BIBLE.md appended"
+
+agent_tasks:
+  # High-level steps Agent should perform in order (mechanical only)
+  - check_tests: "pytest -q"
+  - make_executable: "scripts/capture_baseline_p0c3.sh"
+  - run_script: "./scripts/capture_baseline_p0c3.sh"
+  - verify_files:
+      - "baselines/phase0/journal.csv"
+      - "baselines/phase0/report.json"
+      - "baselines/phase0/manifest.json"
+  - commit: "P0C3: Capture baseline artifacts"
+  - post_check_tests: "pytest -q"
+
+notes:
+  - "Do not modify runtime logic in Phase 0."
+  - "If any step fails, stop and report in chat; do not auto-invent fixes."
+  - "After commit, update snapshot & Bible per docs."
