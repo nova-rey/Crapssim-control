@@ -33,3 +33,16 @@ Where the snapshot tracks *state*, the Bible records *story*—why decisions wer
 ---
 
 *(Next section reserved for Phase 1 — Defaults & Nuisance Removal)*
+
+---
+
+## Agent-Mode Transition (October 2025)
+Beginning with Phase 1, CrapsSim-Control enters full Agent-mode development.
+
+- Repo entrypoint: `NOVA_AGENT_ENTRYPOINT.yaml`
+- Agent responsibilities: mechanical edits, tests, doc updates.
+- Human (Rey) responsibilities: planning, reasoning, approvals.
+- Documentation hierarchy standardized under `/docs/`.
+- Commit / tag / checkpoint discipline enforced via automated workflow.
+
+Phase 0 closed at `v0.29.0-phase0c3-baseline` with deterministic CI verification.
