@@ -1,8 +1,21 @@
-# --- baseline capture extension ---
+name: CSC Baseline P0·C3
+
+on:
+  workflow_dispatch: {}           # allow manual runs from the Actions tab
+  push:
+    branches:
+      - main
+      - phase0-safeguards
+      - 'feature/**'
+
+permissions:
+  contents: read
+
+jobs:
   baseline:
-    name: Baseline Capture (P0·C3)
+    name: Baseline Capture
     runs-on: ubuntu-latest
-    needs: test            # run after the test job
+
     steps:
       - uses: actions/checkout@v4
 
@@ -10,15 +23,11 @@
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: pip
 
-      - name: Install dependencies (editable)
-        run: |
-          python -m venv .venv
-          . .venv/bin/activate
-          pip install --upgrade pip wheel
-          pip install -e .
-
+      # The script creates its own venv and installs the package editable.
       - name: Run deterministic baseline capture
+        shell: bash
         run: |
           chmod +x scripts/capture_baseline_p0c3.sh
           ./scripts/capture_baseline_p0c3.sh
