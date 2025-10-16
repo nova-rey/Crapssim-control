@@ -19,6 +19,7 @@ phase:
   number: 0
   checkpoint: 3
   title: "Baseline Capture & Verification"
+  status: complete
 
 policy:
   agent_runs_per_checkpoint: 1
