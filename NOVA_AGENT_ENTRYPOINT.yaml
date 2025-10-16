@@ -16,10 +16,19 @@ paths:
   workflow: docs/DEV_WORKFLOW.md
 
 phase:
-  number: 0
-  checkpoint: 3
-  title: "Baseline Capture & Verification"
-  status: complete
+  phase: 1
+checkpoint: 0
+status: pending
+next_checkpoint: 1
+repo_path: .
+docs_root: docs/
+snapshot: docs/CSC_SNAPSHOT.yaml
+bible: docs/CSC_BIBLE.md
+checklist: docs/PHASE_CHECKLIST.md
+workflow: docs/DEV_WORKFLOW.md
+branch: phase1-defaults
+previous_tag: v0.29.0-phase0c3-baseline
+next_tag: v0.29.1-phase1-preflight
 
 policy:
   agent_runs_per_checkpoint: 1
