@@ -148,3 +148,72 @@ End of File
 (Keep this file concise, human-legible, and in version control. It’s our handshake when time or memory resets.)
 
 ⸻
+
+# CSC Development Workflow (Agent Mode)
+
+## Purpose
+Defines how humans and Agents collaborate on CrapsSim-Control development to ensure deterministic, reversible progress.
+
+---
+
+## 1. Thread / Phase Structure
+- **One chat thread = one Phase.**
+- **One Agent run = one Checkpoint.**
+- Discussions and reasoning happen in chat; Agents perform mechanical work only.
+
+---
+
+## 2. Core Documentation
+| File | Purpose |
+|------|----------|
+| `NOVA_AGENT_ENTRYPOINT.yaml` | Entry pointer for Agent context. |
+| `docs/CSC_SNAPSHOT.yaml` | Machine-readable state (phase, checkpoint, version, branch). |
+| `docs/PHASE_CHECKLIST.md` | Checklist of current phase tasks. |
+| `docs/CSC_BIBLE.md` | Narrative design history and decisions. |
+| `docs/DEV_WORKFLOW.md` | This process guide. |
+
+---
+
+## 3. Commit & Tag Rules
+- **Commit format:** `P<phase>C<checkpoint>: <title>`
+- **End-of-phase tag:** `v0.<minor>.0-phase<phase>-baseline`
+- **Example:** `P1C2: defaults toggled` → `v0.29.1-phase1-baseline`
+
+---
+
+## 4. Agent Responsibilities
+- Read `NOVA_AGENT_ENTRYPOINT.yaml` to orient.
+- Apply mechanical edits only (file modifications, test runs, CI updates).
+- Leave reasoning and design in chat.
+- At end of each run:
+  1. Confirm tests green.
+  2. Capture any generated artifacts.
+  3. Update `CSC_SNAPSHOT.yaml` + `CSC_BIBLE.md`.
+  4. Post a concise diff summary.
+
+---
+
+## 5. Human Responsibilities (Rey)
+- Start new phase with **Phase Kickoff Playbook**:
+  1. Upload repo `.zip`.
+  2. Paste kickoff block specifying phase number.
+  3. Nova reads entrypoint + docs and proposes checkpoints.
+  4. Approve plan → Nova bumps docs (`P<X>C0` commit).
+- Review Agent output and verify CI green before next checkpoint.
+
+---
+
+## 6. Guardrails
+- Keep changes atomic and reversible.
+- Never mix semantic design with broad refactors.
+- Phase 0 is logic-frozen (no behavioral changes).
+- Always maintain deterministic reproducibility.
+
+---
+
+## 7. Goal
+A living, versioned system where each checkpoint is test-verified and recoverable, minimizing context loss and merge pain.
+
+---
+
+*Last updated after Phase 0 · C3 baseline verification.*
