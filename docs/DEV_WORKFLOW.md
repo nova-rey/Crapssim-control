@@ -217,3 +217,75 @@ A living, versioned system where each checkpoint is test-verified and recoverabl
 ---
 
 *Last updated after Phase 0 · C3 baseline verification.*
+
+
+# CSC Development Workflow (Agent Mode)
+
+**Current Phase:** 1 — Defaults & Nuisance Removal  
+**Checkpoint:** 0 (Kickoff)  
+**Next:** P1·C1 — Disable demo fallbacks by default  
+
+---
+
+## Purpose
+Defines how humans and Agents collaborate on CrapsSim-Control development to ensure deterministic, reversible progress.
+
+---
+
+## 1. Thread / Phase Structure
+- **One chat thread = one Phase.**
+- **One Agent run = one Checkpoint.**
+- Discussions and reasoning happen in chat; Agents perform mechanical work only.
+
+---
+
+## 2. Core Documentation
+| File | Purpose |
+|------|----------|
+| `NOVA_AGENT_ENTRYPOINT.yaml` | Entry pointer for Agent context. |
+| `docs/CSC_SNAPSHOT.yaml` | Machine-readable state (phase, checkpoint, version, branch). |
+| `docs/PHASE_CHECKLIST.md` | Checklist of current phase tasks. |
+| `docs/CSC_BIBLE.md` | Narrative design history and decisions. |
+| `docs/DEV_WORKFLOW.md` | This process guide. |
+
+---
+
+## 3. Commit & Tag Rules
+- **Commit format:** `P<phase>C<checkpoint>: <title>`
+- **End-of-phase tag:** `v0.<minor>.0-phase<phase>-baseline`
+- **Example:** `P1C2: defaults toggled` → `v0.29.1-phase1-baseline`
+
+---
+
+## 4. Agent Responsibilities
+1. Read `NOVA_AGENT_ENTRYPOINT.yaml`.
+2. Apply mechanical edits only (code, CI, doc updates).
+3. Leave reasoning and planning to chat.
+4. End of run:
+   - Confirm tests green.
+   - Capture any generated artifacts.
+   - Update snapshot + Bible.
+   - Post concise diff summary.
+
+---
+
+## 5. Human Responsibilities (Rey)
+- Start new phase via **Phase Kickoff Playbook**.
+- Review Agent results and verify CI green.
+- Approve and advance checkpoints.
+
+---
+
+## 6. Guardrails
+- Keep changes atomic and reversible.
+- Never mix semantic design with broad refactors.
+- Maintain deterministic reproducibility.
+
+---
+
+## 7. Goal
+A living, versioned system where each checkpoint is test-verified and recoverable.
+
+---
+
+_Last updated for Phase 1 kickoff (v0.29.1)_
