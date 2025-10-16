@@ -1,0 +1,11 @@
+phase: 0
+checkpoint: 3
+status: complete
+branch: phase0-safeguards
+tag: v0.29.0-phase0c3-baseline
+next_phase: 1
+next_checkpoint: 0
+last_action: baseline verification and CI guardrails added
+ci_status: green
+agent_mode: true
+docs_version: 2025-10-16
