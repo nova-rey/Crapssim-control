@@ -1,23 +1,24 @@
 name: CSC Baseline P0·C3
 
 on:
-  workflow_dispatch: {}           # allow manual runs from the Actions tab
   push:
     branches:
       - main
       - phase0-safeguards
       - 'feature/**'
+  workflow_dispatch: {}
 
 permissions:
   contents: read
 
 jobs:
   baseline:
-    name: Baseline Capture
+    name: Deterministic Baseline Capture + Verify
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -25,13 +26,21 @@ jobs:
           python-version: "3.11"
           cache: pip
 
-      # The script creates its own venv and installs the package editable.
+      # --- Step 1: Run deterministic capture ---
       - name: Run deterministic baseline capture
         shell: bash
         run: |
           chmod +x scripts/capture_baseline_p0c3.sh
           ./scripts/capture_baseline_p0c3.sh
 
+      # --- Step 2: Verify against committed manifest ---
+      - name: Verify baseline matches committed manifest
+        shell: bash
+        run: |
+          chmod +x scripts/verify_baseline_p0c3.py
+          ./scripts/verify_baseline_p0c3.py
+
+      # --- Step 3: Upload artifacts for inspection ---
       - name: Upload baseline artifacts
         if: always()
         uses: actions/upload-artifact@v4
