@@ -1,3 +1,4 @@
+import argparse
 from argparse import Namespace
 from copy import deepcopy
 
@@ -7,6 +8,7 @@ from crapssim_control.config import (
     EMBED_ANALYTICS_DEFAULT,
     STRICT_DEFAULT,
 )
+from crapssim_control.spec_validation import VALIDATION_ENGINE_VERSION
 from crapssim_control.controller import ControlStrategy
 
 
@@ -61,19 +63,46 @@ def test_report_metadata_reflects_cli_flags():
     )
     ctrl = ControlStrategy(spec)
     report = ctrl.generate_report()
-    flags = report.get("metadata", {}).get("run_flags")
-    assert flags == {
+    metadata = report.get("metadata", {})
+    flags = metadata.get("run_flags")
+    assert flags["values"] == {
         "demo_fallbacks": True,
         "strict": True,
         "embed_analytics": False,
     }
+    assert flags["sources"] == {
+        "demo_fallbacks": "cli",
+        "strict": "cli",
+        "embed_analytics": "cli",
+    }
+    assert metadata.get("validation_engine") == VALIDATION_ENGINE_VERSION
 
     # Without CLI overrides the defaults should remain intact
     base = ControlStrategy(_spec())
     base_report = base.generate_report()
-    base_flags = base_report.get("metadata", {}).get("run_flags")
-    assert base_flags == {
+    base_metadata = base_report.get("metadata", {})
+    base_flags = base_metadata.get("run_flags")
+    assert base_flags["values"] == {
         "demo_fallbacks": DEMO_FALLBACKS_DEFAULT,
         "strict": STRICT_DEFAULT,
         "embed_analytics": EMBED_ANALYTICS_DEFAULT,
     }
+    assert base_flags["sources"] == {
+        "demo_fallbacks": "default",
+        "strict": "default",
+        "embed_analytics": "default",
+    }
+    assert base_metadata.get("validation_engine") == VALIDATION_ENGINE_VERSION
+
+
+def test_cli_help_lists_runtime_flags():
+    parser = cli._build_parser()
+    subparsers_actions = [
+        action
+        for action in getattr(parser, "_subparsers", None)._group_actions  # type: ignore[attr-defined]
+        if isinstance(action, argparse._SubParsersAction)
+    ]
+    run_parser = subparsers_actions[0].choices["run"]
+    help_text = run_parser.format_help()
+    for flag in ("--demo-fallbacks", "--strict", "--no-embed-analytics"):
+        assert flag in help_text

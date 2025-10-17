@@ -54,6 +54,10 @@ Where the snapshot tracks *state*, the Bible records *story*—why decisions wer
 - Refreshed quickstart example spec to opt in to demo fallbacks explicitly.
 - Synced report schema documentation with `validation_engine: "v1"` metadata.
 
+**Checkpoint P1·C5 — Terminology polish & provenance metadata (Complete)**
+- Refined CLI/docs terminology so Guardrails references only appear when strict mode is enabled and default flows speak to Advisories.
+- Embedded `validation_engine` and the full run flag provenance map under `metadata`, capturing both effective values and whether they came from defaults, the spec, or CLI overrides.
+
 ---
 
 ## Agent-Mode Transition (October 2025)

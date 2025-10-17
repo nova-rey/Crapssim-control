@@ -17,16 +17,16 @@ paths:
 
 phase:
   phase: 1
-  checkpoint: 4
+  checkpoint: 5
   status: active
-  next_checkpoint: 5
+  next_checkpoint: null
 repo_path: .
 docs_root: docs/
 snapshot: docs/CSC_SNAPSHOT.yaml
 bible: docs/CSC_BIBLE.md
 checklist: docs/PHASE_CHECKLIST.md
 workflow: docs/DEV_WORKFLOW.md
-branch: phase1-c4-docs-refresh
+branch: phase1-c5-terminology-provenance
 previous_tag: v0.29.0-phase0c3-baseline
 next_tag: v0.29.1-phase1-preflight
 
@@ -39,19 +39,22 @@ policy:
 
 intent:
   summary: >
-    Sync public-facing documentation and the quickstart example with the
-    current runtime defaults (demo fallbacks off, strict validation on,
-    analytics opt-in) while noting validation-engine labeling.
+    Polish runtime terminology (Advisories vs Guardrails) and extend report
+    metadata with validation engine provenance plus run flag source tracking.
   success_criteria:
-    - "docs/quick_start.md documents new defaults and CLI flag behavior"
-    - "docs/spec.md describes run.demo_fallbacks, run.strict, and run.csv.embed_analytics"
-    - "docs/report_schema.md example includes validation_engine: \"v1\""
-    - "examples/quickstart_spec.json opts into demo fallbacks explicitly"
-    - "docs/PHASE_CHECKLIST.md, docs/CSC_BIBLE.md, docs/CSC_SNAPSHOT.yaml updated for P1·C4"
-    - "Commit created: 'P1C4: Docs sync and example refresh'"
+    - "controller metadata nests validation_engine under metadata.run_flags"
+    - "metadata.run_flags captures both values and default/spec/cli sources"
+    - "CLI help text references Advisories by default and Guardrails for strict mode"
+    - "docs/quick_start.md, docs/spec.md, docs/report_schema.md align with the new wording"
+    - "tests/test_cli_flags.py asserts metadata structure and help text"
+    - "docs/PHASE_CHECKLIST.md, docs/CSC_BIBLE.md, docs/CSC_SNAPSHOT.yaml updated for P1·C5"
+    - "Commit created: 'P1C5: terminology polish and provenance metadata (no behavior change)'"
 
 agent_tasks:
   # High-level steps Agent should perform in order (mechanical only)
+  - update_controller: "Embed validation_engine and run flag sources under metadata"
+  - update_cli: "Refresh help text and capture CLI override provenance"
+  - update_tests: "Extend tests/test_cli_flags.py for metadata values/sources and --help output"
   - update_docs:
       - docs/quick_start.md
       - docs/spec.md
@@ -59,10 +62,9 @@ agent_tasks:
       - docs/PHASE_CHECKLIST.md
       - docs/CSC_BIBLE.md
       - docs/CSC_SNAPSHOT.yaml
-  - update_example: "examples/quickstart_spec.json"
-  - sync_entrypoint: "Ensure phase/checkpoint pointers reflect P1·C4"
+  - sync_entrypoint: "Ensure phase/checkpoint pointers reflect P1·C5"
   - verify_docs: "Spot-check Markdown renders without syntax issues"
-  - commit: "P1C4: Docs sync and example refresh"
+  - commit: "P1C5: terminology polish and provenance metadata (no behavior change)"
 
 notes:
   - "Respect Phase 1 guardrails; avoid code changes beyond docs/examples."

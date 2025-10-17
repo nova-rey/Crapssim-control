@@ -108,23 +108,25 @@ RESULT: rolls=1000 bankroll=1235.00
 
 New Defaults
 
-The runtime no longer enables demo fallbacks automatically. If your spec relies on
-demo-mode helper bets, set `run.demo_fallbacks` explicitly to `true`. Validation runs
-now default to `strict` mode, which stops execution on the first rule violation. Use
-`--advisory` (or set `run.strict` to `false`) to downgrade violations to warnings when
-experimenting.
+The runtime keeps demo fallbacks disabled unless you explicitly opt in. If your spec
+relies on demo-mode helper bets, set `run.demo_fallbacks` to `true` or pass
+`--demo-fallbacks` when running. Validation runs now operate in Advisory mode by
+default (`run.strict=false`), so you receive non-blocking advisories instead of
+halting. Enable Guardrails with `--strict` (or `run.strict=true`) when you want strict
+enforcement.
 
 
 ⸻
 
 Command-Line Flags
 
-`crapssim-ctl` now exposes explicit switches for common runtime options:
+`crapssim-ctl` exposes explicit switches for common runtime options:
 
-* `--demo-fallbacks` toggles demo helper bets during a run (defaults to off).
-* `--strict/--advisory` controls whether validation errors halt the run.
-* `--embed-analytics/--no-embed-analytics` manages CSV analytics payloads emitted by
-  the `run.csv` sink.
+* `--demo-fallbacks` enables demo helper bets for that run (default OFF).
+* `--strict` enables Guardrails (strict validation). Leave it unset to stay in
+  Advisory mode.
+* `--no-embed-analytics` disables CSV analytics embedding. Omit the flag (or set
+  `run.csv.embed_analytics=true`) to keep analytics columns.
 
 
 ⸻
