@@ -171,7 +171,7 @@ def derive_event(prev: Any, curr: Any) -> Dict[str, Any]:
 def canonicalize_event(ev: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     """
     Normalize an arbitrary event dict (possibly partial) into a canonical
-    structure expected by rules_rt and controller.
+    structure expected by rules_engine and controller.
 
     Missing keys are inserted with defaults. Unknown extra keys are preserved.
     """

@@ -1,197 +1,169 @@
-# crapssim_control/legalize.py
 """
-Legalization helpers for bet amounts.
+legalize.py -- Batch 14 (Runtime Legalizer)
 
-- Flat/Place bet legalization:
-    • floor to table min
-    • bubble: $1 steps
-    • non-bubble place: 6/8 in $6s; 5/9/4/10 in $5s; flats step at table min
+Helpers to turn raw bet amounts into table-legal amounts.
 
-- PASS odds legalization (legalize_odds):
-    • Cap by policy (3-4-5x default, or "2x"/"5x"/"10x"/int)
-    • Round to clean-payout steps for the point (bubble: $1 steps)
+Config (table_cfg dict; all optional):
+  - bubble: bool (default False)          # bubble craps allows $1 increments generally
+  - level: int (default 10)               # table minimum for *line* bets (pass/don't), not field
+  - place_410_increment: int (default 5)  # increment for place 4/10 (some houses use 10)
+  - max_odds_multiple: float (default 3.0)# cap odds at N x base line bet
 
-- DON'T PASS lay odds legalization (legalize_lay_odds):
-    • Cap by policy on **potential win** equal to multiple * flat
-      (e.g., 3-4-5x → you may lay enough to win 3x/4x/5x the flat)
-    • Convert win-cap to a **lay amount** via point’s payout ratio
-      4/10: win = lay * 1/2 → lay_max = win_cap * 2 (step 2)
-      5/9 : win = lay * 2/3 → lay_max = win_cap * 3/2 (step 3)
-      6/8 : win = lay * 5/6 → lay_max = win_cap * 6/5 (step 6)
-    • Round **down** to step; bubble: $1 steps
+Public:
+  - legalize_amount(bet_type, raw_amount, table_cfg, point=None, base_line_bet=None)
+  - cap_odds_amount(base_line_bet, raw_odds, max_multiple)
 """
 
-from typing import Optional
+from __future__ import annotations
 
-# ---- Flat/place increments ----
+from typing import Dict, Tuple, Optional
 
-def _place_step_for(number: Optional[int], bubble: bool) -> int:
-    if bubble:
-        return 1
-    if number in (6, 8):
-        return 6
-    if number in (5, 9, 4, 10):
-        return 5
-    # Flats use table-min step when not bubble
-    return 0  # sentinel meaning "use table-min step"
+_PLACE_INCREMENTS = {
+    6: 6,
+    8: 6,
+    5: 5,
+    9: 5,
+    4: "cfg_410",
+    10: "cfg_410",
+}
 
-def _round_up(value: int, step: int) -> int:
-    if step <= 1:
-        return int(value)
-    rem = value % step
-    return value if rem == 0 else value + (step - rem)
 
-def _round_down(value: int, step: int) -> int:
-    if step <= 1:
-        return int(value)
-    return value - (value % step)
+def _cfg(table_cfg: Optional[Dict]) -> Dict:
+    cfg = {
+        "bubble": False,
+        "level": 10,
+        "place_410_increment": 5,
+        "max_odds_multiple": 3.0,
+    }
+    if table_cfg:
+        cfg.update(table_cfg)
+    return cfg
 
-def legalize_amount(number: Optional[int], raw_amount: int, bubble: bool, table_level: int) -> int:
+
+def _round_down(amount: float, step: int) -> int:
+    if step <= 0:
+        return int(max(0, amount))
+    return int(max(0, amount // step) * step)
+
+
+def cap_odds_amount(base_line_bet: float, raw_odds: float, max_multiple: float) -> int:
     """
-    Legalize a base/flat/place amount:
-      - floor at table minimum
-      - bubble: $1 steps
-      - non-bubble place: 6/8 in $6s; 5/9/4/10 in $5s
-      - non-bubble flat: step at table min
+    Cap odds at base_line_bet * max_multiple. Round DOWN to $1 increment.
     """
-    amt = max(int(raw_amount), int(table_level))
-    if bubble:
-        return _round_up(amt, 1)
+    cap = float(base_line_bet) * float(max_multiple)
+    legal = min(max(0.0, float(raw_odds)), cap)
+    return int(legal // 1)  # $1 granularity by default
 
-    step = _place_step_for(number, bubble=False)
-    if step == 0:
-        step = int(table_level)
-    return _round_up(amt, step)
 
-# ---- Odds legalization (PASS) ----
-
-def _max_multiple_for_point(point: int, policy: str | int) -> int:
-    """
-    Determine the maximum odds multiple relative to the flat bet for a given point.
-    - policy: "3-4-5x" (default), "2x", "5x", "10x", or an integer multiplier (e.g., 20)
-    """
-    if isinstance(policy, int):
-        return int(policy)
-    p = str(policy).lower().strip()
-
-    if p in ("2x", "2"):
-        return 2
-    if p in ("5x", "5"):
-        return 5
-    if p in ("10x", "10"):
-        return 10
-    # default: 3-4-5x
-    if point in (4, 10):
-        return 3
-    if point in (5, 9):
-        return 4
-    if point in (6, 8):
-        return 5
-    return 0
-
-def _pass_odds_step(point: int, bubble: bool) -> int:
-    # steps chosen to avoid cents in payouts for live tables
-    if bubble:
-        return 1
-    if point in (4, 10):
-        return 1
-    if point in (5, 9):
-        return 2
-    if point in (6, 8):
-        return 5
-    return 1
-
-def legalize_odds(
-    point: Optional[int],
-    desired_odds: int,
-    base_flat: int,
+def legalize_amount(
+    bet_type: str,
+    raw_amount: float,
+    table_cfg: Optional[Dict] = None,
     *,
-    bubble: bool,
-    policy: str | int = "3-4-5x",
-) -> int:
+    point: Optional[int] = None,
+    base_line_bet: Optional[float] = None,
+) -> Tuple[int, Dict]:
     """
-    Legalize PASS ODDS amount:
-      1) Cap at (max_multiple_for_point(policy) * base_flat)
-      2) Round DOWN to the clean payout step for the point (unless bubble: $1)
-      3) Clamp to >= 0
+    Returns (legal_amount, flags)
+
+    - bet_type: canonical bet name (e.g., pass_line, dont_pass, place_6, lay_10, odds_6_pass)
+    - raw_amount: desired amount before legalization
+    - table_cfg: dict per _cfg()
+    - point: current point (needed for certain validations)
+    - base_line_bet: the corresponding line bet amount for odds clamping
+
+    Flags:
+      - {"clamped": bool, "reason": str|None}
     """
-    if point not in (4, 5, 6, 8, 9, 10):
-        return 0
+    cfg = _cfg(table_cfg or {})
+    flags = {"clamped": False, "reason": None}
 
-    cap_mult = _max_multiple_for_point(point, policy)
-    if cap_mult <= 0:
-        return 0
+    bt = str(bet_type)
 
-    cap = int(cap_mult * max(0, int(base_flat)))
-    amt = min(max(0, int(desired_odds)), cap)
+    # Negative or zero requests are treated as zero (caller may interpret as 'clear')
+    try:
+        amt = float(raw_amount)
+    except Exception:
+        amt = 0.0
+    if amt <= 0:
+        return 0, flags
 
-    step = _pass_odds_step(point, bubble=bubble)
-    amt = _round_down(amt, step)
-    return max(0, amt)
+    # Bubble or not affects increments for place bets primarily
+    bubble = bool(cfg.get("bubble", False))
 
-# ---- Lay odds legalization (DON'T PASS) ----
+    # Line bets: apply table minimum only to pass/don't; others are $1 increments
+    if bt in {"pass_line", "dont_pass"}:
+        min_level = int(cfg.get("level", 10))
+        legal = int(amt // 1)
+        if legal < min_level:
+            flags["clamped"] = True
+            flags["reason"] = f"min_level_{min_level}"
+            legal = min_level
+        return legal, flags
 
-def _lay_odds_step(point: int, bubble: bool) -> int:
-    """
-    Steps chosen so the payout (which is fractional) avoids cents:
-      4/10 lay pays 1:2  -> $2 steps
-      5/9  lay pays 2:3  -> $3 steps
-      6/8  lay pays 5:6  -> $6 steps
-    Bubble allows $1 steps.
-    """
-    if bubble:
-        return 1
-    if point in (4, 10):
-        return 2
-    if point in (5, 9):
-        return 3
-    if point in (6, 8):
-        return 6
-    return 1
+    # Come / Don't Come: $1 increments, no level clamp here
+    if bt in {"come", "dont_come"}:
+        legal = int(amt // 1)
+        if legal < amt:
+            flags["clamped"] = True
+            flags["reason"] = "come_step_1"
+        return legal, flags
 
-def _lay_amount_cap_from_win_cap(point: int, win_cap: int) -> int:
-    """
-    Convert a cap on potential WIN into a max lay amount for the point:
-      win = lay * r  => lay_max = floor(win_cap / r_inverse)
-    Ratios:
-      4/10: win = lay * (1/2)  => lay_max = win_cap * 2
-      5/9 : win = lay * (2/3)  => lay_max = floor(win_cap * 3/2)
-      6/8 : win = lay * (5/6)  => lay_max = floor(win_cap * 6/5)
-    """
-    if point in (4, 10):
-        return int(win_cap * 2)
-    if point in (5, 9):
-        return int((win_cap * 3) // 2)
-    if point in (6, 8):
-        return int((win_cap * 6) // 5)
-    return 0
+    # Field: $1 increments, explicitly no level clamp
+    if bt == "field":
+        legal = int(amt // 1)
+        if legal < amt:
+            flags["clamped"] = True
+            flags["reason"] = "field_step_1"
+        return legal, flags
 
-def legalize_lay_odds(
-    point: Optional[int],
-    desired_lay: int,
-    base_flat: int,
-    *,
-    bubble: bool,
-    policy: str | int = "3-4-5x",
-) -> int:
-    """
-    Legalize DON'T PASS LAY ODDS amount:
-      1) Compute win-cap = (max_multiple_for_point(policy) * base_flat)
-      2) Convert win-cap → lay_max by point ratio (see _lay_amount_cap_from_win_cap)
-      3) Enforce cap (min(desired, lay_max))
-      4) Round DOWN to lay step (2 / 3 / 6 non-bubble; $1 bubble)
-    """
-    if point not in (4, 5, 6, 8, 9, 10):
-        return 0
+    # Place bets
+    if bt.startswith("place_"):
+        try:
+            num = int(bt.split("_", 1)[1])
+        except Exception:
+            return 0, flags
+        if bubble:
+            step = 1
+        else:
+            step_cfg = _PLACE_INCREMENTS.get(num)
+            if step_cfg == "cfg_410":
+                step = int(cfg.get("place_410_increment", 5))
+            else:
+                step = int(step_cfg or 1)
+        legal = _round_down(amt, step)
+        if legal < amt:
+            flags["clamped"] = True
+            flags["reason"] = f"place_step_{step}"
+        return legal, flags
 
-    cap_mult = _max_multiple_for_point(point, policy)
-    if cap_mult <= 0:
-        return 0
+    # Lays (simplify: $1 granularity; more complex vig rules can be layered later)
+    if bt.startswith("lay_"):
+        legal = int(amt // 1)
+        if legal < amt:
+            flags["clamped"] = True
+            flags["reason"] = "lay_step_1"
+        return legal, flags
 
-    win_cap = int(cap_mult * max(0, int(base_flat)))
-    lay_cap = _lay_amount_cap_from_win_cap(point, win_cap)
-    amt = min(max(0, int(desired_lay)), lay_cap)
+    # Odds: odds_{point}_pass or odds_{point}_dont
+    if bt.startswith("odds_"):
+        parts = bt.split("_")
+        if len(parts) >= 3:
+            try:
+                odds_point = int(parts[1])  # noqa: F841 (reserved for future validation)
+            except Exception:
+                odds_point = None  # noqa: F841
+        max_mult = float(cfg.get("max_odds_multiple", 3.0))
+        base = float(base_line_bet or 0.0)
+        capped = cap_odds_amount(base, amt, max_mult)
+        if capped < amt:
+            flags["clamped"] = True
+            flags["reason"] = f"odds_cap_{max_mult}x"
+        return capped, flags
 
-    step = _lay_odds_step(point, bubble=bubble)
-    amt = _round_down(amt, step)
-    return max(0, amt)
+    # Fallback: $1 granularity
+    legal = int(amt // 1)
+    if legal < amt:
+        flags["clamped"] = True
+        flags["reason"] = "fallback_step_1"
+    return legal, flags

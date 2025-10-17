@@ -1,4 +1,4 @@
-from crapssim_control.legalize import legalize_odds
+from crapssim_control.legalize_legacy import legalize_odds
 
 def test_legalize_odds_345x_nonbubble():
     # Base flat = 10 under common 3-4-5x

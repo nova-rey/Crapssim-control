@@ -6,7 +6,7 @@
 project: CrapsSim-Control
 owner: Rey
 maintainer: Nova
-version_tag: v0.29.0-phase0-baseline
+version_tag: v0.29.1-phase1-preflight
 
 # Canonical pointers (Agent MUST read these next)
 paths:
@@ -16,57 +16,56 @@ paths:
   workflow: docs/DEV_WORKFLOW.md
 
 phase:
-  phase: 1
-  checkpoint: 5
+  phase: 2
+  checkpoint: 1
   status: active
-  next_checkpoint: null
+  next_checkpoint: P2·C2
 repo_path: .
 docs_root: docs/
 snapshot: docs/CSC_SNAPSHOT.yaml
 bible: docs/CSC_BIBLE.md
 checklist: docs/PHASE_CHECKLIST.md
 workflow: docs/DEV_WORKFLOW.md
-branch: phase1-c5-terminology-provenance
-previous_tag: v0.29.0-phase0c3-baseline
-next_tag: v0.29.1-phase1-preflight
+branch: phase2-c1-file-moves
+previous_tag: v0.29.1-phase1-preflight
+next_tag: v0.29.2-phase2-baseline
 
 policy:
   agent_runs_per_checkpoint: 1
-  allow_behavior_change: false     # Phase 1: surface-level toggles only
+  allow_behavior_change: false     # Phase 2: structural renames only
   require_tests_green: true
   require_update_snapshot: true
   require_bible_append: true
 
 intent:
   summary: >
-    Polish runtime terminology (Advisories vs Guardrails) and extend report
-    metadata with validation engine provenance plus run flag source tracking.
+    Rename runtime templates/legalize/rules modules to their canonical names,
+    add backward-compatible shims, and launch Phase 2 documentation with no
+    logic changes.
   success_criteria:
-    - "controller metadata nests validation_engine under metadata.run_flags"
-    - "metadata.run_flags captures both values and default/spec/cli sources"
-    - "CLI help text references Advisories by default and Guardrails for strict mode"
-    - "docs/quick_start.md, docs/spec.md, docs/report_schema.md align with the new wording"
-    - "tests/test_cli_flags.py asserts metadata structure and help text"
-    - "docs/PHASE_CHECKLIST.md, docs/CSC_BIBLE.md, docs/CSC_SNAPSHOT.yaml updated for P1·C5"
-    - "Commit created: 'P1C5: terminology polish and provenance metadata (no behavior change)'"
+    - "templates_rt, legalize_rt, and rules_rt re-export canonical modules and raise DeprecationWarning"
+    - "Controller, CLI entry points, and tests import templates, legalize, and rules_engine directly"
+    - "pytest -q passes"
+    - "Importing legacy module names prints a single DeprecationWarning"
+    - "docs/PHASE_CHECKLIST.md, docs/CSC_BIBLE.md, docs/CSC_SNAPSHOT.yaml, and NOVA_AGENT_ENTRYPOINT.yaml reflect Phase 2 P2·C1"
 
 agent_tasks:
   # High-level steps Agent should perform in order (mechanical only)
-  - update_controller: "Embed validation_engine and run flag sources under metadata"
-  - update_cli: "Refresh help text and capture CLI override provenance"
-  - update_tests: "Extend tests/test_cli_flags.py for metadata values/sources and --help output"
+  - rename_modules: "Move templates_rt.py → templates.py, rules_rt.py → rules_engine.py, legalize_rt.py → legalize.py"
+  - add_shims: "Leave *_rt.py files that warn and re-export the canonical modules"
+  - update_imports:
+      - crapssim_control/controller.py
+      - crapssim_control/__init__.py
+      - tests/
   - update_docs:
-      - docs/quick_start.md
-      - docs/spec.md
-      - docs/report_schema.md
       - docs/PHASE_CHECKLIST.md
       - docs/CSC_BIBLE.md
       - docs/CSC_SNAPSHOT.yaml
-  - sync_entrypoint: "Ensure phase/checkpoint pointers reflect P1·C5"
-  - verify_docs: "Spot-check Markdown renders without syntax issues"
-  - commit: "P1C5: terminology polish and provenance metadata (no behavior change)"
+      - NOVA_AGENT_ENTRYPOINT.yaml
+  - run_tests: "pytest -q"
+  - commit: "P2C1: File moves and import shims (no logic changes)"
 
 notes:
-  - "Respect Phase 1 guardrails; avoid code changes beyond docs/examples."
-  - "If any step fails, stop and report in chat; do not auto-invent fixes."
-  - "After commit, ensure docs stay in sync with checkpoints."
+  - "No logic changes allowed—perform renames and shims only."
+  - "If imports fail or warnings do not emit, stop and report."
+  - "Ensure documentation and entrypoint pointers reflect Phase 2 status."

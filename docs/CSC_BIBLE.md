@@ -32,7 +32,7 @@ Where the snapshot tracks *state*, the Bible records *story*—why decisions wer
 
 ---
 
-## Phase 1 — Defaults & Nuisance Removal (Active)
+## Phase 1 — Defaults & Nuisance Removal (Complete)
 **Checkpoint P1·C1 — Disable demo fallbacks by default (Complete)**
 - Default for `run.demo_fallbacks` set to `false` via centralized config helpers.
 - Added backwards-compatible coercion in `spec_validation` so legacy truthy strings stay valid.
@@ -57,6 +57,16 @@ Where the snapshot tracks *state*, the Bible records *story*—why decisions wer
 **Checkpoint P1·C5 — Terminology polish & provenance metadata (Complete)**
 - Refined CLI/docs terminology so Guardrails references only appear when strict mode is enabled and default flows speak to Advisories.
 - Embedded `validation_engine` and the full run flag provenance map under `metadata`, capturing both effective values and whether they came from defaults, the spec, or CLI overrides.
+
+
+## Phase 2 — Single-Source Modules (Active)
+**Objective:** Collapse duplicate runtime and canonical modules into a single source of truth without altering behavior.
+
+**Checkpoint P2·C1 — File Moves + Shims (Active)**
+- Renamed `templates_rt`, `legalize_rt`, and `rules_rt` to their canonical module names.
+- Added backward-compatible shim files that emit `DeprecationWarning` when legacy imports are used.
+- Updated controller entry points, CLI/tests, and package exports to reference the canonical modules directly.
+- Synced docs and snapshot metadata to mark Phase 2 launch and enumerate upcoming checkpoints.
 
 ---
 
