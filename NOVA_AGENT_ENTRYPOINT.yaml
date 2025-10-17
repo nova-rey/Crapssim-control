@@ -17,49 +17,52 @@ paths:
 
 phase:
   phase: 1
-  checkpoint: 2
+  checkpoint: 3
   status: active
-  next_checkpoint: 3
+  next_checkpoint: 4
 repo_path: .
 docs_root: docs/
 snapshot: docs/CSC_SNAPSHOT.yaml
 bible: docs/CSC_BIBLE.md
 checklist: docs/PHASE_CHECKLIST.md
 workflow: docs/DEV_WORKFLOW.md
-branch: phase1-defaults
+branch: phase1-c3-validation-engine
 previous_tag: v0.29.0-phase0c3-baseline
 next_tag: v0.29.1-phase1-preflight
 
 policy:
   agent_runs_per_checkpoint: 1
-  allow_behavior_change: false     # Phase 0: no behavior change
+  allow_behavior_change: false     # Phase 1: surface-level toggles only
   require_tests_green: true
   require_update_snapshot: true
   require_bible_append: true
 
 intent:
   summary: >
-    Capture baseline artifacts (journal.csv, report.json, manifest.json)
-    under baselines/phase0/ with zero behavioral change.
+    Surface the validation engine label (v1) across CLI output and generated
+    reports so spec provenance is traceable.
   success_criteria:
-    - "pytest -q is green before and after"
-    - "Artifacts written to baselines/phase0/"
-    - "Commit created: 'P0C3: Capture baseline artifacts'"
-    - "CSC_SNAPSHOT.yaml updated; CSC_BIBLE.md appended"
+    - "VALIDATION_ENGINE_VERSION constant defined as 'v1'"
+    - "CLI run output prints 'validation_engine: v1'"
+    - "report.json payloads include validation_engine metadata"
+    - "pytest -q tests/test_validation_engine_label.py"
+    - "Commit created: 'P1C3: validation-engine labeling'"
+    - "Snapshot + Bible updated for P1·C3"
 
 agent_tasks:
   # High-level steps Agent should perform in order (mechanical only)
-  - check_tests: "pytest -q"
-  - make_executable: "scripts/capture_baseline_p0c3.sh"
-  - run_script: "./scripts/capture_baseline_p0c3.sh"
-  - verify_files:
-      - "baselines/phase0/journal.csv"
-      - "baselines/phase0/report.json"
-      - "baselines/phase0/manifest.json"
-  - commit: "P0C3: Capture baseline artifacts"
-  - post_check_tests: "pytest -q"
+  - define_constant: "VALIDATION_ENGINE_VERSION = 'v1'"
+  - wire_cli_output: "Print validation_engine label in run header"
+  - update_report: "Attach validation_engine to generated report dicts"
+  - add_test: "tests/test_validation_engine_label.py"
+  - update_docs:
+      - docs/PHASE_CHECKLIST.md
+      - docs/CSC_BIBLE.md
+      - docs/CSC_SNAPSHOT.yaml
+  - run_tests: "pytest -q tests/test_validation_engine_label.py"
+  - commit: "P1C3: validation-engine labeling"
 
 notes:
-  - "Do not modify runtime logic in Phase 0."
+  - "Respect Phase 1 guardrails; avoid broad behavior changes."
   - "If any step fails, stop and report in chat; do not auto-invent fixes."
-  - "After commit, update snapshot & Bible per docs."
+  - "After commit, ensure docs stay in sync with checkpoints."

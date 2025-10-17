@@ -22,6 +22,7 @@ from .config import (
     coerce_flag,
     normalize_demo_fallbacks,
 )
+from .spec_validation import VALIDATION_ENGINE_VERSION
 
 
 class ControlStrategy:
@@ -692,6 +693,8 @@ class ControlStrategy:
                 },
             },
         }
+
+        report["validation_engine"] = VALIDATION_ENGINE_VERSION
 
         # Keep the old csv.path hint too (legacy/compat)
         try:

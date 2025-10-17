@@ -44,6 +44,11 @@ Where the snapshot tracks *state*, the Bible records *story*—why decisions wer
 - Controller metadata reports the effective flag set (`run_flags`) so reports capture CLI influence.
 - Tests assert defaults remain unchanged, CLI overrides mutate the spec, and run reports surface final values.
 
+**Checkpoint P1·C3 — Validation-engine labeling (Complete)**
+- Introduced `VALIDATION_ENGINE_VERSION = "v1"` and surfaced it in `report.json` metadata.
+- CLI run header now prints `validation_engine: v1` to make validator provenance obvious in logs.
+- New regression test guards the constant, report value, and CLI emission for future bumps.
+
 ---
 
 ## Agent-Mode Transition (October 2025)

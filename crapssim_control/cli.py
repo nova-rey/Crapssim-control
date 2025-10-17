@@ -18,6 +18,7 @@ from .config import (
     coerce_flag,
     normalize_demo_fallbacks,
 )
+from .spec_validation import VALIDATION_ENGINE_VERSION
 
 log = logging.getLogger("crapssim-ctl")
 
@@ -428,6 +429,8 @@ def run(args: argparse.Namespace) -> int:
             return 2
         for w in soft_warns:
             log.warning("spec warning: %s", w)
+
+    print(f"validation_engine: {VALIDATION_ENGINE_VERSION}")
 
     info = _csv_journal_info(spec)
     if info:

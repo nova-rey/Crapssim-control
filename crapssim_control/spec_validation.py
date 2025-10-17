@@ -3,6 +3,9 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
+
+VALIDATION_ENGINE_VERSION = "v1"
+
 from .events import CANONICAL_EVENT_TYPES  # includes shooter_change & bet_resolved
 from .config import (
     DEMO_FALLBACKS_DEFAULT,
