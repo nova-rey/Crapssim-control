@@ -39,6 +39,11 @@ Where the snapshot tracks *state*, the Bible records *story*—why decisions wer
 - Controller prints a one-time startup notice and exposes the default in report metadata.
 - Tests cover the new default/off and explicit `true` path to guard regressions.
 
+**Checkpoint P1·C2 — CLI flag wiring (Complete)**
+- CLI `--demo-fallbacks`, `--strict`, and `--no-embed-analytics` now map directly to `run.*` config overrides.
+- Controller metadata reports the effective flag set (`run_flags`) so reports capture CLI influence.
+- Tests assert defaults remain unchanged, CLI overrides mutate the spec, and run reports surface final values.
+
 ---
 
 ## Agent-Mode Transition (October 2025)

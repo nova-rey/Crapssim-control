@@ -17,9 +17,9 @@ paths:
 
 phase:
   phase: 1
-checkpoint: 0
-status: pending
-next_checkpoint: 1
+  checkpoint: 2
+  status: active
+  next_checkpoint: 3
 repo_path: .
 docs_root: docs/
 snapshot: docs/CSC_SNAPSHOT.yaml
