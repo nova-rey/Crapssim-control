@@ -9,15 +9,23 @@ from typing import List, Tuple
 try:
     from crapssim.table import Table
 except Exception as e:
-    print("CrapsSim engine not available.\n"
-          "Install it first (one-time):\n"
-          '  pip install "git+https://github.com/skent259/crapssim.git"\n'
-          "Then re-run:\n"
-          "  python run_demo.py [examples/regression.json]\n")
-    sys.exit(1)
+    Table = None  # type: ignore[assignment]
+    _ENGINE_IMPORT_ERROR = e
+else:
+    _ENGINE_IMPORT_ERROR = None
 
 from crapssim_control import ControlStrategy
 from crapssim_control.spec_loader import load_spec_file
+
+
+def _print_engine_hint() -> None:
+    print(
+        "CrapsSim engine not available.\n"
+        "Install it first (one-time):\n"
+        '  pip install "git+https://github.com/skent259/crapssim.git"\n'
+        "Then re-run:\n"
+        "  python run_demo.py [examples/regression.json]\n"
+    )
 
 
 def _mk_rng(seed=None, rng=None):
@@ -134,6 +142,10 @@ class _DemoStrategyProxy:
                 pass
 
 def main(spec_path: str | None = None):
+    if Table is None:
+        _print_engine_hint()
+        raise SystemExit(1) from _ENGINE_IMPORT_ERROR
+
     spec_file = Path(spec_path or "examples/regression.json")
     if not spec_file.exists():
         print(f"SPEC not found: {spec_file}")
