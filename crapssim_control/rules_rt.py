@@ -1,7 +1,4 @@
-import warnings
-warnings.warn(
-    "Deprecated: import from templates, rules_engine, or legalize instead of *_rt.",
-    DeprecationWarning,
-    stacklevel=2,
-)
+from .deprecations import warn_once
+
+warn_once("rules_rt", "Deprecated: import from canonical module instead of *_rt.")
 from .rules_engine import *  # noqa: F403,F401
