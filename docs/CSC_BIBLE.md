@@ -77,8 +77,10 @@ All imports now reference canonical runtime modules (`templates`, `rules_engine`
 A centralized Deprecation Registry (`deprecations.py`) issues one-time warnings for legacy shim imports.  
 Behavior unchanged — only warning management and import clarity improved.
 
-**Checkpoint 4 (P2·C4): Spec Loader Shim (Key Normalization)**  
-Pending — normalize deprecated spec keys and log in `report.deprecations`.
+**Checkpoint 4 (P2·C4): Spec Loader Shim (Key Normalization)**
+Added a load-time normalization pass that migrates deprecated spec keys to
+their canonical names, prefers modern fields when both are present, and records
+each migration under `report.metadata.deprecations` for easy auditing.
 
 **Checkpoint 5 (P2·C5): Baseline & Tag**  
 Pending — capture seeded integration artifacts and tag `v0.30.0-phase2-baseline`.

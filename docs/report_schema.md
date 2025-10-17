@@ -53,7 +53,14 @@ A report is a JSON object with these primary sections:
         "strict": "default",
         "embed_analytics": "default"
       }
-    }
+    },
+    "deprecations": [
+      {
+        "old": "odds_working_on_comeout",
+        "new": "working_on_comeout",
+        "action": "migrated"
+      }
+    ]
   }
 }
 ```
@@ -61,6 +68,8 @@ A report is a JSON object with these primary sections:
 - `metadata.validation_engine` is mandatory and reflects `VALIDATION_ENGINE_VERSION`.
 - `metadata.run_flags.values` captures the effective booleans used during the run.
 - `metadata.run_flags.sources` records whether each flag came from the default, spec, or CLI overrides.
+- `metadata.deprecations` lists any deprecated spec keys that were migrated or
+  ignored in favor of canonical names during load.
 - `source_files.report` may be omitted when the report is returned in-memory.
 
 ⸻

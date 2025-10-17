@@ -1,5 +1,4 @@
 # run_demo.py
-import json
 import sys
 from pathlib import Path
 
@@ -14,6 +13,7 @@ except Exception as e:
     sys.exit(1)
 
 from crapssim_control import ControlStrategy
+from crapssim_control.spec_loader import load_spec_file
 
 def main(spec_path: str | None = None):
     spec_file = Path(spec_path or "examples/regression.json")
@@ -21,11 +21,11 @@ def main(spec_path: str | None = None):
         print(f"SPEC not found: {spec_file}")
         sys.exit(2)
 
-    spec = json.loads(spec_file.read_text())
+    spec, spec_deprecations = load_spec_file(spec_file)
 
     # Table & strategy
     table = Table()
-    strat = ControlStrategy(spec)
+    strat = ControlStrategy(spec, spec_deprecations=spec_deprecations)
     table.add_player(bankroll=300, strategy=strat, name="SpecBot")
 
     # Run a short session
