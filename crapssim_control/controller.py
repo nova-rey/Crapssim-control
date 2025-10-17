@@ -167,8 +167,6 @@ class ControlStrategy:
         self._tracker: Optional[Tracker] = None
         self._tracker_session_ctx: Optional[SessionCtx] = None
         self._analytics_session_closed: bool = False
-        self._next_hand_id: int = 1
-        self._current_hand_id: Optional[int] = None
 
         self._init_tracker()
 
@@ -255,54 +253,90 @@ class ControlStrategy:
         self._tracker_session_ctx = session_ctx
         tracker.on_session_start(session_ctx)
 
-    def _analytics_start_hand(self) -> None:
-        if self._tracker is None:
+    def _analytics_start_hand(self, point_value: Optional[int] = None) -> None:
+        tracker = self._tracker
+        if tracker is None:
             return
 
-        if self._current_hand_id is not None:
-            # Defensive: ensure prior hand is closed before starting a new one.
-            self._analytics_end_hand(self.point)
+        hand_id = tracker.hand_id + 1
+        hand_ctx = HandCtx(hand_id=hand_id, point=point_value)
+        tracker.on_hand_start(hand_ctx)
 
-        hand_id = self._next_hand_id
-        self._next_hand_id += 1
-        self._current_hand_id = hand_id
-        hand_ctx = HandCtx(hand_id=hand_id, point=None)
-        self._tracker.on_hand_start(hand_ctx)
+    @staticmethod
+    def _analytics_to_float(val: Any) -> Optional[float]:
+        if isinstance(val, (int, float)):
+            return float(val)
+        try:
+            return float(str(val))
+        except Exception:
+            return None
 
-    def _analytics_record_roll(self) -> None:
-        if self._tracker is None:
+    def _analytics_record_roll(self, event: Dict[str, Any]) -> None:
+        tracker = self._tracker
+        if tracker is None:
             return
 
-        hand_id = self._current_hand_id if self._current_hand_id is not None else 0
-        bankroll = self._bankroll_best_effort()
-        bankroll_val = float(bankroll) if bankroll is not None else 0.0
+        if tracker.hand_id == 0:
+            self._analytics_start_hand(point_value=None)
+
+        bankroll_before = self._analytics_to_float(event.get("bankroll_before"))
+        bankroll_after = self._analytics_to_float(event.get("bankroll_after"))
+        bankroll_value = self._analytics_to_float(event.get("bankroll"))
+        delta = self._analytics_to_float(event.get("bankroll_delta"))
+        if delta is None:
+            delta = self._analytics_to_float(event.get("delta"))
+        if delta is None:
+            delta = self._analytics_to_float(event.get("payout"))
+
+        if bankroll_after is None and bankroll_value is not None:
+            bankroll_after = bankroll_value
+
+        if bankroll_before is None:
+            bankroll_before = tracker.bankroll
+
+        if delta is None:
+            if bankroll_after is not None and bankroll_before is not None:
+                delta = bankroll_after - bankroll_before
+            else:
+                delta = 0.0
+
+        if bankroll_after is None and bankroll_before is not None:
+            bankroll_after = bankroll_before + delta
+
         roll_ctx = RollCtx(
-            hand_id=hand_id,
+            hand_id=tracker.hand_id,
             roll_number=self.rolls_since_point,
-            bankroll_before=bankroll_val,
+            bankroll_before=bankroll_before if bankroll_before is not None else 0.0,
+            delta=delta,
         )
-        self._tracker.on_roll(roll_ctx)
+        tracker.on_roll(roll_ctx)
+
+        # Ensure tracker mirrors the resolved bankroll when provided explicitly.
+        if bankroll_after is not None:
+            tracker.bankroll = bankroll_after
+            tracker.bankroll_peak = max(tracker.bankroll_peak, tracker.bankroll)
+            tracker.bankroll_low = min(tracker.bankroll_low, tracker.bankroll)
+            tracker.max_drawdown = max(
+                tracker.max_drawdown,
+                tracker.bankroll_peak - tracker.bankroll,
+            )
 
     def _analytics_end_hand(self, point_value: Optional[int]) -> None:
-        if self._tracker is None or self._current_hand_id is None:
+        tracker = self._tracker
+        if tracker is None or tracker.hand_id == 0:
             return
 
-        hand_ctx = HandCtx(hand_id=self._current_hand_id, point=point_value)
-        self._tracker.on_hand_end(hand_ctx)
-        self._current_hand_id = None
+        hand_ctx = HandCtx(hand_id=tracker.hand_id, point=point_value)
+        tracker.on_hand_end(hand_ctx)
 
     def _analytics_session_end(self) -> None:
-        if self._tracker is None or self._analytics_session_closed:
+        tracker = self._tracker
+        if tracker is None or self._analytics_session_closed:
             return
 
-        session_ctx = self._tracker_session_ctx
-        if session_ctx is None:
-            bankroll = self._bankroll_best_effort()
-            bankroll_val = float(bankroll) if bankroll is not None else 0.0
-            session_ctx = SessionCtx(bankroll=bankroll_val)
-            self._tracker_session_ctx = session_ctx
-
-        self._tracker.on_session_end(session_ctx)
+        session_ctx = SessionCtx(bankroll=tracker.bankroll)
+        self._tracker_session_ctx = session_ctx
+        tracker.on_session_end(session_ctx)
         self._analytics_session_closed = True
 
     def _resolve_journal_cfg(self) -> Optional[Dict[str, Any]]:
@@ -334,7 +368,21 @@ class ControlStrategy:
             self._journal_enabled = False
             return None
         try:
-            j = CSVJournal(cfg["path"], append=cfg["append"], run_id=cfg.get("run_id"), seed=cfg.get("seed"))
+            analytics_cols = None
+            if self._tracker is not None:
+                analytics_cols = [
+                    "hand_id",
+                    "roll_in_hand",
+                    "bankroll_after",
+                    "drawdown_after",
+                ]
+            j = CSVJournal(
+                cfg["path"],
+                append=cfg["append"],
+                run_id=cfg.get("run_id"),
+                seed=cfg.get("seed"),
+                analytics_columns=analytics_cols,
+            )
             self._journal = j
             self._journal_enabled = True
             return j
@@ -362,6 +410,8 @@ class ControlStrategy:
                 # "flags": dict(self._flags),
             },
         }
+        if self._tracker is not None:
+            snap.update(self._tracker.get_roll_snapshot())
         return snap
 
     def _journal_actions(self, event: Dict[str, Any], actions: List[Dict[str, Any]]) -> None:
@@ -583,10 +633,12 @@ class ControlStrategy:
         rule_actions: List[Dict[str, Any]] = []
 
         if ev_type == COMEOUT:
-            self._analytics_start_hand()
+            self._analytics_start_hand(point_value=None)
             self.point = None
             self.rolls_since_point = 0
             self.on_comeout = True
+
+            self._analytics_record_roll(event)
 
             rule_actions = self._apply_rules_for_event(event)
             switches, setvars, rule_non_special = self._split_switch_setvar_other(rule_actions)
@@ -608,6 +660,8 @@ class ControlStrategy:
                 self.point = None
             self.rolls_since_point = 0
             self.on_comeout = self.point in (None, 0)
+
+            self._analytics_record_roll(event)
 
             rule_actions = self._apply_rules_for_event(event)
             switches, setvars, rule_non_special = self._split_switch_setvar_other(rule_actions)
@@ -664,7 +718,7 @@ class ControlStrategy:
                         ),
                     ])
 
-            self._analytics_record_roll()
+            self._analytics_record_roll(event)
 
             rule_actions = self._apply_rules_for_event(event)
             switches, setvars, rule_non_special = self._split_switch_setvar_other(rule_actions)
@@ -681,6 +735,7 @@ class ControlStrategy:
 
         if ev_type == SEVEN_OUT:
             point_before = self.point
+            self._analytics_record_roll(event)
             self._analytics_end_hand(point_before)
             self.point = None
             self.rolls_since_point = 0

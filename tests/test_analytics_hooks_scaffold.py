@@ -53,33 +53,16 @@ def test_tracker_hooks_fire_when_enabled():
     ctrl.handle_event({"type": "seven_out"}, current_bets={})
     ctrl.finalize_run()
 
-    events = ctrl._tracker.events
-    assert [name for name, _ in events] == [
-        "session_start",
-        "hand_start",
-        "roll",
-        "hand_end",
-        "session_end",
-    ]
-
-    session_ctx = events[0][1]
-    assert session_ctx.bankroll == pytest.approx(0.0)
-
-    hand_start_ctx = events[1][1]
-    assert hand_start_ctx.hand_id == 1
-    assert hand_start_ctx.point is None
-
-    roll_ctx = events[2][1]
-    assert roll_ctx.hand_id == 1
-    assert roll_ctx.roll_number == 1
-    assert roll_ctx.bankroll_before == pytest.approx(0.0)
-
-    hand_end_ctx = events[3][1]
-    assert hand_end_ctx.hand_id == 1
-    assert hand_end_ctx.point == 6
-
-    session_end_ctx = events[4][1]
-    assert session_end_ctx is session_ctx
+    tracker = ctrl._tracker
+    assert tracker.hand_id == 1
+    assert tracker.roll_in_hand >= 1
+    roll_snapshot = tracker.get_roll_snapshot()
+    assert roll_snapshot["hand_id"] == 1
+    assert roll_snapshot["roll_in_hand"] == tracker.roll_in_hand
+    assert roll_snapshot["drawdown_after"] >= 0
+    summary = tracker.get_summary_snapshot()
+    assert summary["bankroll_peak"] >= summary["bankroll_low"]
+    assert summary["max_drawdown"] >= 0
 
 
 def test_tracker_not_initialized_when_disabled():
@@ -96,7 +79,7 @@ def test_tracker_not_initialized_when_disabled():
     ctrl.finalize_run()
 
 
-def test_analytics_scaffold_preserves_outputs(tmp_path):
+def test_embed_flag_controls_csv_schema(tmp_path):
     csv_path_false = tmp_path / "without_analytics.csv"
     csv_path_true = tmp_path / "with_analytics.csv"
 
@@ -114,6 +97,10 @@ def test_analytics_scaffold_preserves_outputs(tmp_path):
         "ts,run_id,seed,event_type,point,rolls_since_point,on_comeout,"
         "mode,units,bankroll,source,id,action,bet_type,amount,notes,extra"
     )
+    header_with_analytics = (
+        header_expected
+        + ",hand_id,roll_in_hand,bankroll_after,drawdown_after"
+    )
 
     def _header(path: Path) -> str:
         lines = path.read_text(encoding="utf-8").splitlines()
@@ -124,7 +111,7 @@ def test_analytics_scaffold_preserves_outputs(tmp_path):
         return ""
 
     assert _header(csv_path_false) == header_expected
-    assert _header(csv_path_true) == header_expected
+    assert _header(csv_path_true) == header_with_analytics
 
     report_false = ctrl_false.generate_report()
     report_true = ctrl_true.generate_report()

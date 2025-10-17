@@ -159,7 +159,16 @@ Tagged release: **v0.30.0-phase2-baseline**.
 **Purpose:**  
 Integrate the analytics layer directly into the CSV journaling system, ensuring bankroll continuity and attribution for every roll and hand. This phase reconnects the unified runtime from Phase 2 with the legacy Tracker/Ledger analytics logic, updated for deterministic tracking.
 
-**Checkpoint 1 (P3·C1): Analytics Hook Scaffolding**  
-Created a new `analytics/` module containing stub classes for `Tracker` and `Ledger`.  
-The controller now calls `on_session_start`, `on_hand_start`, `on_roll`, and `on_hand_end` events only when `run.csv.embed_analytics=True`.  
+**Checkpoint 1 (P3·C1): Analytics Hook Scaffolding**
+Created a new `analytics/` module containing stub classes for `Tracker` and `Ledger`.
+The controller now calls `on_session_start`, `on_hand_start`, `on_roll`, and `on_hand_end` events only when `run.csv.embed_analytics=True`.
 No data is yet written to CSV; this provides the structural foundation for later bankroll and roll tracking.
+
+**Checkpoint 2 (P3·C2): Bankroll & Roll Tracking Integration**
+Tracker now records live bankroll and roll context. When `run.csv.embed_analytics=True`, each CSV row includes:
+- hand_id
+- roll_in_hand
+- bankroll_after
+- drawdown_after
+
+These fields are additive only. With the flag off, CSV outputs remain byte-for-byte identical to the Phase 2 baseline.

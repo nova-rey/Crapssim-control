@@ -111,6 +111,8 @@ class CSVJournal:
     run_id: Optional[str] = None
     seed: Optional[int] = None
 
+    analytics_columns: Optional[List[str]] = None
+
     _columns: List[str] = field(default_factory=lambda: [
         "ts", "run_id", "seed",
         "event_type", "point", "rolls_since_point", "on_comeout",
@@ -121,6 +123,22 @@ class CSVJournal:
 
     # Track whether we’ve performed the first write (to control truncate vs append when append=False)
     _first_write_done: bool = field(default=False, init=False)
+
+    _analytics_columns_normalized: List[str] = field(default_factory=list, init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        if not self.analytics_columns:
+            return
+        seen: set[str] = set()
+        for col in self.analytics_columns:
+            col_str = str(col)
+            if not col_str:
+                continue
+            if col_str not in seen:
+                seen.add(col_str)
+                self._analytics_columns_normalized.append(col_str)
+                if col_str not in self._columns:
+                    self._columns.append(col_str)
 
     # -------- convenience helpers (non-breaking) --------
 
@@ -315,6 +333,18 @@ class CSVJournal:
                     "extra": _as_str(extra_payload) if extra_payload is not None else "",
                 }
 
+                if self._analytics_columns_normalized:
+                    for col in self._analytics_columns_normalized:
+                        if col in ("hand_id", "roll_in_hand"):
+                            num = _coerce_num(snap.get(col))
+                            row[col] = int(num) if num is not None else ""
+                        elif col in ("bankroll_after", "drawdown_after"):
+                            num = _coerce_num(snap.get(col))
+                            row[col] = num if num is not None else ""
+                        else:
+                            val = snap.get(col)
+                            row[col] = _as_str(val) if val is not None else ""
+
                 try:
                     writer.writerow(row)
                     rows_written += 1
@@ -366,6 +396,9 @@ class CSVJournal:
                     "notes": "end_of_run",
                     "extra": _as_str(summary),
                 }
+                if self._analytics_columns_normalized:
+                    for col in self._analytics_columns_normalized:
+                        row.setdefault(col, "")
                 writer.writerow(row)
 
             # mark that at least one write happened (controls future mode selection when append=False)

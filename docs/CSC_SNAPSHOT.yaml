@@ -1,5 +1,5 @@
 phase: 3
-checkpoint: 1
-title: Analytics Hook Scaffolding
-description: Introduced analytics package and hook wiring; no behavioral changes.
+checkpoint: 2
+title: Bankroll & Roll Tracking Integration
+description: Enabled live bankroll tracking and per-roll/hand context; added optional CSV fields gated by embed_analytics.
 status: active
