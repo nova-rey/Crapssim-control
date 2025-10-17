@@ -61,6 +61,8 @@ CSC can run without CrapsSim for validation only, but to actually simulate rolls
 
 pip install crapssim
 
+> Note: The demo uses a small compatibility shim for `Table.fixed_run` so it runs against engines that expect either `seed=` (legacy) or `rng=` (newer) without changes to your commands.
+
 
 ⸻
 
