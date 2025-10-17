@@ -19,3 +19,4 @@ class RollCtx:
     hand_id: int
     roll_number: int
     bankroll_before: float
+    delta: float
