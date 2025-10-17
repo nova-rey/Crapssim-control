@@ -12,6 +12,12 @@ from pathlib import Path
 from typing import Any, Dict, List, Tuple, Optional
 
 from .logging_utils import setup_logging
+from .config import (
+    EMBED_ANALYTICS_DEFAULT,
+    STRICT_DEFAULT,
+    coerce_flag,
+    normalize_demo_fallbacks,
+)
 
 log = logging.getLogger("crapssim-ctl")
 
@@ -333,6 +339,42 @@ def _cmd_journal_summarize(args: argparse.Namespace) -> int:
 
 # --------------------------------- Run -------------------------------------- #
 
+def _merge_cli_run_flags(spec: Dict[str, Any], args: argparse.Namespace) -> None:
+    """Merge CLI flag overrides into ``spec['run']`` in-place."""
+
+    if not isinstance(spec, dict):
+        return
+
+    run_blk = spec.get("run")
+    run_dict: Dict[str, Any]
+    if isinstance(run_blk, dict):
+        run_dict = run_blk
+    else:
+        run_dict = {}
+
+    changed = False
+
+    if getattr(args, "demo_fallbacks", False):
+        run_dict["demo_fallbacks"] = True
+        changed = True
+
+    if getattr(args, "strict", False):
+        run_dict["strict"] = True
+        changed = True
+
+    if getattr(args, "no_embed_analytics", False):
+        csv_blk = run_dict.get("csv")
+        if not isinstance(csv_blk, dict):
+            csv_blk = {}
+        csv_blk["embed_analytics"] = False
+        run_dict["csv"] = csv_blk
+        changed = True
+
+    if changed or isinstance(run_blk, dict):
+        # Preserve existing dict reference or attach a new run block if needed.
+        spec["run"] = run_dict
+
+
 def run(args: argparse.Namespace) -> int:
     """
     Run path:
@@ -346,19 +388,35 @@ def run(args: argparse.Namespace) -> int:
     spec_path = Path(args.spec)
     spec = _load_spec_file(spec_path)
 
+    # Merge CLI flag overrides (before normalization/adapter usage)
+    _merge_cli_run_flags(spec, args)
+
     # spec-level runtime
-    spec_run = spec.get("run", {}) if isinstance(spec.get("run", {}), dict) else {}
+    spec_run_raw = spec.get("run")
+    spec_run = spec_run_raw if isinstance(spec_run_raw, dict) else {}
     rolls = int(args.rolls) if args.rolls is not None else int(spec_run.get("rolls", 1000))
     seed = args.seed if args.seed is not None else spec_run.get("seed")
 
-    # Flags (inert)
-    demo_fallbacks = bool(getattr(args, "demo_fallbacks", False))
-    strict = bool(getattr(args, "strict", False))
-    embed_analytics = not bool(getattr(args, "no_embed_analytics", False))
+    # Flags (merged with spec)
+    demo_fallbacks = normalize_demo_fallbacks(spec_run)
+    strict_norm, strict_ok = coerce_flag(spec_run.get("strict"), default=STRICT_DEFAULT)
+    strict = bool(strict_norm) if strict_ok and strict_norm is not None else STRICT_DEFAULT
+    csv_blk = spec_run.get("csv") if isinstance(spec_run.get("csv"), dict) else {}
+    embed_norm, embed_ok = coerce_flag(
+        (csv_blk or {}).get("embed_analytics"), default=EMBED_ANALYTICS_DEFAULT
+    )
+    embed_analytics = (
+        bool(embed_norm) if embed_ok and embed_norm is not None else EMBED_ANALYTICS_DEFAULT
+    )
     rng_audit = bool(getattr(args, "rng_audit", False))
     if log.isEnabledFor(logging.DEBUG):
-        log.debug("P0·C1 flags (inert): demo_fallbacks=%s strict=%s embed_analytics=%s rng_audit=%s",
-                  demo_fallbacks, strict, embed_analytics, rng_audit)
+        log.debug(
+            "CLI run flags: demo_fallbacks=%s strict=%s embed_analytics=%s rng_audit=%s",
+            demo_fallbacks,
+            strict,
+            embed_analytics,
+            rng_audit,
+        )
 
     # Validate (can be bypassed by workflow env)
     if os.environ.get("CSC_SKIP_VALIDATE", "0").lower() not in ("1", "true", "yes"):
@@ -539,13 +597,23 @@ def _build_parser() -> argparse.ArgumentParser:
     p_run.add_argument("--rolls", type=int, help="Number of rolls (overrides spec)")
     p_run.add_argument("--seed", type=int, help="Seed RNG for reproducibility")
     p_run.add_argument("--export", type=str, help="Path to CSV summary export (optional)")
-    # inert flag framework
-    p_run.add_argument("--demo-fallbacks", action="store_true",
-                       help="(scaffold) Enable demo fallbacks. P0·C1: no behavior change.")
-    p_run.add_argument("--strict", action="store_true",
-                       help="(scaffold) Enable strict/advisory enforcement. P0·C1: no behavior change.")
-    p_run.add_argument("--no-embed-analytics", action="store_true", dest="no_embed_analytics",
-                       help="(scaffold) Disable embedding analytics in CSV. P0·C1: no behavior change.")
+    # runtime flag overrides
+    p_run.add_argument(
+        "--demo-fallbacks",
+        action="store_true",
+        help="Override spec: set run.demo_fallbacks=true for this run.",
+    )
+    p_run.add_argument(
+        "--strict",
+        action="store_true",
+        help="Override spec: set run.strict=true for this run.",
+    )
+    p_run.add_argument(
+        "--no-embed-analytics",
+        action="store_true",
+        dest="no_embed_analytics",
+        help="Override spec: set run.csv.embed_analytics=false for this run.",
+    )
     p_run.add_argument("--rng-audit", action="store_true",
                        help="(scaffold) Print RNG inspection info (does not affect results).")
     p_run.set_defaults(func=_cmd_run)

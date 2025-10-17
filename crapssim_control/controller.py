@@ -683,6 +683,13 @@ class ControlStrategy:
             "source_files": source_files,
             "metadata": {
                 "demo_fallbacks_default": DEMO_FALLBACKS_DEFAULT,
+                "run_flags": {
+                    "demo_fallbacks": bool(self._flags.get("demo_fallbacks", False)),
+                    "strict": bool(self._flags.get("strict", False)),
+                    "embed_analytics": bool(
+                        self._flags.get("embed_analytics", EMBED_ANALYTICS_DEFAULT)
+                    ),
+                },
             },
         }
 
