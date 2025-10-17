@@ -1,0 +1,6 @@
+ts,run_id,seed,event_type,point,rolls_since_point,on_comeout,mode,units,bankroll,source,id,action,bet_type,amount,notes,extra
+2025-10-17T22:09:06+00:00,P2C5,123,point_established,6,0,False,Main,5.0,,template,template:Main,set,odds_6_pass,10.0,template diff,"{""event_point"":6,""memory"":{},""mode_change"":false,""roll"":0,""seq"":1}"
+2025-10-17T22:09:06+00:00,P2C5,123,point_established,6,0,False,Main,5.0,,template,template:Main,set,pass_line,10.0,template diff,"{""event_point"":6,""memory"":{},""mode_change"":false,""roll"":0,""seq"":2}"
+2025-10-17T22:09:06+00:00,P2C5,123,point_established,6,0,False,Main,5.0,,template,template:Main,set,place_6,6.0,template diff,"{""event_point"":6,""memory"":{},""mode_change"":false,""roll"":0,""seq"":3}"
+2025-10-17T22:09:06+00:00,P2C5,123,point_established,6,0,False,Main,5.0,,template,template:Main,set,place_8,6.0,template diff,"{""event_point"":6,""memory"":{},""mode_change"":false,""roll"":0,""seq"":4}"
+2025-10-17T22:09:06+00:00,P2C5,123,summary,6,,False,,,,rule,summary:run,switch_mode,,,end_of_run,"{""identity"":{""run_id"":""P2C5"",""seed"":123},""memory"":{},""roll"":0,""stats"":{""actions_total"":4,""by_event_type"":{""comeout"":1,""point_established"":1,""roll"":1},""events_total"":3},""summary"":true}"
