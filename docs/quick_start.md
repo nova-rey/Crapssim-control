@@ -61,7 +61,7 @@ CSC can run without CrapsSim for validation only, but to actually simulate rolls
 
 pip install crapssim
 
-> Note: The demo uses a small compatibility shim for `Table.fixed_run` so it runs against engines that expect either `seed=` (legacy) or `rng=` (newer) without changes to your commands.
+> Demo compatibility: The demo uses an adaptive shim for `Table.fixed_run` that supports engines requiring `seed=` or `rng=`, and engines that require `dice_outcomes=`. When `dice_outcomes` is required, the shim auto-generates deterministic fair dice from your seed (or a default).
 
 
 ⸻
