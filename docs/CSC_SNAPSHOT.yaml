@@ -1,5 +1,5 @@
-phase: 2
-checkpoint: 5
-title: Baseline & Tag
-description: Baseline artifacts captured and tagged v0.30.0-phase2-baseline; all Phase 2 checkpoints complete.
-status: complete
+phase: 3
+checkpoint: 1
+title: Analytics Hook Scaffolding
+description: Introduced analytics package and hook wiring; no behavioral changes.
+status: active
