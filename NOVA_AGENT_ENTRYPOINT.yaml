@@ -17,16 +17,16 @@ paths:
 
 phase:
   phase: 1
-  checkpoint: 3
+  checkpoint: 4
   status: active
-  next_checkpoint: 4
+  next_checkpoint: 5
 repo_path: .
 docs_root: docs/
 snapshot: docs/CSC_SNAPSHOT.yaml
 bible: docs/CSC_BIBLE.md
 checklist: docs/PHASE_CHECKLIST.md
 workflow: docs/DEV_WORKFLOW.md
-branch: phase1-c3-validation-engine
+branch: phase1-c4-docs-refresh
 previous_tag: v0.29.0-phase0c3-baseline
 next_tag: v0.29.1-phase1-preflight
 
@@ -39,30 +39,32 @@ policy:
 
 intent:
   summary: >
-    Surface the validation engine label (v1) across CLI output and generated
-    reports so spec provenance is traceable.
+    Sync public-facing documentation and the quickstart example with the
+    current runtime defaults (demo fallbacks off, strict validation on,
+    analytics opt-in) while noting validation-engine labeling.
   success_criteria:
-    - "VALIDATION_ENGINE_VERSION constant defined as 'v1'"
-    - "CLI run output prints 'validation_engine: v1'"
-    - "report.json payloads include validation_engine metadata"
-    - "pytest -q tests/test_validation_engine_label.py"
-    - "Commit created: 'P1C3: validation-engine labeling'"
-    - "Snapshot + Bible updated for P1·C3"
+    - "docs/quick_start.md documents new defaults and CLI flag behavior"
+    - "docs/spec.md describes run.demo_fallbacks, run.strict, and run.csv.embed_analytics"
+    - "docs/report_schema.md example includes validation_engine: \"v1\""
+    - "examples/quickstart_spec.json opts into demo fallbacks explicitly"
+    - "docs/PHASE_CHECKLIST.md, docs/CSC_BIBLE.md, docs/CSC_SNAPSHOT.yaml updated for P1·C4"
+    - "Commit created: 'P1C4: Docs sync and example refresh'"
 
 agent_tasks:
   # High-level steps Agent should perform in order (mechanical only)
-  - define_constant: "VALIDATION_ENGINE_VERSION = 'v1'"
-  - wire_cli_output: "Print validation_engine label in run header"
-  - update_report: "Attach validation_engine to generated report dicts"
-  - add_test: "tests/test_validation_engine_label.py"
   - update_docs:
+      - docs/quick_start.md
+      - docs/spec.md
+      - docs/report_schema.md
       - docs/PHASE_CHECKLIST.md
       - docs/CSC_BIBLE.md
       - docs/CSC_SNAPSHOT.yaml
-  - run_tests: "pytest -q tests/test_validation_engine_label.py"
-  - commit: "P1C3: validation-engine labeling"
+  - update_example: "examples/quickstart_spec.json"
+  - sync_entrypoint: "Ensure phase/checkpoint pointers reflect P1·C4"
+  - verify_docs: "Spot-check Markdown renders without syntax issues"
+  - commit: "P1C4: Docs sync and example refresh"
 
 notes:
-  - "Respect Phase 1 guardrails; avoid broad behavior changes."
+  - "Respect Phase 1 guardrails; avoid code changes beyond docs/examples."
   - "If any step fails, stop and report in chat; do not auto-invent fixes."
   - "After commit, ensure docs stay in sync with checkpoints."

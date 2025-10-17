@@ -106,6 +106,29 @@ RESULT: rolls=1000 bankroll=1235.00
 
 ⸻
 
+New Defaults
+
+The runtime no longer enables demo fallbacks automatically. If your spec relies on
+demo-mode helper bets, set `run.demo_fallbacks` explicitly to `true`. Validation runs
+now default to `strict` mode, which stops execution on the first rule violation. Use
+`--advisory` (or set `run.strict` to `false`) to downgrade violations to warnings when
+experimenting.
+
+
+⸻
+
+Command-Line Flags
+
+`crapssim-ctl` now exposes explicit switches for common runtime options:
+
+* `--demo-fallbacks` toggles demo helper bets during a run (defaults to off).
+* `--strict/--advisory` controls whether validation errors halt the run.
+* `--embed-analytics/--no-embed-analytics` manages CSV analytics payloads emitted by
+  the `run.csv` sink.
+
+
+⸻
+
 8. Update & Maintain
 
 To update CSC later:

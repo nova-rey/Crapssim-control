@@ -49,6 +49,11 @@ Where the snapshot tracks *state*, the Bible records *story*—why decisions wer
 - CLI run header now prints `validation_engine: v1` to make validator provenance obvious in logs.
 - New regression test guards the constant, report value, and CLI emission for future bumps.
 
+**Checkpoint P1·C4 — Docs sync + example refresh (Complete)**
+- Updated quick-start docs to reflect disabled demo fallbacks, strict validation defaults, and analytics toggles.
+- Refreshed quickstart example spec to opt in to demo fallbacks explicitly.
+- Synced report schema documentation with `validation_engine: "v1"` metadata.
+
 ---
 
 ## Agent-Mode Transition (October 2025)
