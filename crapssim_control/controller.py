@@ -483,7 +483,11 @@ class ControlStrategy:
             template_and_regress.extend(self._apply_mode_template_plan(current_bets, self.mode))
 
             # Fallback: if template produced no actions on a 6 point, synthesize one.
-            if not template_and_regress and self.point == 6:
+            if (
+                self._flags.get("demo_fallbacks", False)
+                and not template_and_regress
+                and self.point == 6
+            ):
                 amt = self._units_from_spec_or_state() or 12.0
                 template_and_regress.append(
                     make_action(
@@ -506,7 +510,7 @@ class ControlStrategy:
         if ev_type == ROLL:
             if self.point:
                 self.rolls_since_point += 1
-                if self.rolls_since_point == 3:
+                if self._flags.get("demo_fallbacks", False) and self.rolls_since_point == 3:
                     template_and_regress.extend([
                         make_action(
                             "clear",
