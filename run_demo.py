@@ -113,7 +113,7 @@ class _DemoStrategyProxy:
             self.ctrl.update_bets(table)
         except TypeError:
             # Legacy signature without table argument
-            self.ctrl.update_bets()
+            self.ctrl.update_bets(table)
 
     def after_roll(self, player):
         table = getattr(player, "table", None)
