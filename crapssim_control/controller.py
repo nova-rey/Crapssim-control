@@ -23,6 +23,8 @@ from .config import (
     normalize_demo_fallbacks,
 )
 from .spec_validation import VALIDATION_ENGINE_VERSION
+from .analytics.tracker import Tracker
+from .analytics.types import HandCtx, RollCtx, SessionCtx
 
 
 class ControlStrategy:
@@ -161,6 +163,15 @@ class ControlStrategy:
             "by_event_type": {},
         }
 
+        # Phase 3 analytics scaffolding
+        self._tracker: Optional[Tracker] = None
+        self._tracker_session_ctx: Optional[SessionCtx] = None
+        self._analytics_session_closed: bool = False
+        self._next_hand_id: int = 1
+        self._current_hand_id: Optional[int] = None
+
+        self._init_tracker()
+
     # ----- helpers -----
 
     def _default_mode(self) -> str:
@@ -219,6 +230,80 @@ class ControlStrategy:
                 except Exception:
                     pass
         return None
+
+    # ----- Phase 3 analytics scaffolding -----
+
+    def _init_tracker(self) -> None:
+        embed_enabled = bool(self._flags.get("embed_analytics", EMBED_ANALYTICS_DEFAULT))
+        if not embed_enabled:
+            self._tracker = None
+            return
+
+        run_config = self.spec.get("run") if isinstance(self.spec, dict) else {}
+        try:
+            tracker = Tracker(run_config)
+        except Exception:
+            # Fail-open: analytics scaffolding must not affect runtime behavior.
+            self._tracker = None
+            return
+
+        bankroll = self._bankroll_best_effort()
+        bankroll_val = float(bankroll) if bankroll is not None else 0.0
+        session_ctx = SessionCtx(bankroll=bankroll_val)
+
+        self._tracker = tracker
+        self._tracker_session_ctx = session_ctx
+        tracker.on_session_start(session_ctx)
+
+    def _analytics_start_hand(self) -> None:
+        if self._tracker is None:
+            return
+
+        if self._current_hand_id is not None:
+            # Defensive: ensure prior hand is closed before starting a new one.
+            self._analytics_end_hand(self.point)
+
+        hand_id = self._next_hand_id
+        self._next_hand_id += 1
+        self._current_hand_id = hand_id
+        hand_ctx = HandCtx(hand_id=hand_id, point=None)
+        self._tracker.on_hand_start(hand_ctx)
+
+    def _analytics_record_roll(self) -> None:
+        if self._tracker is None:
+            return
+
+        hand_id = self._current_hand_id if self._current_hand_id is not None else 0
+        bankroll = self._bankroll_best_effort()
+        bankroll_val = float(bankroll) if bankroll is not None else 0.0
+        roll_ctx = RollCtx(
+            hand_id=hand_id,
+            roll_number=self.rolls_since_point,
+            bankroll_before=bankroll_val,
+        )
+        self._tracker.on_roll(roll_ctx)
+
+    def _analytics_end_hand(self, point_value: Optional[int]) -> None:
+        if self._tracker is None or self._current_hand_id is None:
+            return
+
+        hand_ctx = HandCtx(hand_id=self._current_hand_id, point=point_value)
+        self._tracker.on_hand_end(hand_ctx)
+        self._current_hand_id = None
+
+    def _analytics_session_end(self) -> None:
+        if self._tracker is None or self._analytics_session_closed:
+            return
+
+        session_ctx = self._tracker_session_ctx
+        if session_ctx is None:
+            bankroll = self._bankroll_best_effort()
+            bankroll_val = float(bankroll) if bankroll is not None else 0.0
+            session_ctx = SessionCtx(bankroll=bankroll_val)
+            self._tracker_session_ctx = session_ctx
+
+        self._tracker.on_session_end(session_ctx)
+        self._analytics_session_closed = True
 
     def _resolve_journal_cfg(self) -> Optional[Dict[str, Any]]:
         run = self.spec.get("run", {}) if isinstance(self.spec, dict) else {}
@@ -498,6 +583,7 @@ class ControlStrategy:
         rule_actions: List[Dict[str, Any]] = []
 
         if ev_type == COMEOUT:
+            self._analytics_start_hand()
             self.point = None
             self.rolls_since_point = 0
             self.on_comeout = True
@@ -578,6 +664,8 @@ class ControlStrategy:
                         ),
                     ])
 
+            self._analytics_record_roll()
+
             rule_actions = self._apply_rules_for_event(event)
             switches, setvars, rule_non_special = self._split_switch_setvar_other(rule_actions)
             if switches:
@@ -592,6 +680,8 @@ class ControlStrategy:
             return final
 
         if ev_type == SEVEN_OUT:
+            point_before = self.point
+            self._analytics_end_hand(point_before)
             self.point = None
             self.rolls_since_point = 0
             self.on_comeout = True
@@ -1048,6 +1138,8 @@ class ControlStrategy:
             except Exception:
                 # fail-open: exporting is optional
                 pass
+
+        self._analytics_session_end()
 
     def state_snapshot(self) -> Dict[str, Any]:
         return {

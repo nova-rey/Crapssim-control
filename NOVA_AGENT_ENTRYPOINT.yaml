@@ -1,4 +1,4 @@
-current_phase: 2
-current_checkpoint: 5
-checkpoint_title: Baseline & Tag
+current_phase: 3
+current_checkpoint: 1
+checkpoint_title: Analytics Hook Scaffolding
 allow_behavior_change: false

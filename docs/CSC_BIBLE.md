@@ -153,3 +153,13 @@ A clean end-to-end run was captured following runtime consolidation and key norm
 Baseline artifacts — `journal.csv`, `report.json`, and `manifest.json` — are stored under `baselines/phase2/`.  
 This marks the successful completion of the Single-Source Runtime Consolidation phase, ensuring one canonical runtime path with backward-compatible shims, centralized deprecation logging, and automatic spec-key normalization.  
 Tagged release: **v0.30.0-phase2-baseline**.
+
+### Phase 3 — Analytics & Journal Integration
+
+**Purpose:**  
+Integrate the analytics layer directly into the CSV journaling system, ensuring bankroll continuity and attribution for every roll and hand. This phase reconnects the unified runtime from Phase 2 with the legacy Tracker/Ledger analytics logic, updated for deterministic tracking.
+
+**Checkpoint 1 (P3·C1): Analytics Hook Scaffolding**  
+Created a new `analytics/` module containing stub classes for `Tracker` and `Ledger`.  
+The controller now calls `on_session_start`, `on_hand_start`, `on_roll`, and `on_hand_end` events only when `run.csv.embed_analytics=True`.  
+No data is yet written to CSV; this provides the structural foundation for later bankroll and roll tracking.
