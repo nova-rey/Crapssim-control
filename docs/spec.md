@@ -56,6 +56,16 @@ A SPEC describes **table settings**, **variables**, **modes** with **templates**
 
 ⸻
 
+Run Configuration (`run`)
+
+The optional `run` section lets you override controller defaults. Key fields include:
+
+- `demo_fallbacks`: Enables demo-mode helper bets when `true`. Defaults to `false`, so specs that rely on fallback bets must opt in.
+- `strict`: When `true` (the default), validation stops on the first violation. Set to `false` to collect advisory warnings while continuing execution.
+- `csv.embed_analytics`: Controls whether CSV sinks include embedded analytics payloads. Defaults to `false`; pass `true` (or CLI `--embed-analytics`) to bundle analytics columns.
+
+⸻
+
 Templates
 
 A template is a mapping of bet names to expressions that evaluate to dollar amounts.

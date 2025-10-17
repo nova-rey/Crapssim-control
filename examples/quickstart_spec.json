@@ -27,6 +27,7 @@
       "enabled": true,
       "path": "journal.csv",
       "append": false
-    }
+    },
+    "demo_fallbacks": true
   }
 }
