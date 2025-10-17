@@ -1,6 +1,7 @@
 # tests/test_pnl_vars.py
 from crapssim_control.varstore import VarStore
-from crapssim_control.snapshotter import GameState, TableView, PlayerView, BetView
+
+from tests._snapshot_helpers import GameState, TableView, PlayerView
 
 def _gs(bankroll, starting, shooter_index, is_new_shooter=False):
     t = TableView(
@@ -43,3 +44,4 @@ def test_pnl_session_and_shooter_reset():
     assert vs.system["pnl_session"] == 25
     assert vs.system["pnl_shooter"] == 0
     assert vs.system["shooter_start_bankroll"] == 325
+

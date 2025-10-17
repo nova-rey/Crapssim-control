@@ -59,14 +59,27 @@ Where the snapshot tracks *state*, the Bible records *story*—why decisions wer
 - Embedded `validation_engine` and the full run flag provenance map under `metadata`, capturing both effective values and whether they came from defaults, the spec, or CLI overrides.
 
 
-## Phase 2 — Single-Source Modules (Active)
-**Objective:** Collapse duplicate runtime and canonical modules into a single source of truth without altering behavior.
+### Phase 2 — Single-Source Runtime Consolidation
 
-**Checkpoint P2·C1 — File Moves + Shims (Active)**
-- Renamed `templates_rt`, `legalize_rt`, and `rules_rt` to their canonical module names.
-- Added backward-compatible shim files that emit `DeprecationWarning` when legacy imports are used.
-- Updated controller entry points, CLI/tests, and package exports to reference the canonical modules directly.
-- Synced docs and snapshot metadata to mark Phase 2 launch and enumerate upcoming checkpoints.
+**Purpose:**  
+Unify the runtime under one canonical module path, retire duplicates safely, and prepare for analytics integration (Phase 4). No behavioral changes — only structural cleanup.
+
+**Checkpoint 1 (P2·C1): File Moves + Shims**  
+RT modules renamed to canonical names with deprecation shims in place.
+
+**Checkpoint 2 (P2·C2): Delete Redundancies (Guarded)**  
+Removed unused legacy modules (`events_std.py`, `materialize.py`, `memory_rt.py`, `snapshotter.py`) after confirming no inbound references.  
+Added regression test to ensure deleted modules are not reintroduced.  
+System behavior remains identical.
+
+**Checkpoint 3 (P2·C3): Import Hygiene + Deprecation Log**  
+Pending — centralize deprecation logging and confirm imports reference canonical modules.
+
+**Checkpoint 4 (P2·C4): Spec Loader Shim (Key Normalization)**  
+Pending — normalize deprecated spec keys and log in `report.deprecations`.
+
+**Checkpoint 5 (P2·C5): Baseline & Tag**  
+Pending — capture seeded integration artifacts and tag `v0.30.0-phase2-baseline`.
 
 ---
 

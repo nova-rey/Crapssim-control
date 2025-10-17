@@ -1,29 +1,5 @@
 phase: 2
-checkpoint: 1
+checkpoint: 2
+title: Delete Redundancies (Guarded)
+description: Legacy modules removed safely with regression test added; no runtime logic changes.
 status: active
-branch: phase2-c1-file-moves
-previous_tag: v0.29.1-phase1-preflight
-next_tag: v0.29.2-phase2-baseline
-goal: Consolidate runtime modules into canonical single-source variants without behavior changes.
-last_action: P2·C1 moved *_rt modules to canonical names and added import shims for compatibility.
-ci_status: green
-agent_mode: true
-docs_version: 2025-10-22
-next_checkpoint: P2·C2
-checkpoints:
-  - id: P2C1
-    title: File Moves + Shims (No Logic Changes)
-    risk: low
-    status: active
-  - id: P2C2
-    title: Retire legacy duplicates
-    risk: medium
-    status: pending
-  - id: P2C3
-    title: Migrate consumers to canonical modules
-    risk: medium
-    status: pending
-  - id: P2C4
-    title: Phase 2 doc sync & baseline tag
-    risk: low
-    status: pending
