@@ -1,5 +1,6 @@
 from crapssim_control.events import derive_event
-from crapssim_control.snapshotter import GameState, TableView, PlayerView
+
+from tests._snapshot_helpers import GameState, TableView, PlayerView
 
 def _gs(comeout: bool, total: int | None, point_on: bool, point_num=None, seven_out=False, just_point=False):
     dice = (1, 1, total) if total is not None else None

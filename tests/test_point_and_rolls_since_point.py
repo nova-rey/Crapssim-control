@@ -1,7 +1,8 @@
 # tests/test_point_and_rolls_since_point.py
 from crapssim_control.events import derive_event
 from crapssim_control.varstore import VarStore
-from crapssim_control.snapshotter import GameState, TableView, PlayerView
+
+from tests._snapshot_helpers import GameState, TableView, PlayerView
 
 def _gs(comeout: bool, total: int, point_on: bool, point_num, roll_idx, just_est=False, just_made=False):
     dice = (2, total-2, total)
