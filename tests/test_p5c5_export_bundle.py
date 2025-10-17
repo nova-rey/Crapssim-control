@@ -25,6 +25,7 @@ def _spec(csv_path: Path, meta_path: Path, report_path: Path, export_root: Path,
         },
         "variables": {"units": 10},
         "run": {
+            "demo_fallbacks": True,
             "csv": {
                 "enabled": True,
                 "path": str(csv_path),
