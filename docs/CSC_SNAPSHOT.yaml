@@ -1,5 +1,5 @@
 phase: 2
-checkpoint: 4
-title: Spec Loader Shim (Key Normalization)
-description: Load-time normalization migrates deprecated spec keys and records the actions under report.metadata.deprecations.
-status: active
+checkpoint: 5
+title: Baseline & Tag
+description: Baseline artifacts captured and tagged v0.30.0-phase2-baseline; all Phase 2 checkpoints complete.
+status: complete

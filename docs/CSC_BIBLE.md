@@ -143,6 +143,10 @@ Outcome: Stable and reproducible foundation for Phase 1.
 
 ---
 
-**Current Tag:** `v0.29.0-phase0c3-baseline`  
-**Next Tag:** `v0.29.1-phase1-preflight`
+**Current Tag:** `v0.30.0-phase2-baseline`  
+**Next Tag:** `TBD`
 
+
+#### Phase 2 Closure — Baseline & Tag
+A clean end-to-end run was captured after runtime consolidation. Baseline artifacts (CSV journal, report, manifest) live under `baselines/phase2/`.  
+Tag: `v0.30.0-phase2-baseline`. No behavioral changes were introduced in Phase 2; all updates were structural (file moves, shims, import hygiene, spec-key normalization) with provenance fields recorded in reports.

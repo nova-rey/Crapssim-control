@@ -1,0 +1,47 @@
+{
+  "table": {
+    "bubble": false,
+    "level": 10,
+    "place_410_increment": 5,
+    "max_odds_multiple": 3.0
+  },
+  "variables": {
+    "units": 5,
+    "mode": "Main"
+  },
+  "modes": {
+    "Main": {
+      "template": {
+        "pass": "units",
+        "place": {
+          "6": "units*2",
+          "8": "units*2"
+        },
+        "odds": {
+          "pass": "units*2"
+        }
+      }
+    }
+  },
+  "rules": [],
+  "run": {
+    "rolls": 50,
+    "seed": 123,
+    "csv": {
+      "enabled": true,
+      "path": "baselines/phase2/journal.csv",
+      "append": false,
+      "run_id": "P2C5",
+      "seed": 123
+    },
+    "demo_fallbacks": true,
+    "report": {
+      "path": "baselines/phase2/report.json",
+      "auto": true
+    },
+    "export": {
+      "path": "baselines/phase2/exports",
+      "compress": false
+    }
+  }
+}
