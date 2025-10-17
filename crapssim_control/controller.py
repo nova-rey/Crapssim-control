@@ -15,6 +15,13 @@ from .rules_rt import apply_rules  # Runtime rules engine
 from .csv_journal import CSVJournal  # Per-event journaling
 from .events import canonicalize_event, COMEOUT, POINT_ESTABLISHED, ROLL, SEVEN_OUT
 from .eval import evaluate, EvalError
+from .config import (
+    DEMO_FALLBACKS_DEFAULT,
+    EMBED_ANALYTICS_DEFAULT,
+    STRICT_DEFAULT,
+    coerce_flag,
+    normalize_demo_fallbacks,
+)
 
 
 class ControlStrategy:
@@ -28,6 +35,8 @@ class ControlStrategy:
         - run.csv.embed_analytics (bool, default True)
       They are stored in self._flags for later phases but NOT consumed yet.
     """
+
+    _DEMO_NOTICE_PRINTED: bool = False
 
     def __init__(
         self,
@@ -44,12 +53,35 @@ class ControlStrategy:
         # -------- P0·C1: Inert flag framework (spec-only, no behavior change) --------
         run_blk = spec.get("run") if isinstance(spec, dict) else {}
         csv_blk = (run_blk or {}).get("csv") if isinstance(run_blk, dict) else {}
+
+        demo_flag = normalize_demo_fallbacks(run_blk if isinstance(run_blk, dict) else None)
+
+        strict_raw = None
+        if isinstance(run_blk, dict):
+            strict_raw = run_blk.get("strict")
+        strict_norm, strict_ok = coerce_flag(strict_raw, default=STRICT_DEFAULT)
+        strict_flag = bool(strict_norm) if strict_ok and strict_norm is not None else STRICT_DEFAULT
+
+        embed_raw = None
+        if isinstance(csv_blk, dict):
+            embed_raw = csv_blk.get("embed_analytics")
+        embed_norm, embed_ok = coerce_flag(embed_raw, default=EMBED_ANALYTICS_DEFAULT)
+        embed_flag = bool(embed_norm) if embed_ok and embed_norm is not None else EMBED_ANALYTICS_DEFAULT
+
         # Defaults: demo_fallbacks=False, strict=False, embed_analytics=True
         self._flags: Dict[str, bool] = {
-            "demo_fallbacks": bool((run_blk or {}).get("demo_fallbacks", False)) if isinstance(run_blk, dict) else False,
-            "strict": bool((run_blk or {}).get("strict", False)) if isinstance(run_blk, dict) else False,
-            "embed_analytics": bool((csv_blk or {}).get("embed_analytics", True)) if isinstance(csv_blk, dict) else True,
+            "demo_fallbacks": demo_flag,
+            "strict": strict_flag,
+            "embed_analytics": embed_flag,
         }
+
+        if not ControlStrategy._DEMO_NOTICE_PRINTED:
+            ControlStrategy._DEMO_NOTICE_PRINTED = True
+            status = "ON" if self._flags["demo_fallbacks"] else "OFF"
+            print(
+                f"[P1·C1] run.demo_fallbacks default={DEMO_FALLBACKS_DEFAULT} → current {status}. "
+                "Set run.demo_fallbacks=true (spec or CLI) to enable legacy demo fallbacks."
+            )
         # ------------------------------------------------------------------------------
 
         self.ctrl_state = ctrl_state
@@ -451,7 +483,11 @@ class ControlStrategy:
             template_and_regress.extend(self._apply_mode_template_plan(current_bets, self.mode))
 
             # Fallback: if template produced no actions on a 6 point, synthesize one.
-            if not template_and_regress and self.point == 6:
+            if (
+                self._flags.get("demo_fallbacks", False)
+                and not template_and_regress
+                and self.point == 6
+            ):
                 amt = self._units_from_spec_or_state() or 12.0
                 template_and_regress.append(
                     make_action(
@@ -474,7 +510,7 @@ class ControlStrategy:
         if ev_type == ROLL:
             if self.point:
                 self.rolls_since_point += 1
-                if self.rolls_since_point == 3:
+                if self._flags.get("demo_fallbacks", False) and self.rolls_since_point == 3:
                     template_and_regress.extend([
                         make_action(
                             "clear",
@@ -645,6 +681,9 @@ class ControlStrategy:
             "point": self.point,
             "on_comeout": self.on_comeout,
             "source_files": source_files,
+            "metadata": {
+                "demo_fallbacks_default": DEMO_FALLBACKS_DEFAULT,
+            },
         }
 
         # Keep the old csv.path hint too (legacy/compat)

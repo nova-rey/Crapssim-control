@@ -15,7 +15,7 @@ CI: Green ✅
 
 | Checkpoint | Task | Status |
 |-------------|------|--------|
-| P1·C1 | Disable demo fallbacks by default | ⏳ Pending |
+| P1·C1 | Disable demo fallbacks by default | ✅ Complete |
 | P1·C2 | Add CLI flags (--demo-fallbacks, --strict) | ⏳ Pending |
 | P1·C3 | Embed validation_engine metadata | ⏳ Pending |
 | P1·C4 | Dual-mode demo verification | ⏳ Pending |

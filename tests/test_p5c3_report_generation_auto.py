@@ -14,6 +14,7 @@ def _spec(csv_path: Path, report_path: Path, run_id="T-P5C3", seed=777, auto=Tru
             "Main": {"template": {"place_6": 12}},
         },
         "run": {
+            "demo_fallbacks": True,
             "csv": {
                 "enabled": True,
                 "path": str(csv_path),

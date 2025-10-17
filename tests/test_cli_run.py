@@ -27,21 +27,24 @@ def _good_minimal_spec():
 
 
 def _engine_available() -> bool:
-    """
-    Return True only if CrapsSim is installed with the exact submodules
-    the CLI needs: table.Table, player.Player, dice.Dice.
-    """
+    """Return True when the core CrapsSim primitives are importable."""
+
+    def _has_attr(mod_name: str, attr: str) -> bool:
+        try:
+            mod = importlib.import_module(mod_name)
+        except Exception:
+            return False
+        return hasattr(mod, attr)
+
     try:
         tbl = importlib.import_module("crapssim.table")
-        ply = importlib.import_module("crapssim.player")
-        dce = importlib.import_module("crapssim.dice")
-        # sanity check attributes
-        getattr(tbl, "Table")
-        getattr(ply, "Player")
-        getattr(dce, "Dice")
-        return True
     except Exception:
         return False
+
+    has_player = hasattr(tbl, "Player") or _has_attr("crapssim.player", "Player")
+    has_dice = hasattr(tbl, "Dice") or _has_attr("crapssim.dice", "Dice")
+
+    return hasattr(tbl, "Table") and has_player and has_dice
 
 
 def test_cli_run_engine_missing():
