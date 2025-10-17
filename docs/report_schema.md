@@ -11,14 +11,14 @@ sync with the controller checkpoints.
 A report is a JSON object with these primary sections:
 
 - `identity`: Run identifiers merged from spec metadata and CSV config.
-- `validation_engine`: Version label for the validator responsible for the run.
 - `summary`: Aggregated statistics (events, actions, bankroll snapshots, etc.).
 - `memory`: Optional controller memory dumps (engine-agnostic).
 - `source_files`: Pointers to CSV, meta, and report artifacts on disk.
+- `metadata`: Runtime defaults, validator provenance, and run flag resolution.
 
 ⸻
 
-## Example Payload (P1·C4)
+## Example Payload (P1·C5)
 
 ```json
 {
@@ -28,7 +28,6 @@ A report is a JSON object with these primary sections:
     "seed": 123,
     "timestamp": "2025-10-16T12:00:00Z"
   },
-  "validation_engine": "v1",
   "summary": {
     "events_total": 120,
     "actions_total": 68,
@@ -39,11 +38,29 @@ A report is a JSON object with these primary sections:
     "csv": "journal.csv",
     "meta": "meta.json",
     "report": "report.json"
+  },
+  "metadata": {
+    "demo_fallbacks_default": false,
+    "validation_engine": "v1",
+    "run_flags": {
+      "values": {
+        "demo_fallbacks": true,
+        "strict": false,
+        "embed_analytics": true
+      },
+      "sources": {
+        "demo_fallbacks": "spec",
+        "strict": "default",
+        "embed_analytics": "default"
+      }
+    }
   }
 }
 ```
 
-- `validation_engine` is now mandatory and reflects `VALIDATION_ENGINE_VERSION`.
+- `metadata.validation_engine` is mandatory and reflects `VALIDATION_ENGINE_VERSION`.
+- `metadata.run_flags.values` captures the effective booleans used during the run.
+- `metadata.run_flags.sources` records whether each flag came from the default, spec, or CLI overrides.
 - `source_files.report` may be omitted when the report is returned in-memory.
 
 ⸻

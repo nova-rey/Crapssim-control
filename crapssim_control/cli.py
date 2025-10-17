@@ -355,12 +355,18 @@ def _merge_cli_run_flags(spec: Dict[str, Any], args: argparse.Namespace) -> None
 
     changed = False
 
+    sources = run_dict.get("_csc_flag_sources")
+    if not isinstance(sources, dict):
+        sources = {}
+
     if getattr(args, "demo_fallbacks", False):
         run_dict["demo_fallbacks"] = True
+        sources["demo_fallbacks"] = "cli"
         changed = True
 
     if getattr(args, "strict", False):
         run_dict["strict"] = True
+        sources["strict"] = "cli"
         changed = True
 
     if getattr(args, "no_embed_analytics", False):
@@ -369,7 +375,13 @@ def _merge_cli_run_flags(spec: Dict[str, Any], args: argparse.Namespace) -> None
             csv_blk = {}
         csv_blk["embed_analytics"] = False
         run_dict["csv"] = csv_blk
+        sources["embed_analytics"] = "cli"
         changed = True
+
+    if sources:
+        run_dict["_csc_flag_sources"] = sources
+    elif "_csc_flag_sources" in run_dict:
+        run_dict.pop("_csc_flag_sources", None)
 
     if changed or isinstance(run_blk, dict):
         # Preserve existing dict reference or attach a new run block if needed.
@@ -590,8 +602,11 @@ def _build_parser() -> argparse.ArgumentParser:
     p_val.add_argument("spec", help="Path to spec file")
     p_val.add_argument("--hot-table", action="store_true", dest="hot_table",
                        help='Plan with "hot table" defaults (no behavior change yet)')
-    p_val.add_argument("--guardrails", action="store_true",
-                       help="Print guardrail planning notes (no behavior change yet)")
+    p_val.add_argument(
+        "--guardrails",
+        action="store_true",
+        help="Print Guardrail planning notes (strict-mode context; Advisories remain default).",
+    )
     p_val.set_defaults(func=_cmd_validate)
 
     # run
@@ -604,18 +619,27 @@ def _build_parser() -> argparse.ArgumentParser:
     p_run.add_argument(
         "--demo-fallbacks",
         action="store_true",
-        help="Override spec: set run.demo_fallbacks=true for this run.",
+        help=(
+            "Enable demo helper bets for this run (default OFF). Leave unset or set "
+            "run.demo_fallbacks=false to keep them disabled."
+        ),
     )
     p_run.add_argument(
         "--strict",
         action="store_true",
-        help="Override spec: set run.strict=true for this run.",
+        help=(
+            "Enable Guardrails (strict validation) for this run. Advisories are the default; "
+            "use run.strict=false to remain advisory."
+        ),
     )
     p_run.add_argument(
         "--no-embed-analytics",
         action="store_true",
         dest="no_embed_analytics",
-        help="Override spec: set run.csv.embed_analytics=false for this run.",
+        help=(
+            "Disable analytics embedding for this run (default ON). Leave unset or set "
+            "run.csv.embed_analytics=true to keep analytics columns."
+        ),
     )
     p_run.add_argument("--rng-audit", action="store_true",
                        help="(scaffold) Print RNG inspection info (does not affect results).")

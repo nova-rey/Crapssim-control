@@ -53,6 +53,12 @@ class ControlStrategy:
 
         # -------- P0·C1: Inert flag framework (spec-only, no behavior change) --------
         run_blk = spec.get("run") if isinstance(spec, dict) else {}
+        cli_sources_raw: Dict[str, str] = {}
+        if isinstance(run_blk, dict):
+            raw_sources = run_blk.get("_csc_flag_sources")
+            if isinstance(raw_sources, dict):
+                cli_sources_raw = {str(k): str(v) for k, v in raw_sources.items()}
+            run_blk.pop("_csc_flag_sources", None)
         csv_blk = (run_blk or {}).get("csv") if isinstance(run_blk, dict) else {}
 
         demo_flag = normalize_demo_fallbacks(run_blk if isinstance(run_blk, dict) else None)
@@ -75,6 +81,35 @@ class ControlStrategy:
             "strict": strict_flag,
             "embed_analytics": embed_flag,
         }
+
+        # Track provenance for run flags (default/spec/cli)
+        run_dict = run_blk if isinstance(run_blk, dict) else {}
+        csv_dict = csv_blk if isinstance(csv_blk, dict) else {}
+
+        flag_sources: Dict[str, str] = {}
+
+        if cli_sources_raw.get("demo_fallbacks") == "cli":
+            flag_sources["demo_fallbacks"] = "cli"
+        elif isinstance(run_dict, dict) and "demo_fallbacks" in run_dict:
+            flag_sources["demo_fallbacks"] = "spec"
+        else:
+            flag_sources["demo_fallbacks"] = "default"
+
+        if cli_sources_raw.get("strict") == "cli":
+            flag_sources["strict"] = "cli"
+        elif isinstance(run_dict, dict) and "strict" in run_dict:
+            flag_sources["strict"] = "spec"
+        else:
+            flag_sources["strict"] = "default"
+
+        if cli_sources_raw.get("embed_analytics") == "cli":
+            flag_sources["embed_analytics"] = "cli"
+        elif isinstance(csv_dict, dict) and "embed_analytics" in csv_dict:
+            flag_sources["embed_analytics"] = "spec"
+        else:
+            flag_sources["embed_analytics"] = "default"
+
+        self._flag_sources = flag_sources
 
         if not ControlStrategy._DEMO_NOTICE_PRINTED:
             ControlStrategy._DEMO_NOTICE_PRINTED = True
@@ -674,6 +709,14 @@ class ControlStrategy:
             "meta": str(meta_path) if meta_path is not None else None,
         }
 
+        run_flag_values = {
+            "demo_fallbacks": bool(self._flags.get("demo_fallbacks", False)),
+            "strict": bool(self._flags.get("strict", False)),
+            "embed_analytics": bool(
+                self._flags.get("embed_analytics", EMBED_ANALYTICS_DEFAULT)
+            ),
+        }
+
         report: Dict[str, Any] = {
             "identity": identity,
             "summary": summary,
@@ -684,17 +727,13 @@ class ControlStrategy:
             "source_files": source_files,
             "metadata": {
                 "demo_fallbacks_default": DEMO_FALLBACKS_DEFAULT,
+                "validation_engine": VALIDATION_ENGINE_VERSION,
                 "run_flags": {
-                    "demo_fallbacks": bool(self._flags.get("demo_fallbacks", False)),
-                    "strict": bool(self._flags.get("strict", False)),
-                    "embed_analytics": bool(
-                        self._flags.get("embed_analytics", EMBED_ANALYTICS_DEFAULT)
-                    ),
+                    "values": run_flag_values,
+                    "sources": dict(self._flag_sources),
                 },
             },
         }
-
-        report["validation_engine"] = VALIDATION_ENGINE_VERSION
 
         # Keep the old csv.path hint too (legacy/compat)
         try:

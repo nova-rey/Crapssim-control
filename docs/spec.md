@@ -61,8 +61,8 @@ Run Configuration (`run`)
 The optional `run` section lets you override controller defaults. Key fields include:
 
 - `demo_fallbacks`: Enables demo-mode helper bets when `true`. Defaults to `false`, so specs that rely on fallback bets must opt in.
-- `strict`: When `true` (the default), validation stops on the first violation. Set to `false` to collect advisory warnings while continuing execution.
-- `csv.embed_analytics`: Controls whether CSV sinks include embedded analytics payloads. Defaults to `false`; pass `true` (or CLI `--embed-analytics`) to bundle analytics columns.
+- `strict`: Enables Guardrails (strict validation) when `true`. The default is Advisory mode (`false`), which logs advisories while continuing execution.
+- `csv.embed_analytics`: Controls whether CSV sinks include embedded analytics payloads. Defaults to `true`; set to `false` (or use CLI `--no-embed-analytics`) to slim down CSV outputs.
 
 ⸻
 

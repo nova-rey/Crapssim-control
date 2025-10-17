@@ -36,7 +36,8 @@ def test_report_includes_validation_engine(tmp_path):
     spec = _minimal_spec()
     controller = ControlStrategy(spec)
     report = controller.generate_report(tmp_path / "report.json")
-    assert report["validation_engine"] == VALIDATION_ENGINE_VERSION
+    metadata = report.get("metadata", {})
+    assert metadata.get("validation_engine") == VALIDATION_ENGINE_VERSION
 
 
 @pytest.fixture()

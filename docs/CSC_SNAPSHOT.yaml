@@ -1,15 +1,15 @@
 phase: 1
-checkpoint: 4
+checkpoint: 5
 status: active
-branch: phase1-c4-docs-refresh
+branch: phase1-c5-terminology-provenance
 previous_tag: v0.29.0-phase0c3-baseline
 next_tag: v0.29.1-phase1-preflight
 goal: Transition from prototype-safe to production-safe defaults.
-last_action: P1·C4 synced documentation updates and refreshed quickstart example.
+last_action: P1·C5 polished terminology and added run flag provenance to metadata.
 ci_status: green
 agent_mode: true
 docs_version: 2025-10-16
-next_checkpoint: 5
+next_checkpoint: null
 checkpoints:
   - id: P1C1
     title: Disable demo fallbacks by default
@@ -30,3 +30,4 @@ checkpoints:
   - id: P1C5
     title: Phase 1 preflight tag & docs sync
     risk: none
+    status: complete
