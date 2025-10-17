@@ -1,4 +1,4 @@
 current_phase: 2
-current_checkpoint: 2
-checkpoint_title: Delete Redundancies (Guarded)
+current_checkpoint: 3
+checkpoint_title: Import Hygiene + Deprecation Log
 allow_behavior_change: false

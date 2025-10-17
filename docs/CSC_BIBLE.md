@@ -73,7 +73,9 @@ Added regression test to ensure deleted modules are not reintroduced.
 System behavior remains identical.
 
 **Checkpoint 3 (P2·C3): Import Hygiene + Deprecation Log**  
-Pending — centralize deprecation logging and confirm imports reference canonical modules.
+All imports now reference canonical runtime modules (`templates`, `rules_engine`, `legalize`).  
+A centralized Deprecation Registry (`deprecations.py`) issues one-time warnings for legacy shim imports.  
+Behavior unchanged — only warning management and import clarity improved.
 
 **Checkpoint 4 (P2·C4): Spec Loader Shim (Key Normalization)**  
 Pending — normalize deprecated spec keys and log in `report.deprecations`.
