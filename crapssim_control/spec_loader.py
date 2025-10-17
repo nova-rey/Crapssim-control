@@ -11,6 +11,7 @@ try:  # Optional YAML support mirrors cli.py
 except Exception:  # pragma: no cover - PyYAML optional
     yaml = None
 
+# TODO: Add future normalization keys here as discovered (e.g., odds_working_on_comeout_come, pass_odds_cap, etc.)
 DEPRECATED_KEY_MAP: Dict[str, str] = {
     "odds_working_on_comeout": "working_on_comeout",
 }
