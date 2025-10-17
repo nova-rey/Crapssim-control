@@ -4,6 +4,12 @@ from __future__ import annotations
 from typing import Any, Dict, List
 
 from .events import CANONICAL_EVENT_TYPES  # includes shooter_change & bet_resolved
+from .config import (
+    DEMO_FALLBACKS_DEFAULT,
+    EMBED_ANALYTICS_DEFAULT,
+    STRICT_DEFAULT,
+    coerce_flag,
+)
 
 
 class SpecValidationError(Exception):
@@ -165,18 +171,32 @@ def validate_spec(spec: Dict[str, Any]) -> List[str]:
 
     # ---------------- P0·C1: run flags & csv scaffold (type checks only) -------------
     if isinstance(run_blk, dict):
-        if "demo_fallbacks" in run_blk and not isinstance(run_blk.get("demo_fallbacks"), bool):
-            errors.append("run.demo_fallbacks must be a boolean")
-        if "strict" in run_blk and not isinstance(run_blk.get("strict"), bool):
-            errors.append("run.strict must be a boolean")
+        if "demo_fallbacks" in run_blk:
+            norm, ok = coerce_flag(run_blk.get("demo_fallbacks"), default=DEMO_FALLBACKS_DEFAULT)
+            if not ok:
+                errors.append("run.demo_fallbacks must be a boolean")
+            else:
+                run_blk["demo_fallbacks"] = DEMO_FALLBACKS_DEFAULT if norm is None else bool(norm)
+        if "strict" in run_blk:
+            norm, ok = coerce_flag(run_blk.get("strict"), default=STRICT_DEFAULT)
+            if not ok:
+                errors.append("run.strict must be a boolean")
+            else:
+                run_blk["strict"] = STRICT_DEFAULT if norm is None else bool(norm)
 
         if "csv" in run_blk:
             csv_blk = run_blk.get("csv")
             if not isinstance(csv_blk, dict):
                 errors.append("run.csv must be an object")
             else:
-                if "embed_analytics" in csv_blk and not isinstance(csv_blk.get("embed_analytics"), bool):
-                    errors.append("run.csv.embed_analytics must be a boolean")
+                if "embed_analytics" in csv_blk:
+                    norm, ok = coerce_flag(csv_blk.get("embed_analytics"), default=EMBED_ANALYTICS_DEFAULT)
+                    if not ok:
+                        errors.append("run.csv.embed_analytics must be a boolean")
+                    else:
+                        csv_blk["embed_analytics"] = (
+                            EMBED_ANALYTICS_DEFAULT if norm is None else bool(norm)
+                        )
     # -------------------------------------------------------------------------------
 
     # OPTIONAL: table_rules (shape-only checks)

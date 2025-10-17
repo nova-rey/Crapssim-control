@@ -32,7 +32,12 @@ Where the snapshot tracks *state*, the Bible records *story*—why decisions wer
 
 ---
 
-*(Next section reserved for Phase 1 — Defaults & Nuisance Removal)*
+## Phase 1 — Defaults & Nuisance Removal (Active)
+**Checkpoint P1·C1 — Disable demo fallbacks by default (Complete)**
+- Default for `run.demo_fallbacks` set to `false` via centralized config helpers.
+- Added backwards-compatible coercion in `spec_validation` so legacy truthy strings stay valid.
+- Controller prints a one-time startup notice and exposes the default in report metadata.
+- Tests cover the new default/off and explicit `true` path to guard regressions.
 
 ---
 
