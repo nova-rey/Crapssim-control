@@ -25,6 +25,7 @@ SPEC = {
         {"on": {"event": "roll"}, "do": ["rolls_since_point += 1"]},
         {"on": {"event": "roll"}, "if": "rolls_since_point >= 3", "do": ["mode = 'Regressed'", "apply_template(mode)"]},
     ],
+    "run": {"demo_fallbacks": True},
 }
 
 def _current_bets_from_plan(plan):
