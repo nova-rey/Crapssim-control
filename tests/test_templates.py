@@ -1,4 +1,4 @@
-from crapssim_control.templates import render_template
+from crapssim_control.templates_legacy import render_template
 
 def _triples(intents):
     out = []

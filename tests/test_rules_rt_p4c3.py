@@ -1,6 +1,6 @@
 import pytest
 
-from crapssim_control.rules_rt import apply_rules
+from crapssim_control.rules_engine import apply_rules
 from crapssim_control.actions import ACTION_SET, ACTION_CLEAR, ACTION_PRESS, ACTION_REDUCE, ACTION_SWITCH_MODE
 
 STATE = {"units": 10, "mode": "Main", "on_comeout": True, "point": None}

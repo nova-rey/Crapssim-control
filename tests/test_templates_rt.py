@@ -1,4 +1,4 @@
-from crapssim_control.templates_rt import render_template, diff_bets
+from crapssim_control.templates import render_template, diff_bets
 
 def test_render_and_diff_simple_mode_nonbubble():
     state = {"units": 5, "bubble": False, "point": 0, "on_comeout": True}

@@ -1,4 +1,4 @@
-from crapssim_control.legalize_rt import legalize_amount, cap_odds_amount
+from crapssim_control.legalize import legalize_amount, cap_odds_amount
 
 def test_place_increments_nonbubble():
     cfg = {"bubble": False}

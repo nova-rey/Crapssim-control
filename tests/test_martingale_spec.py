@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 from crapssim_control.varstore import VarStore
-from crapssim_control.rules import run_rules_for_event
+from crapssim_control.rules_legacy import run_rules_for_event
 
 def _load_spec():
     p = Path("examples/martingale.json")

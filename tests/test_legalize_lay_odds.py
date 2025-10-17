@@ -1,4 +1,4 @@
-from crapssim_control.legalize import legalize_lay_odds
+from crapssim_control.legalize_legacy import legalize_lay_odds
 
 def test_lay_odds_345x_nonbubble():
     # base flat = 10; win-cap = multiple * flat

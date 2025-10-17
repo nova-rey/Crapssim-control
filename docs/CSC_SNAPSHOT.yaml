@@ -1,33 +1,29 @@
-phase: 1
-checkpoint: 5
+phase: 2
+checkpoint: 1
 status: active
-branch: phase1-c5-terminology-provenance
-previous_tag: v0.29.0-phase0c3-baseline
-next_tag: v0.29.1-phase1-preflight
-goal: Transition from prototype-safe to production-safe defaults.
-last_action: P1·C5 polished terminology and added run flag provenance to metadata.
+branch: phase2-c1-file-moves
+previous_tag: v0.29.1-phase1-preflight
+next_tag: v0.29.2-phase2-baseline
+goal: Consolidate runtime modules into canonical single-source variants without behavior changes.
+last_action: P2·C1 moved *_rt modules to canonical names and added import shims for compatibility.
 ci_status: green
 agent_mode: true
-docs_version: 2025-10-16
-next_checkpoint: null
+docs_version: 2025-10-22
+next_checkpoint: P2·C2
 checkpoints:
-  - id: P1C1
-    title: Disable demo fallbacks by default
+  - id: P2C1
+    title: File Moves + Shims (No Logic Changes)
     risk: low
-    status: complete
-  - id: P1C2
-    title: CLI flag wiring (--demo-fallbacks/--strict/--no-embed-analytics)
+    status: active
+  - id: P2C2
+    title: Retire legacy duplicates
+    risk: medium
+    status: pending
+  - id: P2C3
+    title: Migrate consumers to canonical modules
+    risk: medium
+    status: pending
+  - id: P2C4
+    title: Phase 2 doc sync & baseline tag
     risk: low
-    status: complete
-  - id: P1C3
-    title: Validation-engine labeling
-    risk: low
-    status: complete
-  - id: P1C4
-    title: Docs sync + example refresh
-    risk: low
-    status: complete
-  - id: P1C5
-    title: Phase 1 preflight tag & docs sync
-    risk: none
-    status: complete
+    status: pending

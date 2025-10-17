@@ -6,7 +6,7 @@ from crapssim_control.actions import (
     SOURCE_TEMPLATE,
 )
 from crapssim_control.controller import ControlStrategy
-from crapssim_control.templates_rt import diff_bets, render_template
+from crapssim_control.templates import diff_bets, render_template
 
 
 def _all_have_envelope(actions: List[Dict[str, Any]], *, source="template", id_prefix="template:") -> bool:

@@ -16,7 +16,7 @@ Supported intents:
 """
 
 from typing import Optional, Tuple, List, Dict, Any
-from .legalize import legalize_odds, legalize_lay_odds
+from .legalize_legacy import legalize_odds, legalize_lay_odds
 
 # Try engine bet classes; otherwise we use shims.
 try:

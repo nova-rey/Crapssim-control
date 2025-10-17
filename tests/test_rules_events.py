@@ -1,4 +1,4 @@
-from crapssim_control.rules import run_rules_for_event
+from crapssim_control.rules_legacy import run_rules_for_event
 from crapssim_control.varstore import VarStore
 
 def _kinds(intents):

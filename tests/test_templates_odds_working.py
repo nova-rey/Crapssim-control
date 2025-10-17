@@ -1,4 +1,4 @@
-from crapssim_control.templates import render_template
+from crapssim_control.templates_legacy import render_template
 
 def test_template_supports_odds_and_working():
     tpl = {

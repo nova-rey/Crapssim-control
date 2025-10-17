@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Tuple
 
 from .eval import evaluate
-from .templates import render_template  # spec-time renderer
+from .templates_legacy import render_template  # spec-time renderer
 
 
 def _kind_number(bet_type: str) -> Tuple[str | None, int | None]:
