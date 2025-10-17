@@ -1,5 +1,5 @@
 phase: 2
-checkpoint: 3
-title: Import Hygiene + Deprecation Log
-description: Centralized deprecation registry and full import hygiene sweep completed; no behavior changes.
+checkpoint: 4
+title: Spec Loader Shim (Key Normalization)
+description: Load-time normalization migrates deprecated spec keys and records the actions under report.metadata.deprecations.
 status: active

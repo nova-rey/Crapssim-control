@@ -44,7 +44,21 @@ class ControlStrategy:
         spec: Dict[str, Any],
         ctrl_state: Any | None = None,
         table_cfg: Optional[Dict[str, Any]] = None,
+        spec_deprecations: Optional[List[Dict[str, Any]]] = None,
     ) -> None:
+        embedded_deprecations: List[Dict[str, Any]] = []
+        if spec_deprecations is not None:
+            embedded_deprecations = list(spec_deprecations)
+        else:
+            raw = spec.pop("_csc_spec_deprecations", []) if isinstance(spec, dict) else []
+            if isinstance(raw, list):
+                embedded_deprecations = [
+                    record
+                    for record in raw
+                    if isinstance(record, dict)
+                ]
+        self._spec_deprecations: List[Dict[str, Any]] = embedded_deprecations
+
         self.spec = spec
         self.table_cfg = table_cfg or spec.get("table") or {}
         self.point: Optional[int] = None
@@ -734,6 +748,19 @@ class ControlStrategy:
                 },
             },
         }
+
+        meta = report.setdefault("metadata", {})
+        existing_deprecations = meta.get("deprecations")
+        if isinstance(existing_deprecations, list):
+            deprecations_out = list(existing_deprecations)
+        else:
+            deprecations_out = []
+
+        for entry in self._spec_deprecations:
+            if isinstance(entry, dict) and entry not in deprecations_out:
+                deprecations_out.append(entry)
+
+        meta["deprecations"] = deprecations_out
 
         # Keep the old csv.path hint too (legacy/compat)
         try:

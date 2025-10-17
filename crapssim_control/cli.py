@@ -19,6 +19,7 @@ from .config import (
     normalize_demo_fallbacks,
 )
 from .spec_validation import VALIDATION_ENGINE_VERSION
+from .spec_loader import load_spec_file
 
 log = logging.getLogger("crapssim-ctl")
 
@@ -32,17 +33,8 @@ except Exception:  # pragma: no cover
 # ------------------------------- Helpers ------------------------------------ #
 
 def _load_spec_file(path: str | Path) -> Dict[str, Any]:
-    p = Path(path)
-    text = p.read_text(encoding="utf-8")
-    if p.suffix.lower() in (".yaml", ".yml"):
-        if yaml is None:
-            raise RuntimeError("PyYAML not installed; cannot read YAML specs.")
-        data = yaml.safe_load(text) or {}
-    else:
-        data = json.loads(text or "{}")
-    if not isinstance(data, dict):
-        raise ValueError("Spec root must be a JSON/YAML object (mapping).")
-    return data
+    spec, _ = load_spec_file(path)
+    return spec
 
 
 def _normalize_validate_result(res):

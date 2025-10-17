@@ -1,4 +1,4 @@
 current_phase: 2
-current_checkpoint: 3
-checkpoint_title: Import Hygiene + Deprecation Log
+current_checkpoint: 4
+checkpoint_title: Spec Loader Shim (Key Normalization)
 allow_behavior_change: false
