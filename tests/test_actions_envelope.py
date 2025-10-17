@@ -56,6 +56,7 @@ def test_controller_regression_actions_are_envelopes_with_notes():
         "variables": {"units": 5},
         "modes": {"Main": {"template": {"place": {"6": "units*2", "8": "units*2"}}}},
         "rules": [],
+        "run": {"demo_fallbacks": True},
     }
     ctrl = ControlStrategy(spec)
 

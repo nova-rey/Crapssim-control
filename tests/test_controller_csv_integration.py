@@ -34,6 +34,7 @@ def test_controller_writes_csv_rows_per_event_when_enabled():
             },
             "rules": [],  # no rule actions for this test
             "run": {
+                "demo_fallbacks": True,
                 "csv": {
                     "enabled": True,
                     "path": str(out_csv),

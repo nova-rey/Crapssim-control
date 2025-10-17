@@ -13,6 +13,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, Optional, Tuple, List, TYPE_CHECKING
 
+from importlib import import_module
+
 # --- Detect CrapsSim shape ----------------------------------------------------
 
 _HAS_LEGACY_PLAYERS = False
@@ -35,6 +37,35 @@ except Exception:
 
 if TYPE_CHECKING:  # for type checkers/IDEs only
     from crapssim.table import Table  # noqa: F401
+
+
+def check_engine_ready() -> Tuple[bool, Optional[str]]:
+    """Return (ok, reason) indicating whether the CrapsSim engine is usable."""
+
+    # Require at least one attach path to be available.
+    if _CsTable is None and cs_strategy is None and not _HAS_LEGACY_PLAYERS:
+        return False, "Could not import crapsim.table.Table or strategy/players modules"
+
+    # Ensure the modern engine exposes the components our CLI depends on.
+    try:
+        tbl_mod = import_module("crapssim.table")
+        getattr(tbl_mod, "Table")
+    except Exception as exc:
+        return False, f"crapssim.table.Table unavailable: {exc}"
+
+    try:
+        player_mod = import_module("crapssim.player")
+        getattr(player_mod, "Player")
+    except Exception as exc:
+        return False, f"crapssim.player.Player unavailable: {exc}"
+
+    try:
+        dice_mod = import_module("crapssim.dice")
+        getattr(dice_mod, "Dice")
+    except Exception as exc:
+        return False, f"crapssim.dice.Dice unavailable: {exc}"
+
+    return True, None
 
 
 # --- Public adapter surface used by the CLI -----------------------------------
@@ -391,10 +422,9 @@ def attach_engine(spec: Dict[str, Any]) -> EngineAttachResult:
     Prepare a Table and attach our control object.
     Prefer modern Strategy path; fall back to legacy players if available.
     """
-    if _CsTable is None and cs_strategy is None and not _HAS_LEGACY_PLAYERS:
-        raise RuntimeError(
-            "Could not attach to CrapsSim: engine not installed (no 'crapssim')."
-        )
+    ok, reason = check_engine_ready()
+    if not ok:
+        raise RuntimeError(reason or "Could not attach to CrapsSim: engine not installed.")
 
     # Instantiate a table as best we can
     if _CsTable is not None:

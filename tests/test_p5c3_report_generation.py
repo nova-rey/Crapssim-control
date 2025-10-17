@@ -15,6 +15,7 @@ def _spec(csv_path: Path, meta_path: Path | None = None, report_path: Path | Non
             "Main": {"template": {"place_6": 12}},
         },
         "run": {
+            "demo_fallbacks": True,
             "csv": {
                 "enabled": True,
                 "path": str(csv_path),

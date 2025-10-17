@@ -69,6 +69,7 @@ def test_regression_after_third_roll_clears_place_6_and_8():
         "variables": {"units": 5},
         "modes": {"Main": {"template": {"place": {"6": "units*2", "8": "units*2"}}}},
         "rules": [],
+        "run": {"demo_fallbacks": True},
     }
     ctrl = ControlStrategy(spec)
 
