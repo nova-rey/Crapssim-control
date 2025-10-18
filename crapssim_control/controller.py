@@ -17,6 +17,7 @@ from .actions import make_action  # Action Envelope helper
 from .rules_engine import apply_rules  # Runtime rules engine
 from .rules_engine.evaluator import evaluate_rules
 from crapssim_control.rules_engine.actions import ACTIONS, is_legal_timing
+from .rules_engine.journal import DecisionJournal
 from .csv_journal import CSVJournal  # Per-event journaling
 from .events import canonicalize_event, COMEOUT, POINT_ESTABLISHED, ROLL, SEVEN_OUT
 from .eval import evaluate, EvalError
@@ -199,6 +200,9 @@ class ControlStrategy:
             "by_event_type": {},
         }
 
+        # P5C3: structured decision journal with safeties
+        self.journal = DecisionJournal()
+
         # Phase 3 analytics scaffolding
         self._tracker: Optional[Tracker] = None
         self._tracker_session_ctx: Optional[SessionCtx] = None
@@ -216,6 +220,10 @@ class ControlStrategy:
         if modes:
             return next(iter(modes.keys()))
         return "Main"
+
+    @property
+    def run_id(self) -> str:
+        return getattr(self, "_run_id", "unknown")
 
     def _current_state_for_eval(self) -> Dict[str, Any]:
         st: Dict[str, Any] = {}
@@ -446,6 +454,10 @@ class ControlStrategy:
         if tracker.hand_id == 0:
             self._analytics_start_hand(point_value=None)
 
+        # Decrement per-roll cooldowns before evaluating new decisions.
+        if hasattr(self, "journal"):
+            self.journal.tick()
+
         bankroll_before = self._analytics_to_float(event.get("bankroll_before"))
         bankroll_after = self._analytics_to_float(event.get("bankroll_after"))
         bankroll_value = self._analytics_to_float(event.get("bankroll"))
@@ -573,6 +585,7 @@ class ControlStrategy:
                     "state": current_state,
                     "context": dict(ctx),
                 }
+                verbs_executed: set[str] = set()
                 for decision in fired_rules:
                     action_str = str(decision.get("action") or "")
                     if not action_str:
@@ -581,17 +594,59 @@ class ControlStrategy:
                     act = ACTIONS.get(verb)
                     if not act:
                         continue
-                    legal, reason = is_legal_timing(current_state, {"verb": verb})
+
+                    rule_id_raw = decision.get("rule_id")
+                    if rule_id_raw is None:
+                        continue
+                    rule_id = str(rule_id_raw)
+                    decision["rule_id"] = rule_id
+
+                    scope = str(decision.get("scope") or "roll")
+                    cooldown_raw = decision.get("cooldown", 0)
+                    try:
+                        cooldown = int(cooldown_raw)
+                    except (TypeError, ValueError):
+                        cooldown = 0
+                    decision["cooldown"] = cooldown
+                    decision["cooldown_remaining"] = self.journal.cooldowns.get(rule_id, 0)
+
+                    allowed, reason = self.journal.can_fire(rule_id, scope, cooldown)
+                    decision["cooldown_allowed"] = allowed
+                    decision["cooldown_reason"] = reason
+
+                    legal, timing_reason = is_legal_timing(current_state, {"verb": verb})
                     decision["timing_legal"] = legal
-                    decision["timing_reason"] = reason
-                    if legal:
-                        result = act.execute(runtime, decision)
+                    decision["timing_reason"] = timing_reason
+
+                    duplicate_blocked = False
+                    executed = False
+                    result: Any = None
+
+                    if allowed and legal:
+                        if verb in verbs_executed:
+                            duplicate_blocked = True
+                        else:
+                            result = act.execute(runtime, decision)
+                            executed = True
+                            verbs_executed.add(verb)
+                            self.journal.apply_fire(rule_id, scope, cooldown)
+                            decision["cooldown_remaining"] = self.journal.cooldowns.get(rule_id, 0)
+                    decision["duplicate_blocked"] = duplicate_blocked
+
+                    if executed:
                         decision["executed"] = True
                         decision["result"] = result
                     else:
                         decision["executed"] = False
-                    with open("decision_journal.jsonl", "a", encoding="utf-8") as f:
-                        f.write(json.dumps(decision) + "\n")
+                        if duplicate_blocked:
+                            decision["note"] = "duplicate_blocked"
+                        elif not allowed:
+                            decision["note"] = reason
+                        elif not legal:
+                            decision["note"] = timing_reason
+
+                    decision["run_id"] = self.run_id
+                    self.journal.record(decision)
         if self._outbound.enabled:
             snap = tracker.get_roll_snapshot() if tracker is not None else {}
             payload = {

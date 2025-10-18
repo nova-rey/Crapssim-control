@@ -1,6 +1,6 @@
 current_phase: 5
-current_checkpoint: 2
-checkpoint_title: Action Catalog & Timing Guards
+current_checkpoint: 3
+checkpoint_title: Decision Journal & Safeties
 allow_behavior_change: true
 roadmap_version: dual-brain-v1
 notes: >

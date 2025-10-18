@@ -271,9 +271,14 @@ This forms the foundation for CSC’s internal rules engine.
 **Guardrails:** no `eval`; deterministic vars only; if not in the decision journal, it didn’t happen.
 
 ### Checkpoint 2 — Action Catalog & Timing Guards
-Established CSC’s canonical action verbs and legality framework.  
-Rules now trigger queued actions that pass timing validation.  
+Established CSC’s canonical action verbs and legality framework.
+Rules now trigger queued actions that pass timing validation.
 Each action records its legality and result in `decision_journal.jsonl`.
+
+### Checkpoint 3 — Decision Journal & Safeties
+Replaced ad-hoc decision logging with a formal Decision Journal system.
+All rule evaluations and actions now produce standardized records with timestamps and safety status.
+Safeties include cooldowns, once-per-scope locks, and duplicate blocking.
 
 ---
 
