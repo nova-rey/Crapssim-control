@@ -12,7 +12,6 @@ import zipfile
 from datetime import datetime
 from uuid import uuid4
 import hashlib  # P5C5: for content fingerprints
-import uvicorn
 
 from .templates import render_template as render_runtime_template, diff_bets
 from .actions import make_action  # Action Envelope helper
@@ -39,7 +38,7 @@ from .schemas import JOURNAL_SCHEMA_VERSION, SUMMARY_SCHEMA_VERSION
 from .integrations.hooks import Outbound
 from .integrations.evo_hooks import EvoBridge
 from crapssim_control.external.command_channel import CommandQueue
-from crapssim_control.external.http_api import create_app
+from crapssim_control.external.http_api import create_app, serve_commands
 
 
 class ControlStrategy:
@@ -210,22 +209,41 @@ class ControlStrategy:
 
         # P6C1: External command channel (HTTP intake + in-process queue)
         self.command_queue = CommandQueue()
+        self._api_thread: Optional[threading.Thread] = None
+        self._httpd = None
 
         def _active_run_id() -> Optional[str]:
             return getattr(self, "run_id", None)
 
-        self._api_app = create_app(self.command_queue, _active_run_id)
-        self._api_thread = threading.Thread(
-            target=lambda: uvicorn.run(
-                self._api_app,
-                host="127.0.0.1",
-                port=8089,
-                log_level="warning",
-            ),
-            name="csc-external-api",
-            daemon=True,
-        )
-        self._api_thread.start()
+        _app = create_app(self.command_queue, _active_run_id)
+        if _app is not None:
+            try:
+                import uvicorn
+
+                self._api_thread = threading.Thread(
+                    target=lambda: uvicorn.run(
+                        _app,
+                        host="127.0.0.1",
+                        port=8089,
+                        log_level="warning",
+                    ),
+                    name="csc-external-api",
+                    daemon=True,
+                )
+                self._api_thread.start()
+            except Exception:
+                pass
+        else:
+            try:
+                self._httpd = serve_commands(self.command_queue, _active_run_id)
+                self._api_thread = threading.Thread(
+                    target=self._httpd.serve_forever,
+                    name="csc-external-httpd",
+                    daemon=True,
+                )
+                self._api_thread.start()
+            except Exception:
+                pass
 
         # Phase 3 analytics scaffolding
         self._tracker: Optional[Tracker] = None
@@ -1172,12 +1190,11 @@ class ControlStrategy:
 
             current_state = self._current_state_for_eval()
             tracker = self._tracker
-            pending = self.command_queue.drain() if hasattr(self, "command_queue") else []
+            pending = list(self.command_queue.drain()) if hasattr(self, "command_queue") else []
             for cmd in pending:
                 verb = cmd["action"]
                 args = cmd.get("args", {})
-                source = cmd.get("source", "unknown")
-                origin = f"external:{source}"
+                origin = f"external:{cmd.get('source', 'unknown')}"
                 corr = cmd.get("correlation_id")
                 legal, reason = is_legal_timing(current_state, {"verb": verb})
                 record = {
@@ -1189,19 +1206,13 @@ class ControlStrategy:
                     "origin": origin,
                     "correlation_id": corr,
                     "timing_legal": legal,
+                    "executed": False,
                 }
                 if not legal:
-                    record["executed"] = False
                     record["rejection_reason"] = f"timing:{reason}"
                     self.journal.record(record)
                     continue
-                try:
-                    result = ACTIONS[verb].execute(self.__dict__, {"args": args})
-                except Exception as exc:  # pragma: no cover - defensive
-                    record["executed"] = False
-                    record["rejection_reason"] = f"execution:{exc}"[:256]
-                    self.journal.record(record)
-                    continue
+                result = ACTIONS[verb].execute(self.__dict__, {"args": args})
                 record["executed"] = True
                 record["result"] = result
                 self.journal.record(record)

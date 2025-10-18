@@ -1,5 +1,5 @@
 phase: 6
 checkpoint: 1
 title: Inbound Command Channel
-description: Introduced `/commands` endpoint and internal queue; external actions validated and applied at legal timing windows with journal entries.
+description: Introduced /commands endpoint and in-process queue; validated, deduped, and applied at legal timing windows with journaling.
 status: active
