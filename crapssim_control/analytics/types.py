@@ -20,3 +20,6 @@ class RollCtx:
     roll_number: int
     bankroll_before: float
     delta: float
+    event_type: str = ""
+    point: int | None = None
+    point_on: bool = False

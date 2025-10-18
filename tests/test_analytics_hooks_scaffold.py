@@ -122,6 +122,17 @@ def test_embed_flag_controls_csv_schema(tmp_path):
         sanitized["metadata"]["run_flags"]["sources"]["embed_analytics"] = None
         sanitized["source_files"]["csv"] = "SANITIZED"
         sanitized["csv"]["path"] = "SANITIZED"
+        summary = sanitized.get("summary", {})
+        for key in (
+            "total_hands",
+            "total_rolls",
+            "points_made",
+            "pso_count",
+            "bankroll_peak",
+            "bankroll_low",
+            "max_drawdown",
+        ):
+            summary.pop(key, None)
         return sanitized
 
     assert sanitize(report_false) == sanitize(report_true)

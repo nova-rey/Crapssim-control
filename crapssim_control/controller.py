@@ -303,11 +303,26 @@ class ControlStrategy:
         if bankroll_after is None and bankroll_before is not None:
             bankroll_after = bankroll_before + delta
 
+        event_type = str(event.get("type") or event.get("event") or "")
+        point_raw = event.get("point")
+        point_value: int | None = None
+        if isinstance(point_raw, int) and not isinstance(point_raw, bool):
+            point_value = point_raw
+        else:
+            try:
+                point_value = int(point_raw) if point_raw is not None else None
+            except Exception:
+                point_value = None
+        point_on = event.get("point_on")
+
         roll_ctx = RollCtx(
             hand_id=tracker.hand_id,
             roll_number=self.rolls_since_point,
             bankroll_before=bankroll_before if bankroll_before is not None else 0.0,
             delta=delta,
+            event_type=event_type,
+            point=point_value,
+            point_on=bool(point_on),
         )
         tracker.on_roll(roll_ctx)
 
@@ -854,6 +869,8 @@ class ControlStrategy:
         if not memory:
             memory = dict(self.memory)
 
+        self._analytics_session_end()
+
         summary = {
             "events_total": int(self._stats.get("events_total", 0)),
             "actions_total": int(self._stats.get("actions_total", 0)),
@@ -912,6 +929,16 @@ class ControlStrategy:
             report["csv"] = {"path": str(getattr(j, "path")) if j is not None else None}
         except Exception:
             report["csv"] = {"path": None}
+
+        tracker = self._tracker
+        summary_block = report.setdefault("summary", {})
+        if tracker is not None:
+            try:
+                summary_block.update(tracker.get_summary_snapshot())
+            except Exception:
+                pass
+
+        report["summary_schema_version"] = "1.2"
 
         # Write to disk if a path is provided/configured
         if isinstance(report_path, (str, Path)) and str(report_path):

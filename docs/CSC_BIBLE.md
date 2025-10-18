@@ -172,3 +172,8 @@ Tracker now records live bankroll and roll context. When `run.csv.embed_analytic
 - drawdown_after
 
 These fields are additive only. With the flag off, CSV outputs remain byte-for-byte identical to the Phase 2 baseline.
+
+**Checkpoint 3 (P3·C3): Summary Expansion**
+The end-of-run report now aggregates analytics from the tracker:
+`total_hands`, `total_rolls`, `points_made`, `pso_count`, `bankroll_peak`, `bankroll_low`, and `max_drawdown`.
+`summary_schema_version` is set to `"1.2"`. Gameplay math and CSV rows remain unchanged; this checkpoint is reporting-only.
