@@ -38,3 +38,7 @@ External systems (Node-RED, CrapsSim-Evo) can use this file to programmatically 
 - `enabled` (bool): Whether webhook emission is active.
 - `url_present` (bool): True if a URL was provided (URL itself is never stored here).
 - `timeout` (number): Request timeout in seconds for outbound POSTs.
+
+### UI Hints (optional)
+- `ui.report_url` (string|null)
+- `ui.journal_url` (string|null)

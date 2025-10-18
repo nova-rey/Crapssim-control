@@ -1,5 +1,5 @@
 phase: 4
-checkpoint: 2
-title: Node-RED / Webhook Stub Integration
-description: Opt-in outbound lifecycle hooks with safe defaults and masked configuration.
+checkpoint: 3
+title: Runtime Report & Metadata Polish
+description: Added run_id/manifest_path, engine/artifacts metadata, flag provenance, and run_id in webhooks.
 status: active

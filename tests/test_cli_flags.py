@@ -73,11 +73,10 @@ def test_report_metadata_reflects_cli_flags():
         "strict": True,
         "embed_analytics": False,
     }
-    assert flags["sources"] == {
-        "demo_fallbacks": "cli",
-        "strict": "cli",
-        "embed_analytics": "cli",
-    }
+    sources = flags["sources"]
+    assert sources.get("demo_fallbacks") == "cli"
+    assert sources.get("strict") == "cli"
+    assert sources.get("embed_analytics") == "cli"
     assert flags.get("webhook_enabled") is False
     assert flags.get("webhook_url_masked") is False
     assert flags.get("webhook_url_source") == "default"
@@ -93,11 +92,10 @@ def test_report_metadata_reflects_cli_flags():
         "strict": STRICT_DEFAULT,
         "embed_analytics": EMBED_ANALYTICS_DEFAULT,
     }
-    assert base_flags["sources"] == {
-        "demo_fallbacks": "default",
-        "strict": "default",
-        "embed_analytics": "default",
-    }
+    base_sources = base_flags["sources"]
+    assert base_sources.get("demo_fallbacks") == "default"
+    assert base_sources.get("strict") == "default"
+    assert base_sources.get("embed_analytics") == "default"
     assert base_flags.get("webhook_enabled") is False
     assert base_flags.get("webhook_url_masked") is False
     assert base_flags.get("webhook_url_source") == "default"

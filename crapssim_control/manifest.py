@@ -10,9 +10,17 @@ def iso_now():
     return datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
 
 
-def generate_manifest(spec_file: str, cli_flags: dict, outputs: dict, engine_version: str = None):
+def generate_manifest(
+    spec_file: str,
+    cli_flags: dict,
+    outputs: dict,
+    *,
+    engine_version: str = None,
+    run_id: str | None = None,
+):
+    manifest_run_id = str(run_id) if run_id else str(uuid4())
     return {
-        "run_id": str(uuid4()),
+        "run_id": manifest_run_id,
         "timestamp": iso_now(),
         "spec_file": spec_file,
         "cli_flags": cli_flags,
@@ -29,4 +37,5 @@ def generate_manifest(spec_file: str, cli_flags: dict, outputs: dict, engine_ver
                 "timeout": float(cli_flags.get("webhook_timeout", 2.0)),
             }
         },
+        "ui": {"report_url": None, "journal_url": None},
     }

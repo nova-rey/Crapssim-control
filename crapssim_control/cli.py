@@ -357,6 +357,19 @@ def _merge_cli_run_flags(spec: Dict[str, Any], args: argparse.Namespace) -> None
                 and not bool(getattr(args, "no_webhook", False))
             ),
         )
+        if getattr(args, "strict", False):
+            cli_flags_obj.strict_source = "cli"
+        if getattr(args, "demo_fallbacks", False):
+            cli_flags_obj.demo_fallbacks_source = "cli"
+        if getattr(args, "no_embed_analytics", False):
+            cli_flags_obj.embed_analytics_source = "cli"
+        if getattr(args, "export", None):
+            cli_flags_obj.export_source = "cli"
+        if getattr(args, "webhook_url", None):
+            cli_flags_obj.webhook_url_source = "cli"
+            cli_flags_obj.webhook_enabled_source = "cli"
+        if getattr(args, "no_webhook", False):
+            cli_flags_obj.webhook_enabled_source = "cli"
         setattr(args, "_cli_flags", cli_flags_obj)
 
     run_blk = spec.get("run")

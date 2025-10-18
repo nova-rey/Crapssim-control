@@ -5,9 +5,11 @@ from dataclasses import asdict, is_dataclass
 from typing import Any, Dict, List, Optional, Tuple
 import json
 from pathlib import Path
+import platform
 import shutil
 import zipfile
 from datetime import datetime
+from uuid import uuid4
 import hashlib  # P5C5: for content fingerprints
 
 from .templates import render_template as render_runtime_template, diff_bets
@@ -71,6 +73,11 @@ class ControlStrategy:
         self.spec = spec
         self._spec_path: Optional[str] = str(spec_path) if spec_path is not None else None
         self._cli_flags_context: Dict[str, Any] = self._normalize_cli_flags(cli_flags)
+        self.engine_version: str = getattr(self, "engine_version", "CrapsSim-Control")
+        if self.engine_version == "unknown":
+            self.engine_version = "CrapsSim-Control"
+        self._run_id: str = str(uuid4())
+        self._seed_value: Optional[int] = None
         self._export_paths: Dict[str, Optional[str]] = {}
         self._outbound: Outbound = Outbound()
         self._webhook_url_source: str = "default"
@@ -79,7 +86,6 @@ class ControlStrategy:
         self._webhook_timeout: float = 2.0
         self._outbound_run_started: bool = False
         self._outbound_run_finished: bool = False
-        self._update_outbound_from_flags(self._cli_flags_context)
         self.table_cfg = table_cfg or spec.get("table") or {}
         self.point: Optional[int] = None
         self.rolls_since_point: int = 0
@@ -94,6 +100,8 @@ class ControlStrategy:
                 cli_sources_raw = {str(k): str(v) for k, v in raw_sources.items()}
             run_blk.pop("_csc_flag_sources", None)
         csv_blk = (run_blk or {}).get("csv") if isinstance(run_blk, dict) else {}
+
+        self._apply_run_identity_from_spec(run_blk, csv_blk)
 
         demo_flag = normalize_demo_fallbacks(run_blk if isinstance(run_blk, dict) else None)
 
@@ -143,6 +151,13 @@ class ControlStrategy:
         else:
             flag_sources["embed_analytics"] = "default"
 
+        cli_flag_sources = self._cli_flags_context
+        if isinstance(cli_flag_sources, dict):
+            for key in ("demo_fallbacks", "strict", "embed_analytics"):
+                src_key = f"{key}_source"
+                if cli_flag_sources.get(src_key) == "cli":
+                    flag_sources[key] = "cli"
+
         self._flag_sources = flag_sources
 
         if not ControlStrategy._DEMO_NOTICE_PRINTED:
@@ -187,6 +202,7 @@ class ControlStrategy:
         self._analytics_session_closed: bool = False
 
         self._init_tracker()
+        self._update_outbound_from_flags(self._cli_flags_context)
 
     # ----- helpers -----
 
@@ -272,13 +288,55 @@ class ControlStrategy:
         tracker.on_session_start(session_ctx)
 
     @staticmethod
+    def _coerce_seed(seed_raw: Any) -> Optional[int]:
+        if seed_raw is None:
+            return None
+        if isinstance(seed_raw, bool):
+            return None
+        try:
+            return int(seed_raw)
+        except (TypeError, ValueError):
+            try:
+                return int(str(seed_raw).strip())
+            except Exception:
+                return None
+
+    def _apply_run_identity_from_spec(self, run_blk: Any, csv_blk: Any) -> None:
+        run_id_raw = None
+        seed_raw = None
+        if isinstance(csv_blk, dict):
+            run_id_raw = csv_blk.get("run_id")
+            seed_raw = csv_blk.get("seed")
+        if run_id_raw is not None:
+            run_id_str = str(run_id_raw).strip()
+            if run_id_str:
+                self._run_id = run_id_str
+        if not getattr(self, "_run_id", None):
+            self._run_id = str(uuid4())
+        seed_val = self._coerce_seed(seed_raw)
+        if seed_val is not None:
+            self._seed_value = seed_val
+
+    def _webhook_base_payload(self) -> Dict[str, Any]:
+        run_id = getattr(self, "_run_id", None)
+        if not run_id:
+            run_id = str(uuid4())
+            self._run_id = run_id
+        return {"run_id": run_id}
+
+    @staticmethod
     def _normalize_cli_flags(flags: Any) -> Dict[str, Any]:
         keys = (
             "demo_fallbacks",
+            "demo_fallbacks_source",
             "strict",
+            "strict_source",
             "embed_analytics",
+            "embed_analytics_source",
             "export",
+            "export_source",
             "webhook_enabled",
+            "webhook_enabled_source",
             "webhook_url",
             "webhook_timeout",
             "webhook_url_source",
@@ -336,25 +394,22 @@ class ControlStrategy:
             return
         spec_path = self._spec_path or ""
         manifest_hint = self._export_paths.get("manifest", "export/manifest.json")
-        self._outbound.emit(
-            "run.started",
-            {
-                "spec": spec_path,
-                "manifest_path": manifest_hint,
-            },
-        )
+        payload = {**self._webhook_base_payload(), "spec": spec_path, "manifest_path": manifest_hint}
+        seed_val = self._seed_value
+        if seed_val is not None:
+            payload["seed"] = seed_val
+        self._outbound.emit("run.started", payload)
         self._outbound_run_started = True
 
     def _emit_run_finished(self, report: Dict[str, Any]) -> None:
         if self._outbound_run_finished or not self._outbound.enabled:
             return
-        self._outbound.emit(
-            "run.finished",
-            {
-                "summary_schema_version": report.get("summary_schema_version"),
-                "journal_schema_version": report.get("journal_schema_version"),
-            },
-        )
+        payload = {
+            **self._webhook_base_payload(),
+            "summary_schema_version": report.get("summary_schema_version"),
+            "journal_schema_version": report.get("journal_schema_version"),
+        }
+        self._outbound.emit("run.finished", payload)
         self._outbound_run_finished = True
 
     def _analytics_start_hand(self, point_value: Optional[int] = None) -> None:
@@ -366,7 +421,8 @@ class ControlStrategy:
         hand_ctx = HandCtx(hand_id=hand_id, point=point_value)
         tracker.on_hand_start(hand_ctx)
         if self._outbound.enabled:
-            self._outbound.emit("hand.started", {"hand_id": hand_id})
+            payload = {**self._webhook_base_payload(), "hand_id": hand_id}
+            self._outbound.emit("hand.started", payload)
 
     @staticmethod
     def _analytics_to_float(val: Any) -> Optional[float]:
@@ -443,13 +499,12 @@ class ControlStrategy:
             )
         if self._outbound.enabled:
             snap = tracker.get_roll_snapshot() if tracker is not None else {}
-            self._outbound.emit(
-                "roll.processed",
-                {
-                    "hand_id": snap.get("hand_id"),
-                    "roll_in_hand": snap.get("roll_in_hand"),
-                },
-            )
+            payload = {
+                **self._webhook_base_payload(),
+                "hand_id": snap.get("hand_id"),
+                "roll_in_hand": snap.get("roll_in_hand"),
+            }
+            self._outbound.emit("roll.processed", payload)
 
     def _analytics_end_hand(self, point_value: Optional[int]) -> None:
         tracker = self._tracker
@@ -459,7 +514,8 @@ class ControlStrategy:
         hand_ctx = HandCtx(hand_id=tracker.hand_id, point=point_value)
         tracker.on_hand_end(hand_ctx)
         if self._outbound.enabled:
-            self._outbound.emit("hand.finished", {"hand_id": tracker.hand_id})
+            payload = {**self._webhook_base_payload(), "hand_id": tracker.hand_id}
+            self._outbound.emit("hand.finished", payload)
 
     def _analytics_session_end(self) -> None:
         tracker = self._tracker
@@ -481,12 +537,15 @@ class ControlStrategy:
         if not enabled or not path:
             return None
         append = True if csv_cfg.get("append", True) not in (False, "false", "no", 0) else False
-        run_id = csv_cfg.get("run_id")  # optional
-        seed = csv_cfg.get("seed")      # optional
-        try:
-            seed_val = int(seed) if seed is not None else None
-        except Exception:
-            seed_val = None
+        run_id_raw = csv_cfg.get("run_id")
+        if run_id_raw is not None:
+            run_id_str = str(run_id_raw).strip()
+            if run_id_str:
+                self._run_id = run_id_str
+        run_id = self._run_id
+        seed_val = self._coerce_seed(csv_cfg.get("seed"))
+        if seed_val is not None:
+            self._seed_value = seed_val
         return {"path": str(path), "append": append, "run_id": run_id, "seed": seed_val}
 
     def _ensure_journal(self) -> Optional[CSVJournal]:
@@ -1012,6 +1071,19 @@ class ControlStrategy:
                 "run_id": getattr(j, "run_id", None),
                 "seed": getattr(j, "seed", None),
             }
+        run_id_from_identity = identity.get("run_id")
+        if run_id_from_identity:
+            self._run_id = str(run_id_from_identity)
+        elif getattr(self, "_run_id", None):
+            identity["run_id"] = self._run_id
+        else:
+            self._run_id = str(uuid4())
+            identity["run_id"] = self._run_id
+        seed_from_identity = identity.get("seed")
+        if seed_from_identity is not None:
+            self._seed_value = seed_from_identity
+        elif self._seed_value is not None:
+            identity["seed"] = self._seed_value
         if not memory:
             memory = dict(self.memory)
 
@@ -1050,6 +1122,17 @@ class ControlStrategy:
         run_flags["webhook_timeout"] = float(self._webhook_timeout)
         run_flags["webhook_url_source"] = self._webhook_url_source
         run_flags["webhook_url"] = bool(self._webhook_url_present)
+        run_flags["demo_fallbacks_source"] = self._flag_sources.get("demo_fallbacks", "default")
+        run_flags["strict_source"] = self._flag_sources.get("strict", "default")
+        run_flags["embed_analytics_source"] = self._flag_sources.get("embed_analytics", "default")
+        run_flags["export_source"] = str(cli_flags_dict.get("export_source", "default"))
+        run_flags["webhook_enabled_source"] = str(
+            cli_flags_dict.get("webhook_enabled_source", "default")
+        )
+
+        run_flag_sources_meta = dict(self._flag_sources)
+        run_flag_sources_meta["export"] = run_flags["export_source"]
+        run_flag_sources_meta["webhook_enabled"] = run_flags["webhook_enabled_source"]
 
         report: Dict[str, Any] = {
             "identity": identity,
@@ -1064,7 +1147,7 @@ class ControlStrategy:
                 "validation_engine": VALIDATION_ENGINE_VERSION,
                 "run_flags": {
                     "values": run_flag_values,
-                    "sources": dict(self._flag_sources),
+                    "sources": run_flag_sources_meta,
                 },
             },
         }
@@ -1072,11 +1155,24 @@ class ControlStrategy:
         run_flags_meta = report["metadata"].setdefault("run_flags", {})
         run_flags_meta.update(
             {
+                "values": run_flag_values,
+                "sources": run_flag_sources_meta,
                 "webhook_enabled": webhook_enabled,
                 "webhook_url_source": self._webhook_url_source,
                 "webhook_url_masked": bool(self._webhook_url_present),
             }
         )
+        def _source_for(key: str, default: str = "default") -> str:
+            src = run_flags.get(f"{key}_source")
+            if isinstance(src, str) and src:
+                return src
+            if key in run_flag_sources_meta and run_flag_sources_meta[key]:
+                return str(run_flag_sources_meta[key])
+            return default
+
+        for key in ["strict", "demo_fallbacks", "embed_analytics", "export", "webhook_enabled"]:
+            if key in run_flags or key in run_flags_meta:
+                run_flags_meta[f"{key}_source"] = _source_for(key)
 
         meta = report.setdefault("metadata", {})
         existing_deprecations = meta.get("deprecations")
@@ -1108,18 +1204,11 @@ class ControlStrategy:
         report["journal_schema_version"] = JOURNAL_SCHEMA_VERSION
         report["summary_schema_version"] = SUMMARY_SCHEMA_VERSION
 
-        # Write to disk if a path is provided/configured
+        report_file: Optional[Path] = None
         if isinstance(report_path, (str, Path)) and str(report_path):
-            p = Path(report_path)
-            p.parent.mkdir(parents=True, exist_ok=True)
-            resolved_export_paths["report"] = str(p)
-            try:
-                p.write_text(
-                    json.dumps(report, ensure_ascii=False, separators=(",", ":"), sort_keys=True),
-                    encoding="utf-8",
-                )
-            except Exception:
-                pass
+            report_file = Path(report_path)
+            report_file.parent.mkdir(parents=True, exist_ok=True)
+            resolved_export_paths["report"] = str(report_file)
 
         spec_file_value: Optional[str] = self._spec_path
         if spec_file_value is None and isinstance(self.spec, dict):
@@ -1151,14 +1240,42 @@ class ControlStrategy:
                 spec_file_value,
                 run_flags,
                 outputs,
-                engine_version="CrapsSim-Control",
+                engine_version=self.engine_version,
+                run_id=self._run_id,
             )
             with open(manifest_path, "w", encoding="utf-8") as f:
                 json.dump(manifest, f, indent=2)
         except Exception:
             pass
 
+        manifest_run_id = None
+        if "manifest" in locals() and isinstance(manifest, dict):
+            manifest_run_id = manifest.get("run_id")
+        if manifest_run_id:
+            self._run_id = str(manifest_run_id)
+        report["run_id"] = self._run_id
         report["manifest_path"] = outputs["manifest"]
+        report["journal_schema_version"] = JOURNAL_SCHEMA_VERSION
+        report["summary_schema_version"] = SUMMARY_SCHEMA_VERSION
+        report.setdefault("metadata", {})
+        report["metadata"]["engine"] = {
+            "name": "CrapsSim-Control",
+            "version": getattr(self, "engine_version", "unknown"),
+            "python": platform.python_version(),
+        }
+        report["metadata"]["artifacts"] = {
+            "journal": outputs.get("journal"),
+            "report": outputs.get("report"),
+            "manifest": outputs.get("manifest"),
+        }
+        if report_file is not None:
+            try:
+                report_file.write_text(
+                    json.dumps(report, ensure_ascii=False, separators=(",", ":"), sort_keys=True),
+                    encoding="utf-8",
+                )
+            except Exception:
+                pass
         self._export_paths = dict(resolved_export_paths)
 
         self._emit_run_finished(report)
