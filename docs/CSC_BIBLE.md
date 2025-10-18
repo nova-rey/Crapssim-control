@@ -240,3 +240,62 @@ Artifacts are stored under `baselines/phase4/`:
 
 This baseline serves as the reference for Phase 5 dashboard integration.
 Tag: **v0.32.0-phase4-baseline**.
+
+---
+
+## Phase 5 — CSC-Native Rules Engine (Internal Brain)
+
+**Goal:** deterministic “if-this-then-that” strategy switching inside CSC, no network dependency.  
+
+### Checkpoints
+1. **P5·C1 — Rule Schema & Evaluator (read-only)**  
+   JSON rule DSL: `when/scope/cooldown/guards/action/id`.  
+   Whitelisted vars: `bankroll_after`, `drawdown_after`, `hand_id`, `roll_in_hand`, `point_on`, `last_roll_total`, `box_hits[]`, `dc_losses`, etc.  
+   Deterministic evaluator returns decisions only.  
+2. **P5·C2 — Action Catalog & Timing Guards**  
+   Actions: `switch_profile`, `regress`, `press_and_collect`, `martingale(step_key, delta, max_level)`.  
+   Apply only at legal windows.  
+3. **P5·C3 — Decision Journal & Safeties**  
+   decisions.jsonl/csv with rule id, snapshot vars, action applied.  
+   Cooldowns and once-per-scope; conflict resolution.  
+4. **P5·C4 — Spec Authoring Aids**  
+   Rule templates/macros; validation with helpful errors.  
+5. **P5·C5 — Baseline & Tag**  
+   Seeded runs proving 3+ rule patterns. Tag `v0.34.0-phase5-ittt`.
+
+**Guardrails:** no `eval`; deterministic vars only; if not in the decision journal, it didn’t happen.  
+
+---
+
+## Phase 6 — Node-RED Driven Control (External Brain)
+
+**Goal:** Node-RED listens to CSC events and sends the same actions back; CSC enforces legality and logs all external decisions.  
+
+### Checkpoints
+1. **P6·C1 — Inbound Command Channel**  
+   `POST /commands {run_id, action, args, source}`; queued and applied at legal windows; illegal timing → rejection.  
+2. **P6·C2 — Node-RED Flow (Listen → Decide → Command)**  
+   Sample flow from webhooks to commands; snapshot flow/version in manifest for reproducibility.  
+3. **P6·C3 — Decision Journal Unification**  
+   Journal includes `origin: rule:<id>` or `external: node-red@<flowId>`; optional command tape for deterministic replay.  
+4. **P6·C4 — Safety & Backpressure**  
+   Rate limiting, dedupe `(run_id,event)`; determinism mode for baselines (disable externals or replay tape).  
+5. **P6·C5 — Baseline & Tag**  
+   Replicate Phase 5 scenarios, driven externally. Tag `v0.35.0-phase6-external`.
+
+**Guardrails:** CSC never blocks on network; rejects/records illegal commands; simulation continues.  
+
+---
+
+### Shared Contract (both brains)
+- **Action verbs v1:** `switch_profile`, `regress`, `press_and_collect`, `martingale`.  
+- **Legality/timing:** enforced centrally in CSC, identical for internal rules and external commands.  
+- **Decision journal:** single format with `origin` field (`rule` vs `external`).  
+- **Determinism mode:** recordable command tape; baseline runs replay or forbid external control.  
+
+---
+
+### Downstream Phases (renumbered)
+- **Phase 7 — Web Dashboard MVP (old Phase 5):** live run + history + artifact links; read-only. Tag `v0.36.0-phase7-baseline`.
+- **Phase 8 — Run Launcher & Spec Library (old Phase 6):** `/runs` API, worker launcher, spec library. Tag `v0.37.0-phase8-baseline`.
+- **Phase 9 — Integrated Spec Builder & Chained Runs (old Phase 7):** Node-RED builder embedded/ported; chained runs, diffs/compare. Tag `v0.38.0-phase9-baseline`.

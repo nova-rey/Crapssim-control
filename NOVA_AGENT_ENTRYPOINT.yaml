@@ -1,4 +1,8 @@
-current_phase: 4
-current_checkpoint: 5
-checkpoint_title: Baseline & Tag
-allow_behavior_change: false
+current_phase: 5
+current_checkpoint: 0
+checkpoint_title: Phase 5 Kickoff – CSC-Native Rules Engine (Internal Brain)
+allow_behavior_change: true
+roadmap_version: dual-brain-v1
+notes: >
+  Updated roadmap: Phase 5 = internal rule engine; Phase 6 = Node-RED external brain;
+  later phases renumbered (7–9). Shared action contract maintained across both.
