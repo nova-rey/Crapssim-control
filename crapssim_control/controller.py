@@ -31,6 +31,7 @@ from .analytics.types import HandCtx, RollCtx, SessionCtx
 from .manifest import generate_manifest
 from .schemas import JOURNAL_SCHEMA_VERSION, SUMMARY_SCHEMA_VERSION
 from .integrations.hooks import Outbound
+from .integrations.evo_hooks import EvoBridge
 
 
 class ControlStrategy:
@@ -1122,6 +1123,8 @@ class ControlStrategy:
         run_flags["webhook_timeout"] = float(self._webhook_timeout)
         run_flags["webhook_url_source"] = self._webhook_url_source
         run_flags["webhook_url"] = bool(self._webhook_url_present)
+        run_flags["evo_enabled"] = bool(cli_flags_dict.get("evo_enabled", False))
+        run_flags["trial_tag"] = cli_flags_dict.get("trial_tag")
         run_flags["demo_fallbacks_source"] = self._flag_sources.get("demo_fallbacks", "default")
         run_flags["strict_source"] = self._flag_sources.get("strict", "default")
         run_flags["embed_analytics_source"] = self._flag_sources.get("embed_analytics", "default")
@@ -1235,6 +1238,9 @@ class ControlStrategy:
         except Exception:
             pass
 
+        bridge = EvoBridge(enabled=run_flags.get("evo_enabled", False))
+        manifest: Dict[str, Any] | None = None
+
         try:
             manifest = generate_manifest(
                 spec_file_value,
@@ -1245,6 +1251,14 @@ class ControlStrategy:
             )
             with open(manifest_path, "w", encoding="utf-8") as f:
                 json.dump(manifest, f, indent=2)
+        except Exception:
+            pass
+
+        try:
+            if manifest is not None:
+                bridge.announce_run(manifest)
+                if run_flags.get("trial_tag"):
+                    bridge.tag_trial(manifest, run_flags["trial_tag"])
         except Exception:
             pass
 
@@ -1279,6 +1293,11 @@ class ControlStrategy:
         self._export_paths = dict(resolved_export_paths)
 
         self._emit_run_finished(report)
+
+        try:
+            bridge.record_result(report.get("summary", {}))
+        except Exception:
+            pass
 
         return report
 
