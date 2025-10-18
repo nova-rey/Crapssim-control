@@ -1,0 +1,1 @@
+{"timestamp": 1761506405.123, "run_id": "phase6-node-red-loop", "source": "external:node-red@demo:v1", "correlation_id": "nr-demo-accept-001", "payload": {"action": "press_and_collect", "args": {"pattern": "mid-stairs"}}}

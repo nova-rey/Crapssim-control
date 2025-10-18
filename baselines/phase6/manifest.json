@@ -1,0 +1,36 @@
+{
+  "run_id": "phase6-node-red-loop",
+  "generated_at": "2025-10-26T15:42:10+00:00",
+  "seed": 602024,
+  "spec": "examples/internal_brain_demo/spec.yaml",
+  "artifacts": {
+    "decision_journal": "baselines/phase6/decision_journal.jsonl",
+    "report": "baselines/phase6/report.json",
+    "manifest": "baselines/phase6/manifest.json",
+    "command_tape": "baselines/phase6/command_tape.jsonl"
+  },
+  "integrations": {
+    "webhooks": {
+      "enabled": true,
+      "targets": ["http://127.0.0.1:1880/webhook"],
+      "webhook_endpoint": "/webhook"
+    },
+    "http_commands": {
+      "enabled": true,
+      "endpoint": "http://127.0.0.1:8089/commands"
+    },
+    "node_red": {
+      "flow": "examples/node_red/flow.json",
+      "source": "node-red@demo:v1"
+    }
+  },
+  "external_loop": {
+    "accepted": 1,
+    "rejected": 1,
+    "origin": "external:node-red@demo:v1"
+  },
+  "schema": {
+    "journal": "1.2",
+    "summary": "1.2"
+  }
+}

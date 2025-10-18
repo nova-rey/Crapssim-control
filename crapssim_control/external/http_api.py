@@ -21,6 +21,26 @@ def ingest_command(body: Dict[str, Any], queue: CommandQueue, active_run_id_supp
 
 
 # Optional FastAPI surface (used if dependency exists)
+def register_diagnostics(app, active_run_id_supplier: Callable[[], str]):
+    try:
+        from fastapi import FastAPI
+        from fastapi.responses import JSONResponse
+    except Exception:
+        return
+
+    if not isinstance(app, FastAPI):
+        return
+
+    @app.get("/health")
+    async def health():
+        return JSONResponse({"status": "ok"})
+
+    @app.get("/run_id")
+    async def run_id():
+        rid = active_run_id_supplier() or ""
+        return JSONResponse({"run_id": rid})
+
+
 def create_app(queue: CommandQueue, active_run_id_supplier: Callable[[], str]):
     try:
         from fastapi import FastAPI, Request
@@ -29,6 +49,8 @@ def create_app(queue: CommandQueue, active_run_id_supplier: Callable[[], str]):
         return None
 
     app = FastAPI()
+
+    register_diagnostics(app, active_run_id_supplier)
 
     @app.post("/commands")
     async def post_commands(req: Request):

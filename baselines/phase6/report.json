@@ -1,0 +1,66 @@
+{
+  "run_id": "phase6-node-red-loop",
+  "seed": 602024,
+  "journal_schema_version": "1.2",
+  "journal": "baselines/phase6/decision_journal.jsonl",
+  "records": 2,
+  "executed_actions": 1,
+  "events_simulated": 4,
+  "rules": [
+    "press_and_collect",
+    "switch_profile"
+  ],
+  "timing_enforced": true,
+  "summary_schema_version": "1.2",
+  "manifest_path": "baselines/phase6/manifest.json",
+  "metadata": {
+    "demo_fallbacks_default": false,
+    "validation_engine": "v1",
+    "engine": {
+      "name": "CrapsSim-Control",
+      "version": "CrapsSim-Control",
+      "python": "3.12.10"
+    },
+    "artifacts": {
+      "journal": "baselines/phase6/decision_journal.jsonl",
+      "report": "baselines/phase6/report.json",
+      "manifest": "baselines/phase6/manifest.json",
+      "command_tape": "baselines/phase6/command_tape.jsonl"
+    },
+    "node_red": {
+      "flow": "examples/node_red/flow.json",
+      "source": "node-red@demo:v1"
+    },
+    "run_flags": {
+      "values": {
+        "demo_fallbacks": false,
+        "strict": false,
+        "embed_analytics": true,
+        "export": false,
+        "webhook_enabled": true,
+        "evo_enabled": false,
+        "trial_tag": null
+      },
+      "sources": {
+        "demo_fallbacks": "default",
+        "strict": "default",
+        "embed_analytics": "default",
+        "export": "default",
+        "webhook_enabled": "spec",
+        "evo_enabled": "default",
+        "trial_tag": "default"
+      },
+      "webhook_enabled": true,
+      "webhook_url_present": true,
+      "webhook_url_source": "spec",
+      "webhook_url_masked": true,
+      "demo_fallbacks_source": "default",
+      "strict_source": "default",
+      "embed_analytics_source": "default",
+      "export_source": "default",
+      "webhook_enabled_source": "spec",
+      "evo_enabled_source": "default",
+      "trial_tag_source": "default"
+    }
+  }
+}

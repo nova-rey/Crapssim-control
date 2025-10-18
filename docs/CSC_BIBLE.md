@@ -324,3 +324,7 @@ Added /commands HTTP intake with a deterministic queue. Commands validated for r
 
 ### Checkpoint 2 — Node-RED Flow (Listen → Decide → Command)
 Added webhook publisher and demo Node-RED flow. CSC emits roll and hand events; flow listens and sends commands back to `/commands`. Introduced `run.http_commands.enabled` flag and timing-reject test.
+
+Completed external-loop baseline proving webhooks → Node-RED → `/commands` → journal.
+Added diagnostics endpoints (`/health`, `/run_id`) and verified timing rejections are recorded with explicit reasons.
+Artifacts stored in `baselines/phase6/`.
