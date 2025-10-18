@@ -1,5 +1,5 @@
 phase: 4
-checkpoint: 1
-title: CLI Flag & Manifest Framework
-description: Centralized CLI flag handling and added standardized run-manifest schema.
+checkpoint: 2
+title: Node-RED / Webhook Stub Integration
+description: Opt-in outbound lifecycle hooks with safe defaults and masked configuration.
 status: active

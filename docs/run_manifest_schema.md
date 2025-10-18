@@ -31,3 +31,10 @@ Purpose
 
 The manifest provides traceability between CLI invocation, schema version, and generated artifacts.
 External systems (Node-RED, CrapsSim-Evo) can use this file to programmatically locate outputs and understand configuration context.
+
+## Integrations
+
+### `integrations.webhook`
+- `enabled` (bool): Whether webhook emission is active.
+- `url_present` (bool): True if a URL was provided (URL itself is never stored here).
+- `timeout` (number): Request timeout in seconds for outbound POSTs.

@@ -29,6 +29,9 @@ def _args(**kwargs) -> Namespace:
         "demo_fallbacks": False,
         "strict": False,
         "no_embed_analytics": False,
+        "webhook_url": None,
+        "webhook_timeout": None,
+        "no_webhook": False,
     }
     defaults.update(kwargs)
     return Namespace(**defaults)
@@ -75,6 +78,9 @@ def test_report_metadata_reflects_cli_flags():
         "strict": "cli",
         "embed_analytics": "cli",
     }
+    assert flags.get("webhook_enabled") is False
+    assert flags.get("webhook_url_masked") is False
+    assert flags.get("webhook_url_source") == "default"
     assert metadata.get("validation_engine") == VALIDATION_ENGINE_VERSION
 
     # Without CLI overrides the defaults should remain intact
@@ -92,6 +98,9 @@ def test_report_metadata_reflects_cli_flags():
         "strict": "default",
         "embed_analytics": "default",
     }
+    assert base_flags.get("webhook_enabled") is False
+    assert base_flags.get("webhook_url_masked") is False
+    assert base_flags.get("webhook_url_source") == "default"
     assert base_metadata.get("validation_engine") == VALIDATION_ENGINE_VERSION
 
 

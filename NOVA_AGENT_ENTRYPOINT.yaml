@@ -1,4 +1,4 @@
 current_phase: 4
-current_checkpoint: 1
-checkpoint_title: CLI Flag & Manifest Framework
+current_checkpoint: 2
+checkpoint_title: Node-RED / Webhook Stub Integration
 allow_behavior_change: false
