@@ -2,7 +2,7 @@
 
 | Checkpoint | Title | Status | Description |
 |-------------|--------|---------|-------------|
-| P6·C1 | Inbound Command Channel | ⏳ Pending | Safe `/commands` endpoint and queue. |
+| P6·C1 | Inbound Command Channel | ✅ Complete | `/commands` endpoint + in-process queue; applied at legal windows; journalled with origin and correlation_id. |
 | P6·C2 | Node-RED Flow | ⏳ Pending | Webhook listener + command poster demo. |
 | P6·C3 | Decision Journal Unification | ⏳ Pending | Unified journal with origins and command tape. |
 | P6·C4 | Safety & Backpressure | ⏳ Pending | Rate-limiting, dedupe, determinism modes. |

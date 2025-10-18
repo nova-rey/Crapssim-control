@@ -262,3 +262,9 @@ All legality and timing remain enforced inside CSC; external brains never bypass
 - Identical legality checks for both brains  
 - Stable reporting schema (v1.2) maintained  
 - Seamless path toward future dashboard integrations
+
+### Checkpoint 1 — Inbound Command Channel
+Established a minimal `/commands` HTTP endpoint with an internal queue. 
+Commands include `run_id`, `action`, `args`, `source`, and `correlation_id`. 
+CSC validates action verbs and timing; legal commands execute at the next window. 
+All outcomes are recorded in the Decision Journal with `origin: external:<source>`.
