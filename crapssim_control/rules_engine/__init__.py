@@ -39,7 +39,7 @@ Design notes
 
 from typing import Any, Dict, List, Optional, Tuple
 
-from .actions import (
+from ..actions import (
     make_action,
     SOURCE_RULE,
     ACTION_SET,
@@ -49,7 +49,7 @@ from .actions import (
     ACTION_SWITCH_MODE,
     ALLOWED_ACTIONS,
 )
-from .eval import eval_bool, eval_num, EvalError
+from ..eval import eval_bool, eval_num, EvalError
 
 
 # Local extension for P4C4

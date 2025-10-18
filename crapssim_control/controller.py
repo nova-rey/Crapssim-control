@@ -15,6 +15,7 @@ import hashlib  # P5C5: for content fingerprints
 from .templates import render_template as render_runtime_template, diff_bets
 from .actions import make_action  # Action Envelope helper
 from .rules_engine import apply_rules  # Runtime rules engine
+from .rules_engine.evaluator import evaluate_rules
 from .csv_journal import CSVJournal  # Per-event journaling
 from .events import canonicalize_event, COMEOUT, POINT_ESTABLISHED, ROLL, SEVEN_OUT
 from .eval import evaluate, EvalError
@@ -500,6 +501,47 @@ class ControlStrategy:
                 tracker.max_drawdown,
                 tracker.bankroll_peak - tracker.bankroll,
             )
+        ruleset = getattr(self, "ruleset", None)
+        if tracker is not None and isinstance(ruleset, list) and ruleset:
+            ctx: Dict[str, Any] = {
+                "bankroll_after": tracker.bankroll,
+                "drawdown_after": tracker.bankroll_peak - tracker.bankroll,
+                "hand_id": tracker.hand_id,
+                "roll_in_hand": tracker.roll_in_hand,
+                "point_on": bool(event.get("point_on")) if isinstance(event, dict) else bool(self.point),
+            }
+            total: Any = None
+            if isinstance(event, dict):
+                roll_info = event.get("roll")
+                if isinstance(roll_info, dict):
+                    total = roll_info.get("total")
+                if total is None:
+                    total = event.get("total")
+                box_hits = event.get("box_hits")
+                if isinstance(box_hits, (list, tuple, dict)):
+                    ctx["box_hits"] = box_hits
+                for key in ("dc_losses", "dc_wins"):
+                    val = event.get(key)
+                    if isinstance(val, (int, float)):
+                        ctx[key] = val
+                    elif isinstance(val, str):
+                        try:
+                            ctx[key] = float(val)
+                        except ValueError:
+                            continue
+            if isinstance(total, (int, float)):
+                ctx["last_roll_total"] = total
+            try:
+                results = evaluate_rules(ruleset, ctx)
+            except Exception:
+                results = []
+            if results:
+                try:
+                    with open("decision_candidates.jsonl", "a", encoding="utf-8") as f:
+                        for record in results:
+                            f.write(json.dumps(record) + "\n")
+                except Exception:
+                    pass
         if self._outbound.enabled:
             snap = tracker.get_roll_snapshot() if tracker is not None else {}
             payload = {

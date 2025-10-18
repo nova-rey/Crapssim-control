@@ -260,10 +260,15 @@ Tag: **v0.32.0-phase4-baseline**.
    Cooldowns and once-per-scope; conflict resolution.  
 4. **P5·C4 — Spec Authoring Aids**  
    Rule templates/macros; validation with helpful errors.  
-5. **P5·C5 — Baseline & Tag**  
+5. **P5·C5 — Baseline & Tag**
    Seeded runs proving 3+ rule patterns. Tag `v0.34.0-phase5-ittt`.
 
-**Guardrails:** no `eval`; deterministic vars only; if not in the decision journal, it didn’t happen.  
+### Checkpoint 1 — Rule Schema & Evaluator (Read-Only)
+Introduced a deterministic rule schema (JSON) and evaluator that checks rule conditions safely using a whitelisted expression parser.  
+Outputs candidate decisions for each roll/hand without mutating state.  
+This forms the foundation for CSC’s internal rules engine.
+
+**Guardrails:** no `eval`; deterministic vars only; if not in the decision journal, it didn’t happen.
 
 ---
 

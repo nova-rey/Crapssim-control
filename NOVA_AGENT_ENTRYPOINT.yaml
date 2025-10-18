@@ -1,6 +1,6 @@
 current_phase: 5
-current_checkpoint: 0
-checkpoint_title: Phase 5 Kickoff – CSC-Native Rules Engine (Internal Brain)
+current_checkpoint: 1
+checkpoint_title: Rule Schema & Evaluator (Read-Only)
 allow_behavior_change: true
 roadmap_version: dual-brain-v1
 notes: >
