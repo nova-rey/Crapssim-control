@@ -5,6 +5,7 @@ import tempfile
 from pathlib import Path
 
 from crapssim_control.csv_summary import summarize_journal, write_summary_csv
+from tests import skip_csv_preamble
 
 
 def _write_journal(path: Path, rows):
@@ -182,6 +183,7 @@ def test_summarize_journal_group_by_run_id_and_metrics():
         assert out_summary.exists()
 
         with out_summary.open("r", encoding="utf-8", newline="") as f:
+            skip_csv_preamble(f)
             reader = csv.DictReader(f)
             out_rows = list(reader)
             assert len(out_rows) == 1

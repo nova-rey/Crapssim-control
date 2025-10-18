@@ -177,3 +177,8 @@ These fields are additive only. With the flag off, CSV outputs remain byte-for-b
 The end-of-run report now aggregates analytics from the tracker:
 `total_hands`, `total_rolls`, `points_made`, `pso_count`, `bankroll_peak`, `bankroll_low`, and `max_drawdown`.
 `summary_schema_version` is set to `"1.2"`. Gameplay math and CSV rows remain unchanged; this checkpoint is reporting-only.
+
+**Checkpoint 4 (P3·C4): Journal Schema Versioning**
+
+Both CSV and report outputs now include explicit schema version labels (`journal_schema_version` and `summary_schema_version`, both "1.2").  
+A central `schemas.py` file defines these constants to keep exports and documentation aligned.

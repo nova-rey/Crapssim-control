@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 
 from crapssim_control.controller import ControlStrategy
+from tests import skip_csv_preamble
 
 
 def _spec(embed_analytics=True, *, csv_path: Path | None = None):
@@ -121,7 +122,15 @@ def test_flag_off_no_schema_diff(tmp_path):
     ctrl.finalize_run()
 
     baseline_header = Path("baselines/phase2/journal.csv").read_text(encoding="utf-8").splitlines()[0]
-    produced_header = csv_path.read_text(encoding="utf-8").splitlines()[0]
+    with csv_path.open(encoding="utf-8") as fh:
+        for line in fh:
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            produced_header = stripped
+            break
+        else:
+            produced_header = ""
     assert produced_header == baseline_header
 
 
@@ -151,6 +160,7 @@ def test_flag_on_additive_schema(tmp_path):
     ctrl.finalize_run()
 
     with csv_path.open(newline="", encoding="utf-8") as f:
+        skip_csv_preamble(f)
         reader = csv.DictReader(f)
         rows = list(reader)
 

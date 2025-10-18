@@ -7,6 +7,7 @@ from pathlib import Path
 
 from crapssim_control.controller import ControlStrategy
 from crapssim_control.events import COMEOUT, POINT_ESTABLISHED
+from tests import skip_csv_preamble
 
 
 def test_csv_journal_seq_and_extra(tmp_path):
@@ -50,6 +51,7 @@ def test_csv_journal_seq_and_extra(tmp_path):
     # Read the CSV back
     assert csv_path.exists()
     with open(csv_path, newline="", encoding="utf-8") as f:
+        skip_csv_preamble(f)
         rows = list(csv.DictReader(f))
 
     assert len(rows) == len(acts)

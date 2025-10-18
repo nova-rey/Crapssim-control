@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import csv
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, TextIO, Tuple
 from datetime import datetime
 
 
@@ -70,6 +70,20 @@ def _default_group_key_for_file(journal_path: Path) -> str:
 
 # ----------------------------- core API -------------------------------------- #
 
+def _skip_preamble(fh: TextIO) -> None:
+    while True:
+        pos = fh.tell()
+        line = fh.readline()
+        if not line:
+            break
+        if not line.strip():
+            continue
+        if line.startswith("#"):
+            continue
+        fh.seek(pos)
+        break
+
+
 def summarize_journal(
     journal_path: str | Path,
     *,
@@ -99,6 +113,7 @@ def summarize_journal(
     p = Path(journal_path)
     try:
         with p.open("r", encoding="utf-8", newline="") as f:
+            _skip_preamble(f)
             reader = csv.DictReader(f)
             rows = list(reader)
     except Exception:

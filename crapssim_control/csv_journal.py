@@ -7,7 +7,9 @@ import os
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, TextIO
+
+from .schemas import JOURNAL_SCHEMA_VERSION
 
 
 def _iso_now() -> str:
@@ -78,6 +80,11 @@ def _merge_extra(snapshot: Dict[str, Any], action: Dict[str, Any]) -> Any:
         return snap_extra
 
     return base if base else ""
+
+
+def _write_csv_header(fh: TextIO, headers: List[str]) -> None:
+    fh.write(f"# journal_schema_version: {JOURNAL_SCHEMA_VERSION}\n")
+    fh.write(",".join(headers) + "\n")
 
 
 @dataclass
@@ -217,8 +224,7 @@ class CSVJournal:
         if not self._needs_header():
             return
         with open(self.path, self._open_mode(), newline="", encoding="utf-8") as f:
-            writer = csv.DictWriter(f, fieldnames=self._columns, extrasaction="ignore")
-            writer.writeheader()
+            _write_csv_header(f, self._columns)
         # mark that at least one write happened (controls future mode selection when append=False)
         self._first_write_done = True
 
@@ -289,7 +295,7 @@ class CSVJournal:
         with open(self.path, mode_flag, newline="", encoding="utf-8") as f:
             writer = csv.DictWriter(f, fieldnames=self._columns, extrasaction="ignore")
             if write_header:
-                writer.writeheader()
+                _write_csv_header(f, self._columns)
 
             snap = snapshot or {}
 
@@ -374,7 +380,7 @@ class CSVJournal:
             with open(self.path, mode_flag, newline="", encoding="utf-8") as f:
                 writer = csv.DictWriter(f, fieldnames=self._columns, extrasaction="ignore")
                 if write_header:
-                    writer.writeheader()
+                    _write_csv_header(f, self._columns)
 
                 snap = snapshot or {}
                 row = {

@@ -25,6 +25,7 @@ from .config import (
 from .spec_validation import VALIDATION_ENGINE_VERSION
 from .analytics.tracker import Tracker
 from .analytics.types import HandCtx, RollCtx, SessionCtx
+from .schemas import JOURNAL_SCHEMA_VERSION, SUMMARY_SCHEMA_VERSION
 
 
 class ControlStrategy:
@@ -938,7 +939,8 @@ class ControlStrategy:
             except Exception:
                 pass
 
-        report["summary_schema_version"] = "1.2"
+        report["journal_schema_version"] = JOURNAL_SCHEMA_VERSION
+        report["summary_schema_version"] = SUMMARY_SCHEMA_VERSION
 
         # Write to disk if a path is provided/configured
         if isinstance(report_path, (str, Path)) and str(report_path):

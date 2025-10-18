@@ -2,6 +2,7 @@ import csv
 import json
 from crapssim_control.controller import ControlStrategy
 from crapssim_control.events import COMEOUT, POINT_ESTABLISHED
+from tests import skip_csv_preamble
 
 def _spec(csv_path):
     return {
@@ -50,7 +51,9 @@ def test_finalize_run_emits_summary_row_and_stats(tmp_path):
     # 3) Finalize → summary row appended
     c.finalize_run()
 
-    rows = list(csv.DictReader(open(csv_path, newline="", encoding="utf-8")))
+    with open(csv_path, newline="", encoding="utf-8") as fh:
+        skip_csv_preamble(fh)
+        rows = list(csv.DictReader(fh))
     assert len(rows) == len(acts1) + 1
 
     summary = rows[-1]
