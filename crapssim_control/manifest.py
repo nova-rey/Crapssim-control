@@ -37,5 +37,9 @@ def generate_manifest(
                 "timeout": float(cli_flags.get("webhook_timeout", 2.0)),
             }
         },
+        "evo": {
+            "enabled": bool(cli_flags.get("evo_enabled", False)),
+            "trial_tag": cli_flags.get("trial_tag"),
+        },
         "ui": {"report_url": None, "journal_url": None},
     }

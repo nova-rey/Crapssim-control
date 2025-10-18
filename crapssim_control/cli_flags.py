@@ -17,6 +17,8 @@ class CLIFlags:
     webhook_timeout: float = 2.0
     webhook_enabled: bool = False
     webhook_enabled_source: str = "default"
+    evo_enabled: bool = False
+    trial_tag: str | None = None
 
 
 def parse_flags(args):
@@ -58,6 +60,14 @@ def parse_flags(args):
     if "--no-webhook" in args:
         flags.webhook_enabled = False
         flags.webhook_enabled_source = "cli"
+
+    if "--evo-enabled" in args:
+        flags.evo_enabled = True
+
+    if "--trial-tag" in args:
+        i = args.index("--trial-tag")
+        if i + 1 < len(args):
+            flags.trial_tag = args[i + 1]
 
     # Ensure defaults retain explicit provenance markers.
     flags.strict_source = flags.strict_source or "default"

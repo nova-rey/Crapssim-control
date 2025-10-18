@@ -220,3 +220,10 @@ Outbound lifecycle hooks (run/hand/roll) are available behind explicit flags. De
 Reports now include `run_id`, `manifest_path`, and an `engine` and `artifacts` block under `metadata`.
 Each run flag records a `*_source` indicating CLI/spec/default provenance.
 All webhook payloads now include `run_id` (and seed/fingerprint on `run.started` when available) for downstream correlation.
+
+### Checkpoint 4 — Evo Integration Hooks (Scaffold)
+
+A new `EvoBridge` interface defines the minimal handshake points for future CrapsSim-Evo integration.
+It is disabled by default and inert, writing optional stub logs for visibility.  
+Manifest and CLI support `evo_enabled` and `trial_tag` fields, allowing downstream systems
+to recognize and group trial cohorts without affecting simulation behavior.

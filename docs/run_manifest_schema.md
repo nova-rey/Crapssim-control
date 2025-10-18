@@ -42,3 +42,7 @@ External systems (Node-RED, CrapsSim-Evo) can use this file to programmatically 
 ### UI Hints (optional)
 - `ui.report_url` (string|null)
 - `ui.journal_url` (string|null)
+
+### `evo`
+- `enabled` (bool): Whether Evo scaffold is active.
+- `trial_tag` (string|null): Cohort or experiment label.

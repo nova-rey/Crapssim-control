@@ -1,5 +1,5 @@
 phase: 4
-checkpoint: 3
-title: Runtime Report & Metadata Polish
-description: Added run_id/manifest_path, engine/artifacts metadata, flag provenance, and run_id in webhooks.
+checkpoint: 4
+title: Evo Integration Hooks (Scaffold)
+description: Added placeholder EvoBridge class and evo manifest fields for future integration.
 status: active
