@@ -1,5 +1,5 @@
 phase: 3
-checkpoint: 4
-title: Journal Schema Versioning
-description: Added explicit journal and summary schema version fields (v1.2) with centralized constants.
-status: active
+checkpoint: 5
+title: Baseline & Tag
+description: Captured seeded analytics run for reproducible baseline; tagged v0.31.0-phase3-baseline.
+status: complete
