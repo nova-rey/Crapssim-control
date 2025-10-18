@@ -22,4 +22,16 @@ Artifacts captured in `baselines/phase2/` (journal.csv, report.json, manifest.js
 | P3·C4 | Journal Schema Versioning | ✅ Complete | Added journal_schema_version "1.2" to CSV/report outputs; centralized constants in schemas.py. |
 | P3·C5 | Baseline & Tag | ✅ Complete | Captured seeded analytics run and tagged v0.31.0-phase3-baseline. |
 
-**Next Tag:** `v0.31.0-phase3-baseline`
+**Phase 3 Status:** ✅ Complete
+**Baseline Tag:** `v0.31.0-phase3-baseline`
+
+## Phase 4 — Control Surface & Integrations
+
+| Checkpoint | Title | Status | Summary |
+|-------------|--------|---------|----------|
+| P4·C0 | Docs Kickoff & Roadmap Setup | ✅ Complete | Update docs for Phase 4 structure and visibility. |
+| P4·C1 | CLI Flag & Manifest Framework | ⏳ | Unify CLI flags; introduce run-manifest schema. |
+| P4·C2 | Node-RED / Webhook Stub Integration | ⏳ | Add minimal hooks for external orchestration. |
+| P4·C3 | Runtime Report & Metadata Polish | ⏳ | Expand metadata, improve report clarity. |
+| P4·C4 | Evo Integration Hooks (Scaffold) | ⏳ | Lay down stub interfaces for CrapsSim-Evo. |
+| P4·C5 | Baseline & Tag | ⏳ | Capture seeded baseline and tag v0.32.0-phase4-baseline. |
