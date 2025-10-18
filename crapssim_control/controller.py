@@ -16,6 +16,7 @@ from .templates import render_template as render_runtime_template, diff_bets
 from .actions import make_action  # Action Envelope helper
 from .rules_engine import apply_rules  # Runtime rules engine
 from .rules_engine.evaluator import evaluate_rules
+from crapssim_control.rules_engine.actions import ACTIONS, is_legal_timing
 from .csv_journal import CSVJournal  # Per-event journaling
 from .events import canonicalize_event, COMEOUT, POINT_ESTABLISHED, ROLL, SEVEN_OUT
 from .eval import evaluate, EvalError
@@ -531,17 +532,66 @@ class ControlStrategy:
                             continue
             if isinstance(total, (int, float)):
                 ctx["last_roll_total"] = total
+            fired_rules: List[Dict[str, Any]] = []
+            decisions: List[Dict[str, Any]] = []
             try:
                 results = evaluate_rules(ruleset, ctx)
             except Exception:
                 results = []
             if results:
+                rule_lookup: Dict[str, Dict[str, Any]] = {}
+                if isinstance(ruleset, list):
+                    rule_lookup = {
+                        str(rule.get("id")): rule
+                        for rule in ruleset
+                        if isinstance(rule, dict) and rule.get("id") is not None
+                    }
+                for record in results:
+                    decision = dict(record)
+                    rid = decision.get("rule_id")
+                    rule_def = rule_lookup.get(str(rid)) if rid is not None else None
+                    if rule_def is not None:
+                        decision["action"] = rule_def.get("action", "")
+                    decisions.append(decision)
+                    if decision.get("fired"):
+                        fired_rules.append(decision)
                 try:
                     with open("decision_candidates.jsonl", "a", encoding="utf-8") as f:
-                        for record in results:
+                        for record in decisions:
                             f.write(json.dumps(record) + "\n")
                 except Exception:
                     pass
+
+            if fired_rules:
+                current_state: Dict[str, Any] = {
+                    "resolving": bool((event or {}).get("resolving")),
+                    "point_on": bool(ctx.get("point_on")),
+                    "roll_in_hand": ctx.get("roll_in_hand"),
+                }
+                runtime: Dict[str, Any] = {
+                    "tracker": tracker,
+                    "state": current_state,
+                    "context": dict(ctx),
+                }
+                for decision in fired_rules:
+                    action_str = str(decision.get("action") or "")
+                    if not action_str:
+                        continue
+                    verb = action_str.split("(")[0]
+                    act = ACTIONS.get(verb)
+                    if not act:
+                        continue
+                    legal, reason = is_legal_timing(current_state, {"verb": verb})
+                    decision["timing_legal"] = legal
+                    decision["timing_reason"] = reason
+                    if legal:
+                        result = act.execute(runtime, decision)
+                        decision["executed"] = True
+                        decision["result"] = result
+                    else:
+                        decision["executed"] = False
+                    with open("decision_journal.jsonl", "a", encoding="utf-8") as f:
+                        f.write(json.dumps(decision) + "\n")
         if self._outbound.enabled:
             snap = tracker.get_roll_snapshot() if tracker is not None else {}
             payload = {
