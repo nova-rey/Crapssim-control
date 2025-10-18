@@ -1,5 +1,5 @@
 phase: 6
-checkpoint: 2
-title: Node-RED Flow (Listen → Decide → Command)
-description: Seeded external-loop baseline captured with Node-RED flow; diagnostics endpoints exposed for health/run_id checks.
+checkpoint: 3
+title: Decision Journal Unification
+description: Unified journal for internal and external decisions; added command tape recording and deterministic replay mode; diagnostics now include /version and webhook retry.
 status: active

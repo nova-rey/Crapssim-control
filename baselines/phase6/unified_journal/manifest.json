@@ -1,0 +1,52 @@
+{
+  "run_id": "aa3b2cbd-1c94-4bb9-be96-8f83b0a1bc56",
+  "timestamp": "2025-10-18T22:40:17Z",
+  "spec_file": "examples/internal_brain_demo/spec.yaml",
+  "cli_flags": {
+    "demo_fallbacks": false,
+    "strict": false,
+    "embed_analytics": true,
+    "external_mode": "live",
+    "export": false,
+    "webhook_enabled": false,
+    "webhook_timeout": 2.0,
+    "webhook_url_source": "default",
+    "webhook_url": false,
+    "evo_enabled": false,
+    "trial_tag": null,
+    "demo_fallbacks_source": "default",
+    "strict_source": "default",
+    "embed_analytics_source": "default",
+    "export_source": "default",
+    "webhook_enabled_source": "default",
+    "evo_enabled_source": "default",
+    "trial_tag_source": "default",
+    "external_mode_source": "spec"
+  },
+  "schema": {
+    "journal": "1.2",
+    "summary": "1.2"
+  },
+  "engine_version": "CrapsSim-Control",
+  "output_paths": {
+    "journal": "export/journal.csv",
+    "report": "baselines/phase6/unified_journal/report.json",
+    "manifest": "baselines/phase6/unified_journal/manifest.json",
+    "command_tape": "baselines/phase6/unified_journal/command_tape.jsonl"
+  },
+  "integrations": {
+    "webhook": {
+      "enabled": false,
+      "url_present": false,
+      "timeout": 2.0
+    }
+  },
+  "evo": {
+    "enabled": false,
+    "trial_tag": null
+  },
+  "ui": {
+    "report_url": null,
+    "journal_url": null
+  }
+}

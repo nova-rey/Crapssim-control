@@ -1,5 +1,5 @@
 current_phase: 6
-current_checkpoint: 2
-checkpoint_title: Node-RED Flow (Listen → Decide → Command)
+current_checkpoint: 3
+checkpoint_title: Decision Journal Unification
 allow_behavior_change: true
-notes: Bible is append-only; add new sections, do not overwrite.
+notes: Bible is append-only; do not overwrite prior phases; append new sections.

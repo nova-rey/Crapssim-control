@@ -4,8 +4,10 @@ Non-blocking; failures logged but ignored.
 """
 import json
 import logging
+import random
 import threading
-from typing import Iterable, Sequence
+import time
+from typing import Iterable, Optional, Sequence
 
 try:  # pragma: no cover - exercised via monkeypatch in tests
     import requests  # type: ignore
@@ -43,12 +45,26 @@ class WebhookPublisher:
             ).start()
 
     def _post(self, url: str, event: str, data: str) -> None:
-        try:
-            headers = {
-                "Content-Type": "application/json",
-                "X-CSC-Event": event,
-                "User-Agent": "CSC-Webhook",
-            }
-            requests.post(url, headers=headers, data=data, timeout=self.timeout)
-        except Exception as exc:  # pragma: no cover - log-only branch
-            log.warning("Webhook to %s failed: %s", url, exc)
+        headers = {
+            "Content-Type": "application/json",
+            "X-CSC-Event": event,
+            "User-Agent": "CSC-Webhook",
+        }
+        attempts = 0
+        last_error: Optional[Exception] = None
+        delays = [0.25, 0.5]
+        while attempts <= len(delays):
+            try:
+                requests.post(url, headers=headers, data=data, timeout=self.timeout)
+                return
+            except Exception as exc:  # pragma: no cover - log-only branch
+                last_error = exc
+                if attempts >= len(delays):
+                    break
+                delay = delays[attempts]
+                jitter = random.uniform(0, 0.25)
+                time.sleep(delay + jitter)
+            finally:
+                attempts += 1
+        if last_error is not None:  # pragma: no cover - log-only branch
+            log.warning("Webhook to %s failed after %d attempts: %s", url, attempts, last_error)

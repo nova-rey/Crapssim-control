@@ -5,7 +5,47 @@ Records all rule/action events with cooldown and scope protections.
 
 import json
 import time
-from typing import Any, Dict, Tuple
+from dataclasses import dataclass
+from typing import Any, Dict, Optional, Tuple
+
+
+@dataclass
+class JournalWriter:
+    """Helper for emitting normalized journal entries."""
+
+    journal: "DecisionJournal"
+    base_fields: Optional[Dict[str, Any]] = None
+
+    def write(
+        self,
+        *,
+        run_id: str,
+        origin: str,
+        action: str,
+        args: Optional[Dict[str, Any]] = None,
+        executed: bool = False,
+        rejection_reason: Optional[str] = None,
+        correlation_id: Optional[str] = None,
+        timestamp: Optional[float] = None,
+        extra: Optional[Dict[str, Any]] = None,
+        **fields: Any,
+    ) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {}
+        if self.base_fields:
+            payload.update(self.base_fields)
+        if extra:
+            payload.update(extra)
+        payload.update(fields)
+        payload["run_id"] = run_id
+        payload["origin"] = origin
+        payload["action"] = action
+        payload["args"] = dict(args or {})
+        payload["executed"] = bool(executed)
+        if rejection_reason is not None:
+            payload["rejection_reason"] = rejection_reason
+        if correlation_id is not None:
+            payload["correlation_id"] = correlation_id
+        return self.journal.record(payload, timestamp=timestamp)
 
 
 class DecisionJournal:
@@ -13,6 +53,7 @@ class DecisionJournal:
         self.path = path
         self.cooldowns: Dict[str, int] = {}
         self.scope_flags = set()
+        self._seq = 0
 
     # --- SAFETIES ------------------------------------------------------------
 
@@ -39,11 +80,42 @@ class DecisionJournal:
 
     # --- LOGGING -------------------------------------------------------------
 
-    def record(self, entry: Dict[str, Any]):
+    def record(self, entry: Dict[str, Any], *, timestamp: Optional[float] = None) -> Dict[str, Any]:
         """Append a decision record as JSON."""
-        entry.setdefault("timestamp", time.time())
+        normalized = dict(entry or {})
+        self._seq += 1
+        normalized["seq"] = self._seq
+        if timestamp is None:
+            timestamp = normalized.get("timestamp")
+        if timestamp is None:
+            timestamp = time.time()
+        normalized["timestamp"] = float(timestamp)
+        origin = normalized.get("origin")
+        normalized["origin"] = str(origin) if origin is not None else "unknown"
+        action = normalized.get("action")
+        normalized["action"] = str(action) if action is not None else "unknown"
+        args = normalized.get("args")
+        if isinstance(args, dict):
+            normalized["args"] = args
+        else:
+            normalized["args"] = {}
+        executed = normalized.get("executed")
+        normalized["executed"] = bool(executed)
+        if "rejection_reason" not in normalized or normalized["rejection_reason"] is None:
+            normalized["rejection_reason"] = None
+        else:
+            normalized["rejection_reason"] = str(normalized["rejection_reason"])
+        if "correlation_id" in normalized:
+            corr = normalized["correlation_id"]
+            normalized["correlation_id"] = str(corr) if corr is not None else None
+        else:
+            normalized["correlation_id"] = None
         with open(self.path, "a", encoding="utf-8") as f:
-            f.write(json.dumps(entry) + "\n")
+            f.write(json.dumps(normalized) + "\n")
+        return normalized
+
+    def writer(self, base_fields: Optional[Dict[str, Any]] = None) -> JournalWriter:
+        return JournalWriter(self, base_fields=base_fields)
 
     # --- HELPER --------------------------------------------------------------
 
