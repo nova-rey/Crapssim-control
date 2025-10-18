@@ -328,3 +328,8 @@ Added webhook publisher and demo Node-RED flow. CSC emits roll and hand events; 
 Completed external-loop baseline proving webhooks → Node-RED → `/commands` → journal.
 Added diagnostics endpoints (`/health`, `/run_id`) and verified timing rejections are recorded with explicit reasons.
 Artifacts stored in `baselines/phase6/`.
+
+### Checkpoint 3 — Decision Journal Unification (+ Command Tape & Replay)
+Unified internal and external decision logging (shared fields and sequencing). Added a command tape recorder and deterministic replay mode.
+Introduced a `/version` endpoint in diagnostics and lightweight webhook retries.
+Artifacts stored under `baselines/phase6/unified_journal/`.

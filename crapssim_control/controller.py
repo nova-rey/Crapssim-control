@@ -2,7 +2,7 @@
 from __future__ import annotations
  
 from dataclasses import asdict, is_dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Deque, Dict, List, Optional, Tuple
 import json
 from pathlib import Path
 import platform
@@ -13,13 +13,16 @@ from datetime import datetime
 from uuid import uuid4
 from types import SimpleNamespace
 import hashlib  # P5C5: for content fingerprints
+import time
+from collections import deque
+import subprocess
 
 from .templates import render_template as render_runtime_template, diff_bets
 from .actions import make_action  # Action Envelope helper
 from .rules_engine import apply_rules  # Runtime rules engine
 from .rules_engine.evaluator import evaluate_rules
 from crapssim_control.rules_engine.actions import ACTIONS, is_legal_timing
-from .rules_engine.journal import DecisionJournal
+from .rules_engine.journal import DecisionJournal, JournalWriter
 from .rules_engine.schema import validate_ruleset
 from .csv_journal import CSVJournal  # Per-event journaling
 from .events import canonicalize_event, COMEOUT, POINT_ESTABLISHED, ROLL, SEVEN_OUT
@@ -40,6 +43,7 @@ from .integrations.hooks import Outbound
 from .integrations.evo_hooks import EvoBridge
 from crapssim_control.integrations.webhooks import WebhookPublisher
 from crapssim_control.external.command_channel import CommandQueue
+from crapssim_control.external.command_tape import CommandTape
 from crapssim_control.external.http_api import create_app, serve_commands
 
 
@@ -117,9 +121,19 @@ class ControlStrategy:
         self.engine_version: str = getattr(self, "engine_version", "CrapsSim-Control")
         if self.engine_version == "unknown":
             self.engine_version = "CrapsSim-Control"
+        self._engine_build_hash: str = self._detect_build_hash()
         self._run_id: str = str(uuid4())
         self._seed_value: Optional[int] = None
         self._export_paths: Dict[str, Optional[str]] = {}
+        self._command_tape: Optional[CommandTape] = None
+        self._command_tape_path: Optional[str] = None
+        self._replay_commands: Deque[Dict[str, Any]] = deque()
+        self.external_mode, self._external_mode_source = self._resolve_external_mode()
+        self._command_tape_path = self._resolve_command_tape_path()
+        if self.external_mode == "replay":
+            self._load_replay_tape()
+        elif self._command_tape_path:
+            self._command_tape = CommandTape(self._command_tape_path)
         self._outbound: Outbound = Outbound()
         self._webhook_url_source: str = "default"
         self._webhook_url_actual: Optional[str] = None
@@ -158,6 +172,8 @@ class ControlStrategy:
             else:
                 webhook_enabled = bool(enabled_raw)
         self.webhooks = WebhookPublisher(targets=targets, enabled=webhook_enabled, timeout=webhook_timeout)
+        if self.external_mode == "replay":
+            self.webhooks.enabled = False
         self.table_cfg = table_cfg or spec.get("table") or {}
         self.point: Optional[int] = None
         self.rolls_since_point: int = 0
@@ -270,18 +286,25 @@ class ControlStrategy:
 
         # P5C3: structured decision journal with safeties
         self.journal = DecisionJournal()
+        self._journal_writer: JournalWriter = self.journal.writer()
 
         # P6C1: External command channel (HTTP intake + in-process queue)
         self.command_queue = CommandQueue()
         self._api_thread: Optional[threading.Thread] = None
         self._httpd = None
-        self._http_commands_enabled = bool(self.config.get("run.http_commands.enabled", True))
+        http_enabled_cfg = bool(self.config.get("run.http_commands.enabled", True))
+        self._http_commands_enabled = http_enabled_cfg and self.external_mode == "live"
 
         if self._http_commands_enabled:
             def _active_run_id() -> Optional[str]:
                 return getattr(self, "run_id", None)
 
-            _app = create_app(self.command_queue, _active_run_id)
+            _app = create_app(
+                self.command_queue,
+                _active_run_id,
+                version_supplier=lambda: getattr(self, "engine_version", "unknown"),
+                build_hash_supplier=lambda: self._engine_build_hash,
+            )
             if _app is not None:
                 try:
                     import uvicorn
@@ -301,7 +324,12 @@ class ControlStrategy:
                     pass
             else:
                 try:
-                    self._httpd = serve_commands(self.command_queue, _active_run_id)
+                    self._httpd = serve_commands(
+                        self.command_queue,
+                        _active_run_id,
+                        version_supplier=lambda: getattr(self, "engine_version", "unknown"),
+                        build_hash_supplier=lambda: self._engine_build_hash,
+                    )
                     self._api_thread = threading.Thread(
                         target=self._httpd.serve_forever,
                         name="csc-external-httpd",
@@ -437,6 +465,172 @@ class ControlStrategy:
         if seed_val is not None:
             self._seed_value = seed_val
 
+    @staticmethod
+    def _detect_build_hash() -> str:
+        try:
+            root = Path(__file__).resolve().parent.parent
+            result = subprocess.check_output(
+                ["git", "rev-parse", "--short", "HEAD"],
+                cwd=root,
+                stderr=subprocess.DEVNULL,
+            )
+            value = result.decode("utf-8").strip()
+            return value or "unknown"
+        except Exception:
+            return "unknown"
+
+    def _resolve_external_mode(self) -> Tuple[str, str]:
+        cfg = self.config.get("run.external", None)
+        mode_value: Optional[str] = None
+        source = "default"
+        if isinstance(cfg, str):
+            mode_value = cfg
+            source = "spec"
+        else:
+            candidate = getattr(cfg, "mode", None) if cfg is not None else None
+            if candidate is not None:
+                mode_value = candidate
+                source = "spec"
+        text = str(mode_value).strip().lower() if mode_value is not None else ""
+        if text in {"off", "live", "replay"}:
+            return text, source
+        return "live", "default"
+
+    def _resolve_command_tape_path(self) -> Optional[str]:
+        tape_path: Optional[str] = None
+        external_cfg = self.config.get("run.external", None)
+        candidates = []
+        if external_cfg is not None:
+            for attr in ("tape_path", "command_tape_path"):
+                val = getattr(external_cfg, attr, None)
+                if val:
+                    candidates.append(val)
+        cli_val = self._cli_flags_context.get("command_tape_path") if isinstance(self._cli_flags_context, dict) else None
+        if cli_val:
+            candidates.insert(0, cli_val)
+        for cand in candidates:
+            if isinstance(cand, (str, Path)) and str(cand).strip():
+                tape_path = str(cand)
+                break
+        if tape_path is None:
+            existing = self._export_paths.get("command_tape")
+            if existing:
+                tape_path = str(existing)
+        if tape_path is None:
+            tape_path = "export/command_tape.jsonl"
+        self._export_paths["command_tape"] = tape_path
+        return tape_path
+
+    def _get_command_tape(self) -> Optional[CommandTape]:
+        if self.external_mode == "replay":
+            return None
+        path = self._command_tape_path or self._resolve_command_tape_path()
+        if not path:
+            return None
+        if self._command_tape is None or self._command_tape_path != path:
+            self._command_tape = CommandTape(path)
+            self._command_tape_path = path
+        return self._command_tape
+
+    def _load_replay_tape(self) -> None:
+        self._replay_commands.clear()
+        path = self._command_tape_path
+        if not path:
+            return
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                records = []
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        data = json.loads(line)
+                    except Exception:
+                        continue
+                    if not isinstance(data, dict):
+                        continue
+                    data.setdefault("args", {})
+                    data.setdefault("source", "replay")
+                    records.append(data)
+        except Exception:
+            return
+        records.sort(key=lambda item: item.get("ts", 0.0))
+        for record in records:
+            self._replay_commands.append(record)
+        if records:
+            run_id = records[0].get("run_id")
+            if run_id:
+                self._run_id = str(run_id)
+
+    def _enqueue_replay_command(self, payload: Dict[str, Any]) -> None:
+        if not hasattr(self, "command_queue"):
+            return
+        corr = payload.get("correlation_id")
+        if corr:
+            correlation_id = str(corr)
+        else:
+            correlation_id = f"replay-{int(time.time()*1000)}-{len(self._replay_commands)}"
+        command = {
+            "run_id": self.run_id,
+            "action": str(payload.get("action", "")),
+            "args": payload.get("args", {}) or {},
+            "source": str(payload.get("source", "replay")),
+            "correlation_id": correlation_id,
+        }
+        ok, _reason = self.command_queue.enqueue(command)
+        if not ok:
+            unique_id = f"{correlation_id}-{int(time.time()*1000)}"
+            command["correlation_id"] = unique_id
+            self.command_queue.enqueue(command)
+
+    def _inject_replay_commands(self, tracker: Optional[Tracker]) -> None:
+        if self.external_mode != "replay":
+            return
+        current_hand = tracker.hand_id if tracker is not None else None
+        current_roll = tracker.roll_in_hand if tracker is not None else None
+        while self._replay_commands:
+            entry = self._replay_commands[0]
+            hand_target = entry.get("hand_id")
+            roll_target = entry.get("roll_in_hand")
+            if hand_target is not None and current_hand is not None and hand_target > current_hand:
+                break
+            if roll_target is not None and current_roll is not None and roll_target > current_roll:
+                break
+            self._replay_commands.popleft()
+            self._enqueue_replay_command(entry)
+
+    def _append_command_tape(
+        self,
+        *,
+        source: str,
+        action: str,
+        args: Dict[str, Any],
+        executed: bool,
+        correlation_id: Optional[str],
+        rejection_reason: Optional[str],
+        hand_id: Optional[int],
+        roll_in_hand: Optional[int],
+        seq: Optional[int],
+    ) -> None:
+        if self.external_mode == "replay":
+            return
+        tape = self._get_command_tape()
+        if tape is None:
+            return
+        tape.append(
+            self.run_id,
+            source,
+            action,
+            args,
+            executed,
+            correlation_id=correlation_id,
+            rejection_reason=rejection_reason,
+            hand_id=hand_id,
+            roll_in_hand=roll_in_hand,
+            seq=seq,
+        )
+
     def _webhook_base_payload(self) -> Dict[str, Any]:
         run_id = getattr(self, "_run_id", None)
         if not run_id:
@@ -445,6 +639,8 @@ class ControlStrategy:
         return {"run_id": run_id}
 
     def _emit_webhook(self, event: str, payload: Dict[str, Any]) -> None:
+        if self.external_mode == "replay":
+            return
         publisher = getattr(self, "webhooks", None)
         if publisher is None:
             return
@@ -470,6 +666,7 @@ class ControlStrategy:
             "webhook_url_source",
             "evo_enabled",
             "trial_tag",
+            "command_tape_path",
         )
         if flags is None:
             return {}
@@ -852,16 +1049,32 @@ class ControlStrategy:
                         decision["result"] = result
                     else:
                         decision["executed"] = False
+                        rejection_reason = None
                         if duplicate_blocked:
                             decision["note"] = "duplicate_blocked"
+                            rejection_reason = "duplicate_blocked"
                         elif not allowed:
                             decision["note"] = reason
+                            rejection_reason = str(reason)
                         elif not legal:
                             decision["note"] = timing_reason
+                            rejection_reason = str(timing_reason)
+                        decision["rejection_reason"] = rejection_reason
 
                     decision["run_id"] = self.run_id
                     decision["origin"] = f"rule:{rule_id}"
-                    self.journal.record(decision)
+                    args_payload = decision.get("args")
+                    if not isinstance(args_payload, dict):
+                        args_payload = {}
+                    self._journal_writer.write(
+                        run_id=self.run_id,
+                        origin=f"rule:{rule_id}",
+                        action=verb,
+                        args=args_payload,
+                        executed=bool(decision.get("executed")),
+                        rejection_reason=decision.get("rejection_reason"),
+                        extra=dict(decision),
+                    )
         payload = {
             **self._webhook_base_payload(),
             "hand_id": snap.get("hand_id") if isinstance(snap, dict) else None,
@@ -1293,13 +1506,17 @@ class ControlStrategy:
 
             current_state = self._current_state_for_eval()
             tracker = self._tracker
+            self._inject_replay_commands(tracker)
             pending = list(self.command_queue.drain()) if hasattr(self, "command_queue") else []
             for cmd in pending:
                 verb = cmd["action"]
-                args = cmd.get("args", {})
-                origin = f"external:{cmd.get('source', 'unknown')}"
+                raw_args = cmd.get("args")
+                args = raw_args if isinstance(raw_args, dict) else {}
+                source_label = str(cmd.get("source", "external"))
+                origin = f"external:{source_label}"
                 corr = cmd.get("correlation_id")
                 legal, reason = is_legal_timing(current_state, {"verb": verb})
+                rejection_reason = None
                 record = {
                     "run_id": self.run_id,
                     "hand_id": tracker.hand_id if tracker is not None else None,
@@ -1309,16 +1526,39 @@ class ControlStrategy:
                     "origin": origin,
                     "correlation_id": corr,
                     "timing_legal": legal,
-                    "executed": False,
+                    "timing_reason": reason,
                 }
+                executed = False
+                result: Any = None
                 if not legal:
-                    record["rejection_reason"] = f"timing:{reason}"
-                    self.journal.record(record)
-                    continue
-                result = ACTIONS[verb].execute(self.__dict__, {"args": args})
-                record["executed"] = True
-                record["result"] = result
-                self.journal.record(record)
+                    rejection_reason = f"timing:{reason}"
+                    record["rejection_reason"] = rejection_reason
+                else:
+                    result = ACTIONS[verb].execute(self.__dict__, {"args": args})
+                    executed = True
+                    record["result"] = result
+                record["executed"] = executed
+                entry = self._journal_writer.write(
+                    run_id=self.run_id,
+                    origin=origin,
+                    action=verb,
+                    args=args,
+                    executed=executed,
+                    rejection_reason=rejection_reason,
+                    correlation_id=str(corr) if corr is not None else None,
+                    extra=record,
+                )
+                self._append_command_tape(
+                    source=source_label,
+                    action=verb,
+                    args=args,
+                    executed=executed,
+                    correlation_id=str(corr) if corr is not None else None,
+                    rejection_reason=rejection_reason,
+                    hand_id=record["hand_id"],
+                    roll_in_hand=record["roll_in_hand"],
+                    seq=entry.get("seq") if isinstance(entry, dict) else None,
+                )
 
             rule_actions = self._apply_rules_for_event(event)
             switches, setvars, rule_non_special = self._split_switch_setvar_other(rule_actions)
@@ -1533,6 +1773,7 @@ class ControlStrategy:
         run_flags["webhook_url"] = bool(self._webhook_url_present)
         run_flags["evo_enabled"] = bool(cli_flags_dict.get("evo_enabled", False))
         run_flags["trial_tag"] = cli_flags_dict.get("trial_tag")
+        run_flags["external_mode"] = self.external_mode
         run_flags["demo_fallbacks_source"] = self._flag_sources.get("demo_fallbacks", "default")
         run_flags["strict_source"] = self._flag_sources.get("strict", "default")
         run_flags["embed_analytics_source"] = self._flag_sources.get("embed_analytics", "default")
@@ -1544,12 +1785,14 @@ class ControlStrategy:
             cli_flags_dict.get("evo_enabled_source", "default")
         )
         run_flags["trial_tag_source"] = str(cli_flags_dict.get("trial_tag_source", "default"))
+        run_flags["external_mode_source"] = self._external_mode_source
 
         run_flag_sources_meta = dict(self._flag_sources)
         run_flag_sources_meta["export"] = run_flags["export_source"]
         run_flag_sources_meta["webhook_enabled"] = run_flags["webhook_enabled_source"]
         run_flag_sources_meta["evo_enabled"] = run_flags["evo_enabled_source"]
         run_flag_sources_meta["trial_tag"] = run_flags["trial_tag_source"]
+        run_flag_sources_meta["external_mode"] = self._external_mode_source
 
         report: Dict[str, Any] = {
             "identity": identity,
@@ -1579,6 +1822,7 @@ class ControlStrategy:
                 "webhook_url_masked": bool(self._webhook_url_present),
             }
         )
+        run_flags_meta["external_mode"] = self.external_mode
         def _source_for(key: str, default: str = "default") -> str:
             src = run_flags.get(f"{key}_source")
             if isinstance(src, str) and src:
@@ -1587,7 +1831,7 @@ class ControlStrategy:
                 return str(run_flag_sources_meta[key])
             return default
 
-        for key in ["strict", "demo_fallbacks", "embed_analytics", "export", "webhook_enabled"]:
+        for key in ["strict", "demo_fallbacks", "embed_analytics", "export", "webhook_enabled", "external_mode"]:
             if key in run_flags or key in run_flags_meta:
                 run_flags_meta[f"{key}_source"] = _source_for(key)
 
@@ -1639,6 +1883,7 @@ class ControlStrategy:
             "journal": resolved_export_paths.get("journal"),
             "report": resolved_export_paths.get("report"),
             "manifest": resolved_export_paths.get("manifest", "export/manifest.json"),
+            "command_tape": resolved_export_paths.get("command_tape"),
         }
 
         manifest_path_str = outputs["manifest"]
@@ -1699,6 +1944,7 @@ class ControlStrategy:
             "journal": resolved_export_paths.get("journal"),
             "report": resolved_export_paths.get("report"),
             "manifest": resolved_export_paths.get("manifest"),
+            "command_tape": resolved_export_paths.get("command_tape"),
         }
 
         run_flags_meta_final = metadata_block.setdefault("run_flags", {})
@@ -1707,6 +1953,7 @@ class ControlStrategy:
         run_flags_meta_final.setdefault("webhook_enabled", webhook_enabled)
         run_flags_meta_final.setdefault("webhook_url_source", self._webhook_url_source)
         run_flags_meta_final["webhook_url_masked"] = bool(run_flags.get("webhook_url"))
+        run_flags_meta_final["external_mode"] = self.external_mode
 
         def _source_for_contract(key: str, default: str = "default") -> str:
             src = run_flags.get(f"{key}_source")
@@ -1725,6 +1972,7 @@ class ControlStrategy:
             "webhook_enabled",
             "evo_enabled",
             "trial_tag",
+            "external_mode",
         ):
             if key in run_flags or key in run_flags_meta_final:
                 run_flags_meta_final[f"{key}_source"] = _source_for_contract(key)
@@ -1737,6 +1985,8 @@ class ControlStrategy:
             except Exception:
                 pass
         self._export_paths = dict(resolved_export_paths)
+        if "command_tape" in self._export_paths:
+            self._command_tape_path = self._export_paths.get("command_tape")
 
         self._emit_run_finished(report)
 
@@ -1856,6 +2106,7 @@ class ControlStrategy:
         csv_path = Path(getattr(j, "path")) if (j is not None and getattr(j, "path", None)) else None
         meta_path = self._read_meta_path_from_spec()
         report_path, _auto = self._report_cfg_from_spec()
+        tape_path = Path(self._command_tape_path) if self._command_tape_path else None
 
         # If report is configured but does not exist yet, try to generate it once.
         if report_path and not report_path.exists():
@@ -1903,6 +2154,16 @@ class ControlStrategy:
                 dst, _copied, fp = self._export_copy(report_path, dest_dir, versioning=True)
                 artifacts["report"] = str(dst.relative_to(dest_dir))
                 fingerprints["report"] = fp
+            else:
+                artifacts.setdefault("report", None)
+                fingerprints.setdefault("report", None)
+            if tape_path and tape_path.exists():
+                dst, _copied, fp = self._export_copy(tape_path, dest_dir, versioning=True)
+                artifacts["command_tape"] = str(dst.relative_to(dest_dir))
+                fingerprints["command_tape"] = fp
+            else:
+                artifacts.setdefault("command_tape", None)
+                fingerprints.setdefault("command_tape", None)
 
             manifest = {
                 "identity": identity,
@@ -1930,6 +2191,13 @@ class ControlStrategy:
             if report_path and report_path.exists():
                 zf.write(report_path, arcname=rel_report or "report.json")
                 artifacts_zip["report"] = rel_report or "report.json"
+            else:
+                artifacts_zip.setdefault("report", None)
+            if tape_path and tape_path.exists():
+                zf.write(tape_path, arcname="command_tape.jsonl")
+                artifacts_zip["command_tape"] = "command_tape.jsonl"
+            else:
+                artifacts_zip.setdefault("command_tape", None)
 
             manifest = {
                 "identity": identity,
