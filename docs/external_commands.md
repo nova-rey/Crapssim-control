@@ -14,7 +14,23 @@
 
 ### Responses
 - `202 Accepted` — queued
-- `400 Bad Request` — `reason` in { run_id_mismatch, unknown_action, duplicate_correlation_id, missing:<fields>, bad_json }
+- `400 Bad Request` — `reason` in { run_id_mismatch, unknown_action, missing:<field>, queue_full, per_source_quota, rate_limited, timing:<reason>, circuit_breaker }
+
+## Limits & Backpressure
+All inbound commands are throttled by configurable limits:
+
+```yaml
+run:
+  external:
+    limits:
+      queue_max_depth: 100
+      per_source_quota: 40
+      rate: {tokens: 3, refill_seconds: 2.0}
+      circuit_breaker: {consecutive_rejects: 10, cool_down_seconds: 10.0}
+```
+
+**Rejection reasons**
+`queue_full`, `per_source_quota`, `rate_limited`, `duplicate_roll`, `circuit_breaker`, `timing:<reason>`, `unknown_action`, `missing:<field>`, `run_id_mismatch`.
 
 ## Journal
 Accepted/rejected commands recorded with:

@@ -288,8 +288,9 @@ class ControlStrategy:
         self.journal = DecisionJournal()
         self._journal_writer: JournalWriter = self.journal.writer()
 
-        # P6C1: External command channel (HTTP intake + in-process queue)
-        self.command_queue = CommandQueue()
+        # P6C1/P6C4: External command channel with backpressure limits
+        limits_cfg = self.config.get("run.external.limits", None)
+        self.command_queue = CommandQueue(limits_cfg)
         self._api_thread: Optional[threading.Thread] = None
         self._httpd = None
         http_enabled_cfg = bool(self.config.get("run.http_commands.enabled", True))
@@ -1508,6 +1509,7 @@ class ControlStrategy:
             tracker = self._tracker
             self._inject_replay_commands(tracker)
             pending = list(self.command_queue.drain()) if hasattr(self, "command_queue") else []
+            seen_this_roll = set()
             for cmd in pending:
                 verb = cmd["action"]
                 raw_args = cmd.get("args")
@@ -1515,6 +1517,45 @@ class ControlStrategy:
                 source_label = str(cmd.get("source", "external"))
                 origin = f"external:{source_label}"
                 corr = cmd.get("correlation_id")
+                key = (
+                    origin,
+                    verb,
+                    json.dumps(args, sort_keys=True),
+                )
+                if key in seen_this_roll:
+                    rejection_reason = "duplicate_roll"
+                    record = {
+                        "run_id": self.run_id,
+                        "hand_id": tracker.hand_id if tracker is not None else None,
+                        "roll_in_hand": tracker.roll_in_hand if tracker is not None else None,
+                        "origin": origin,
+                        "action": verb,
+                        "args": args,
+                        "executed": False,
+                        "rejection_reason": rejection_reason,
+                        "correlation_id": str(corr) if corr is not None else None,
+                    }
+                    outcome = self.command_queue.record_outcome(
+                        source_label,
+                        executed=False,
+                        rejection_reason=rejection_reason,
+                    )
+                    if outcome.get("circuit_breaker_reset"):
+                        record["circuit_breaker_reset"] = True
+                    entry = self.journal.record(record)
+                    self._append_command_tape(
+                        source=source_label,
+                        action=verb,
+                        args=args,
+                        executed=False,
+                        correlation_id=str(corr) if corr is not None else None,
+                        rejection_reason=rejection_reason,
+                        hand_id=entry.get("hand_id"),
+                        roll_in_hand=entry.get("roll_in_hand"),
+                        seq=entry.get("seq") if isinstance(entry, dict) else None,
+                    )
+                    continue
+                seen_this_roll.add(key)
                 legal, reason = is_legal_timing(current_state, {"verb": verb})
                 rejection_reason = None
                 record = {
@@ -1538,6 +1579,13 @@ class ControlStrategy:
                     executed = True
                     record["result"] = result
                 record["executed"] = executed
+                outcome = self.command_queue.record_outcome(
+                    source_label,
+                    executed=executed,
+                    rejection_reason=rejection_reason,
+                )
+                if outcome.get("circuit_breaker_reset"):
+                    record["circuit_breaker_reset"] = True
                 entry = self._journal_writer.write(
                     run_id=self.run_id,
                     origin=origin,
@@ -1847,6 +1895,35 @@ class ControlStrategy:
                 deprecations_out.append(entry)
 
         meta["deprecations"] = deprecations_out
+
+        if hasattr(self, "command_queue") and self.command_queue is not None:
+            limits = getattr(self.command_queue, "limits", {}) or {}
+            stats = getattr(self.command_queue, "stats", {}) or {}
+
+            def _plain(val: Any) -> Any:
+                if isinstance(val, dict):
+                    return {k: _plain(v) for k, v in val.items()}
+                return val
+
+            rejected_map = stats.get("rejected", {}) or {}
+            if isinstance(rejected_map, dict):
+                rejected_out = {str(k): int(v) for k, v in rejected_map.items()}
+            else:
+                rejected_out = {}
+
+            queue_stats = {
+                "enqueued": int(stats.get("enqueued", 0)),
+                "executed": int(stats.get("executed", 0)),
+                "rejected": rejected_out,
+            }
+
+            report["metadata"]["limits"] = {
+                "queue_max_depth": limits.get("queue_max_depth"),
+                "per_source_quota": limits.get("per_source_quota"),
+                "rate": _plain(limits.get("rate", {})),
+                "circuit_breaker": _plain(limits.get("circuit_breaker", {})),
+                "stats": queue_stats,
+            }
 
         # Keep the old csv.path hint too (legacy/compat)
         try:
