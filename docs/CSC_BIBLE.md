@@ -321,3 +321,6 @@ All outcomes are recorded in the Decision Journal with `origin: external:<source
 
 ### Checkpoint 1 — Inbound Command Channel
 Added /commands HTTP intake with a deterministic queue. Commands validated for run_id, verb, and dedup by correlation_id. Applied at legal windows; all outcomes journaled with origin and correlation_id.
+
+### Checkpoint 2 — Node-RED Flow (Listen → Decide → Command)
+Added webhook publisher and demo Node-RED flow. CSC emits roll and hand events; flow listens and sends commands back to `/commands`. Introduced `run.http_commands.enabled` flag and timing-reject test.

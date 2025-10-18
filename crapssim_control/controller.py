@@ -11,6 +11,7 @@ import threading
 import zipfile
 from datetime import datetime
 from uuid import uuid4
+from types import SimpleNamespace
 import hashlib  # P5C5: for content fingerprints
 
 from .templates import render_template as render_runtime_template, diff_bets
@@ -37,8 +38,39 @@ from .manifest import generate_manifest
 from .schemas import JOURNAL_SCHEMA_VERSION, SUMMARY_SCHEMA_VERSION
 from .integrations.hooks import Outbound
 from .integrations.evo_hooks import EvoBridge
+from crapssim_control.integrations.webhooks import WebhookPublisher
 from crapssim_control.external.command_channel import CommandQueue
 from crapssim_control.external.http_api import create_app, serve_commands
+
+
+class _ConfigAccessor:
+    def __init__(self, data: dict | None):
+        if isinstance(data, dict):
+            self._data = data
+        else:
+            self._data = {}
+
+    def get(self, key: str | None, default=None):
+        if not key:
+            return self._data
+        current = self._data
+        for part in str(key).split('.'):
+            if isinstance(current, dict):
+                if part in current:
+                    current = current[part]
+                else:
+                    return default
+            else:
+                return default
+            if current is None:
+                return default
+        if isinstance(current, dict):
+            try:
+                return SimpleNamespace(**current)
+            except TypeError:
+                return current
+        return current
+
 
 
 class ControlStrategy:
@@ -79,6 +111,7 @@ class ControlStrategy:
         self._spec_deprecations: List[Dict[str, Any]] = embedded_deprecations
 
         self.spec = spec
+        self.config = _ConfigAccessor(spec if isinstance(spec, dict) else {})
         self._spec_path: Optional[str] = str(spec_path) if spec_path is not None else None
         self._cli_flags_context: Dict[str, Any] = self._normalize_cli_flags(cli_flags)
         self.engine_version: str = getattr(self, "engine_version", "CrapsSim-Control")
@@ -94,6 +127,37 @@ class ControlStrategy:
         self._webhook_timeout: float = 2.0
         self._outbound_run_started: bool = False
         self._outbound_run_finished: bool = False
+        webhook_cfg = self.config.get("run.webhooks", None)
+        default_targets = ["http://127.0.0.1:1880/webhook"]
+        targets_value = getattr(webhook_cfg, "targets", None)
+        if isinstance(targets_value, str):
+            targets = [targets_value]
+        elif isinstance(targets_value, (list, tuple, set)):
+            targets = [str(t) for t in targets_value]
+        elif targets_value is None:
+            targets = list(default_targets)
+        else:
+            targets = list(default_targets)
+        try:
+            timeout_value = getattr(webhook_cfg, "timeout", 2.0)
+        except AttributeError:
+            timeout_value = 2.0
+        try:
+            webhook_timeout = float(timeout_value)
+        except (TypeError, ValueError):
+            webhook_timeout = 2.0
+        enabled_raw = self.config.get("run.webhooks.enabled", True)
+        if isinstance(enabled_raw, bool):
+            webhook_enabled = enabled_raw
+        else:
+            enabled_norm, enabled_ok = coerce_flag(enabled_raw, default=True)
+            if enabled_ok and enabled_norm is not None:
+                webhook_enabled = bool(enabled_norm)
+            elif enabled_ok and enabled_norm is None:
+                webhook_enabled = True
+            else:
+                webhook_enabled = bool(enabled_raw)
+        self.webhooks = WebhookPublisher(targets=targets, enabled=webhook_enabled, timeout=webhook_timeout)
         self.table_cfg = table_cfg or spec.get("table") or {}
         self.point: Optional[int] = None
         self.rolls_since_point: int = 0
@@ -211,39 +275,41 @@ class ControlStrategy:
         self.command_queue = CommandQueue()
         self._api_thread: Optional[threading.Thread] = None
         self._httpd = None
+        self._http_commands_enabled = bool(self.config.get("run.http_commands.enabled", True))
 
-        def _active_run_id() -> Optional[str]:
-            return getattr(self, "run_id", None)
+        if self._http_commands_enabled:
+            def _active_run_id() -> Optional[str]:
+                return getattr(self, "run_id", None)
 
-        _app = create_app(self.command_queue, _active_run_id)
-        if _app is not None:
-            try:
-                import uvicorn
+            _app = create_app(self.command_queue, _active_run_id)
+            if _app is not None:
+                try:
+                    import uvicorn
 
-                self._api_thread = threading.Thread(
-                    target=lambda: uvicorn.run(
-                        _app,
-                        host="127.0.0.1",
-                        port=8089,
-                        log_level="warning",
-                    ),
-                    name="csc-external-api",
-                    daemon=True,
-                )
-                self._api_thread.start()
-            except Exception:
-                pass
-        else:
-            try:
-                self._httpd = serve_commands(self.command_queue, _active_run_id)
-                self._api_thread = threading.Thread(
-                    target=self._httpd.serve_forever,
-                    name="csc-external-httpd",
-                    daemon=True,
-                )
-                self._api_thread.start()
-            except Exception:
-                pass
+                    self._api_thread = threading.Thread(
+                        target=lambda: uvicorn.run(
+                            _app,
+                            host="127.0.0.1",
+                            port=8089,
+                            log_level="warning",
+                        ),
+                        name="csc-external-api",
+                        daemon=True,
+                    )
+                    self._api_thread.start()
+                except Exception:
+                    pass
+            else:
+                try:
+                    self._httpd = serve_commands(self.command_queue, _active_run_id)
+                    self._api_thread = threading.Thread(
+                        target=self._httpd.serve_forever,
+                        name="csc-external-httpd",
+                        daemon=True,
+                    )
+                    self._api_thread.start()
+                except Exception:
+                    pass
 
         # Phase 3 analytics scaffolding
         self._tracker: Optional[Tracker] = None
@@ -378,6 +444,14 @@ class ControlStrategy:
             self._run_id = run_id
         return {"run_id": run_id}
 
+    def _emit_webhook(self, event: str, payload: Dict[str, Any]) -> None:
+        publisher = getattr(self, "webhooks", None)
+        if publisher is None:
+            return
+        data = dict(payload)
+        data.setdefault("event", event)
+        publisher.emit(event, data)
+
     @staticmethod
     def _normalize_cli_flags(flags: Any) -> Dict[str, Any]:
         keys = (
@@ -442,7 +516,8 @@ class ControlStrategy:
             flags.setdefault("webhook_url_source", source)
 
         self._outbound = Outbound(enabled=enabled_flag, url=url, timeout=timeout_val)
-        if self._outbound.enabled and not self._outbound_run_started:
+        webhooks_enabled = getattr(getattr(self, "webhooks", None), "enabled", False)
+        if (self._outbound.enabled or webhooks_enabled) and not self._outbound_run_started:
             self._emit_run_started()
 
     # ----- Phase 5: Internal Brain ruleset ----------------------------------
@@ -527,7 +602,7 @@ class ControlStrategy:
         self.ruleset = expanded
 
     def _emit_run_started(self) -> None:
-        if self._outbound_run_started or not self._outbound.enabled:
+        if self._outbound_run_started:
             return
         spec_path = self._spec_path or ""
         manifest_hint = self._export_paths.get("manifest", "export/manifest.json")
@@ -535,18 +610,22 @@ class ControlStrategy:
         seed_val = self._seed_value
         if seed_val is not None:
             payload["seed"] = seed_val
-        self._outbound.emit("run.started", payload)
+        if self._outbound.enabled:
+            self._outbound.emit("run.started", payload)
+        self._emit_webhook("run.started", payload)
         self._outbound_run_started = True
 
     def _emit_run_finished(self, report: Dict[str, Any]) -> None:
-        if self._outbound_run_finished or not self._outbound.enabled:
+        if self._outbound_run_finished:
             return
         payload = {
             **self._webhook_base_payload(),
             "summary_schema_version": report.get("summary_schema_version"),
             "journal_schema_version": report.get("journal_schema_version"),
         }
-        self._outbound.emit("run.finished", payload)
+        if self._outbound.enabled:
+            self._outbound.emit("run.finished", payload)
+        self._emit_webhook("run.finished", payload)
         self._outbound_run_finished = True
 
     def _analytics_start_hand(self, point_value: Optional[int] = None) -> None:
@@ -557,9 +636,12 @@ class ControlStrategy:
         hand_id = tracker.hand_id + 1
         hand_ctx = HandCtx(hand_id=hand_id, point=point_value)
         tracker.on_hand_start(hand_ctx)
+        payload = {**self._webhook_base_payload(), "hand_id": hand_id}
+        if point_value is not None:
+            payload["point"] = point_value
         if self._outbound.enabled:
-            payload = {**self._webhook_base_payload(), "hand_id": hand_id}
             self._outbound.emit("hand.started", payload)
+        self._emit_webhook("hand.started", payload)
 
     @staticmethod
     def _analytics_to_float(val: Any) -> Optional[float]:
@@ -618,6 +700,7 @@ class ControlStrategy:
                 point_value = None
         point_on = event.get("point_on")
 
+        total: Any = None
         roll_ctx = RollCtx(
             hand_id=tracker.hand_id,
             roll_number=self.rolls_since_point,
@@ -628,6 +711,11 @@ class ControlStrategy:
             point_on=bool(point_on),
         )
         tracker.on_roll(roll_ctx)
+
+        try:
+            snap = tracker.get_roll_snapshot()
+        except Exception:
+            snap = {}
 
         # Ensure tracker mirrors the resolved bankroll when provided explicitly.
         if bankroll_after is not None:
@@ -774,25 +862,40 @@ class ControlStrategy:
                     decision["run_id"] = self.run_id
                     decision["origin"] = f"rule:{rule_id}"
                     self.journal.record(decision)
+        payload = {
+            **self._webhook_base_payload(),
+            "hand_id": snap.get("hand_id") if isinstance(snap, dict) else None,
+            "roll_in_hand": snap.get("roll_in_hand") if isinstance(snap, dict) else None,
+        }
         if self._outbound.enabled:
-            snap = tracker.get_roll_snapshot() if tracker is not None else {}
-            payload = {
-                **self._webhook_base_payload(),
-                "hand_id": snap.get("hand_id"),
-                "roll_in_hand": snap.get("roll_in_hand"),
-            }
             self._outbound.emit("roll.processed", payload)
+        roll_payload = dict(payload)
+        roll_payload.update({
+            "bankroll_before": bankroll_before,
+            "bankroll_after": bankroll_after,
+            "bankroll_delta": delta,
+            "event_type": event_type,
+            "point": point_value,
+            "point_on": bool(point_on),
+        })
+        if isinstance(total, (int, float)):
+            roll_payload["last_roll_total"] = total
+        self._emit_webhook("roll.processed", roll_payload)
 
     def _analytics_end_hand(self, point_value: Optional[int]) -> None:
         tracker = self._tracker
         if tracker is None or tracker.hand_id == 0:
             return
 
-        hand_ctx = HandCtx(hand_id=tracker.hand_id, point=point_value)
+        hand_id = tracker.hand_id
+        hand_ctx = HandCtx(hand_id=hand_id, point=point_value)
         tracker.on_hand_end(hand_ctx)
+        payload = {**self._webhook_base_payload(), "hand_id": hand_id}
+        if point_value is not None:
+            payload["point"] = point_value
         if self._outbound.enabled:
-            payload = {**self._webhook_base_payload(), "hand_id": tracker.hand_id}
             self._outbound.emit("hand.finished", payload)
+        self._emit_webhook("hand.finished", payload)
 
     def _analytics_session_end(self) -> None:
         tracker = self._tracker
