@@ -46,6 +46,15 @@ class FastAPI:
 
         return decorator
 
+    def get(self, path: str) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+        method = "GET"
+
+        def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+            self._routes[(method, path)] = func
+            return func
+
+        return decorator
+
     def _dispatch(self, method: str, path: str, payload: Any) -> Tuple[int, Any]:
         handler = self._routes.get((method.upper(), path))
         if handler is None:

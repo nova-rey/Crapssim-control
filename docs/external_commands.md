@@ -20,6 +20,16 @@
 Accepted/rejected commands recorded with:
 `origin: external:<source>`, `correlation_id`, `timing_legal`, `executed`, and optional `rejection_reason`.
 
+## Diagnostics
+- `GET /health` → `{"status":"ok"}`
+- `GET /run_id` → `{"run_id":"<active>"}`
+
+Examples:
+```bash
+curl http://127.0.0.1:8089/health
+curl http://127.0.0.1:8089/run_id
+```
+
 ## Webhook Topics
 
 CSC can POST events to external systems:

@@ -1,5 +1,5 @@
 phase: 6
 checkpoint: 2
 title: Node-RED Flow (Listen → Decide → Command)
-description: Added webhook integration, Node-RED demo flow, timing-reject test, and HTTP toggle.
+description: Seeded external-loop baseline captured with Node-RED flow; diagnostics endpoints exposed for health/run_id checks.
 status: active
