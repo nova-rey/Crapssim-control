@@ -1,5 +1,5 @@
 phase: 3
 checkpoint: 5
 title: Baseline & Tag
-description: Captured seeded analytics run for reproducible baseline; tagged v0.31.0-phase3-baseline.
+description: Phase 3 complete; analytics, schema versioning, and baselines verified.
 status: complete

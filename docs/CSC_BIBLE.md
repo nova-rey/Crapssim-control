@@ -18,7 +18,7 @@ Where the snapshot tracks *state*, the Bible records *story*—why decisions wer
   - `run.demo_fallbacks=false`  
   - `run.strict=false`  
   - `run.csv.embed_analytics=true`  
-- Embedded `journal_schema_version` and `summary_schema_version` (1.1).  
+- Embedded `journal_schema_version` and `summary_schema_version` (1.2).
 - Strengthened `.gitignore`; purged caches.  
 - CI tests remained green throughout.  
 
@@ -189,3 +189,6 @@ A deterministic analytics-enabled run was captured as the Phase 3 baseline.
 Artifacts include CSVs, reports, and manifests with and without analytics.  
 All schema versions set to "1.2".  
 Tagged release: **v0.31.0-phase3-baseline**.
+
+> Note: When `run.csv.embed_analytics=false`, analytics fields in the summary may be zero or omitted.
+> The `summary_schema_version` remains `"1.2"` for compatibility.

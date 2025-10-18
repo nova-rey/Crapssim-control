@@ -16,12 +16,10 @@ Artifacts captured in `baselines/phase2/` (journal.csv, report.json, manifest.js
 
 ## Phase 3 — Analytics & Journal Integration
 
-| Checkpoint | Title | Status | Notes |
-|-------------|--------|--------|-------|
-| P3·C1 | Analytics Hook Scaffolding | ✅ Complete | Introduced analytics package with Tracker/Ledger stubs and lifecycle hook wiring. |
-| P3·C2 | Bankroll & Roll Tracking Integration | ✅ Complete | Enabled live bankroll tracking and per-roll/hand context columns (hand_id, roll_in_hand, bankroll_after, drawdown_after). |
-| P3·C3 | Summary Expansion | ✅ Complete | Report includes analytics summary fields and summary_schema_version "1.2". |
-| P3·C4 | Journal Schema Versioning | ✅ Complete | Added schema version labels and centralized constants. |
+| P3·C1 | Analytics Hook Scaffolding | ✅ Complete | Introduced analytics package with Tracker/Ledger stubs. |
+| P3·C2 | Bankroll & Roll Tracking Integration | ✅ Complete | Added optional CSV columns: hand_id, roll_in_hand, bankroll_after, drawdown_after. |
+| P3·C3 | Summary Expansion | ✅ Complete | Report now includes analytics summary fields and summary_schema_version "1.2". |
+| P3·C4 | Journal Schema Versioning | ✅ Complete | Added journal_schema_version "1.2" to CSV/report outputs; centralized constants in schemas.py. |
 | P3·C5 | Baseline & Tag | ✅ Complete | Captured seeded analytics run and tagged v0.31.0-phase3-baseline. |
 
 **Next Tag:** `v0.31.0-phase3-baseline`
