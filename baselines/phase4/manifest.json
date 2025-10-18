@@ -1,0 +1,47 @@
+{
+  "run_id": "baseline_p4",
+  "timestamp": "2025-10-18T14:12:25Z",
+  "spec_file": "examples/quickstart_spec.json",
+  "cli_flags": {
+    "demo_fallbacks": true,
+    "strict": true,
+    "embed_analytics": true,
+    "export": true,
+    "webhook_enabled": true,
+    "webhook_timeout": 2.0,
+    "webhook_url_source": "cli",
+    "webhook_url": true,
+    "evo_enabled": true,
+    "trial_tag": "baseline_p4",
+    "demo_fallbacks_source": "cli",
+    "strict_source": "cli",
+    "embed_analytics_source": "default",
+    "export_source": "cli",
+    "webhook_enabled_source": "cli"
+  },
+  "schema": {
+    "journal": "1.2",
+    "summary": "1.2"
+  },
+  "engine_version": "CrapsSim-Control",
+  "output_paths": {
+    "journal": "export/journal.csv",
+    "report": "export/report.json",
+    "manifest": "export/manifest.json"
+  },
+  "integrations": {
+    "webhook": {
+      "enabled": true,
+      "url_present": true,
+      "timeout": 2.0
+    }
+  },
+  "evo": {
+    "enabled": true,
+    "trial_tag": "baseline_p4"
+  },
+  "ui": {
+    "report_url": null,
+    "journal_url": null
+  }
+}

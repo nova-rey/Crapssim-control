@@ -1,0 +1,3 @@
+# journal_schema_version: 1.2
+ts,run_id,seed,event_type,point,rolls_since_point,on_comeout,mode,units,bankroll,source,id,action,bet_type,amount,notes,extra,hand_id,roll_in_hand,bankroll_after,drawdown_after
+2025-10-18T14:12:25+00:00,baseline_p4,12345,summary,,,,Main,5.0,734.0,system,summary:run,switch_mode,,,end_of_run,"{""final_bankroll"":734.0,""note"":""phase4 baseline capture"",""rolls"":50}",,,,

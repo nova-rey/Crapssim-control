@@ -3,15 +3,15 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import copy
 import logging
 import os
 import random
 import sys
 import traceback
 from pathlib import Path
-from typing import Any, Dict, List, Tuple, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
-from .logging_utils import setup_logging
 from .cli_flags import CLIFlags, parse_flags
 from .config import (
     EMBED_ANALYTICS_DEFAULT,
@@ -19,6 +19,7 @@ from .config import (
     coerce_flag,
     normalize_demo_fallbacks,
 )
+from .logging_utils import setup_logging
 from .spec_validation import VALIDATION_ENGINE_VERSION
 from .spec_loader import load_spec_file
 
@@ -356,6 +357,8 @@ def _merge_cli_run_flags(spec: Dict[str, Any], args: argparse.Namespace) -> None
                 bool(getattr(args, "webhook_url", None))
                 and not bool(getattr(args, "no_webhook", False))
             ),
+            evo_enabled=bool(getattr(args, "evo_enabled", False)),
+            trial_tag=getattr(args, "trial_tag", None),
         )
         if getattr(args, "strict", False):
             cli_flags_obj.strict_source = "cli"
@@ -412,6 +415,129 @@ def _merge_cli_run_flags(spec: Dict[str, Any], args: argparse.Namespace) -> None
     if changed or isinstance(run_blk, dict):
         # Preserve existing dict reference or attach a new run block if needed.
         spec["run"] = run_dict
+
+
+def _capture_control_surface_artifacts(
+    spec: Dict[str, Any],
+    spec_path: Path,
+    args: argparse.Namespace,
+    seed: Optional[int],
+    rolls: int,
+    bankroll: Optional[float],
+) -> None:
+    """Best-effort capture of journal/report/manifest artifacts."""
+
+    try:
+        from .controller import ControlStrategy
+        from .csv_journal import CSVJournal
+    except Exception:
+        return
+
+    spec_copy: Dict[str, Any] = copy.deepcopy(spec)
+    if not isinstance(spec_copy, dict):
+        return
+
+    export_dir = Path("export")
+    export_dir.mkdir(parents=True, exist_ok=True)
+
+    run_blk = spec_copy.setdefault("run", {})
+    if not isinstance(run_blk, dict):
+        run_blk = {}
+        spec_copy["run"] = run_blk
+
+    csv_blk = run_blk.setdefault("csv", {}) if isinstance(run_blk, dict) else {}
+    if not isinstance(csv_blk, dict):
+        csv_blk = {}
+        run_blk["csv"] = csv_blk
+    csv_blk["enabled"] = True
+    csv_blk["append"] = False
+    configured_path = csv_blk.get("path")
+    journal_path = Path(configured_path) if isinstance(configured_path, str) and configured_path.strip() else export_dir / "journal.csv"
+    csv_blk["path"] = str(journal_path)
+    if seed is not None:
+        csv_blk["seed"] = seed
+
+    run_id_raw = str(csv_blk.get("run_id") or "").strip()
+    if not run_id_raw:
+        trial_tag = getattr(args, "trial_tag", None)
+        if isinstance(trial_tag, str) and trial_tag.strip():
+            run_id_raw = trial_tag.strip()
+        elif seed is not None:
+            run_id_raw = f"baseline_{seed}"
+        else:
+            run_id_raw = "baseline_run"
+        csv_blk["run_id"] = run_id_raw
+
+    report_blk = run_blk.setdefault("report", {}) if isinstance(run_blk, dict) else {}
+    if not isinstance(report_blk, dict):
+        report_blk = {}
+        run_blk["report"] = report_blk
+    report_blk["path"] = str(export_dir / "report.json")
+    report_blk["auto"] = True
+
+    export_paths = {
+        "journal": str(export_dir / "journal.csv"),
+        "report": str(export_dir / "report.json"),
+        "manifest": str(export_dir / "manifest.json"),
+    }
+
+    ctrl = ControlStrategy(
+        spec_copy,
+        spec_path=str(spec_path),
+        cli_flags=getattr(args, "_cli_flags", None),
+    )
+    if seed is not None:
+        try:
+            ctrl._seed_value = seed  # type: ignore[attr-defined]
+        except Exception:
+            pass
+
+    journal = ctrl._ensure_journal()
+    if journal is None:
+        journal = CSVJournal(
+            export_paths["journal"],
+            append=False,
+            run_id=csv_blk.get("run_id"),
+            seed=seed,
+        )
+        ctrl._journal = journal  # type: ignore[attr-defined]
+        ctrl._journal_enabled = True  # type: ignore[attr-defined]
+    else:
+        journal.path = export_paths["journal"]
+        if csv_blk.get("run_id"):
+            journal.run_id = csv_blk.get("run_id")
+        if seed is not None:
+            journal.seed = seed
+
+    summary_payload: Dict[str, Any] = {
+        "rolls": rolls,
+        "final_bankroll": float(bankroll) if bankroll is not None else None,
+        "note": "phase4 baseline capture",
+    }
+    units_val = None
+    try:
+        units_val = ctrl._units_from_spec_or_state()  # type: ignore[attr-defined]
+    except Exception:
+        units_val = None
+    snapshot = {
+        "mode": getattr(ctrl, "mode", None),
+        "units": units_val,
+        "bankroll": float(bankroll) if bankroll is not None else None,
+    }
+    try:
+        journal.write_summary(summary_payload, snapshot=snapshot)
+    except Exception:
+        pass
+
+    try:
+        ctrl.generate_report(
+            report_path=export_paths["report"],
+            spec_path=str(spec_path),
+            cli_flags=getattr(args, "_cli_flags", None),
+            export_paths=export_paths,
+        )
+    except Exception:
+        pass
 
 
 def run(args: argparse.Namespace) -> int:
@@ -558,6 +684,20 @@ def run(args: argparse.Namespace) -> int:
         except Exception as e:
             print(f"warn: export failed: {e}", file=sys.stderr)
 
+    try:
+        _capture_control_surface_artifacts(
+            spec,
+            spec_path,
+            args,
+            seed_int,
+            rolls,
+            float(bankroll) if bankroll is not None else None,
+        )
+    except Exception:
+        if os.environ.get("CSC_DEBUG", "0").lower() in ("1", "true", "yes"):
+            print("warn: control-surface capture failed", file=sys.stderr)
+        log.debug("control surface capture failed", exc_info=True)
+
     return 0
 
 
@@ -644,7 +784,13 @@ def _build_parser() -> argparse.ArgumentParser:
     p_run.add_argument("spec", help="Path to spec file")
     p_run.add_argument("--rolls", type=int, help="Number of rolls (overrides spec)")
     p_run.add_argument("--seed", type=int, help="Seed RNG for reproducibility")
-    p_run.add_argument("--export", type=str, help="Path to CSV summary export (optional)")
+    p_run.add_argument(
+        "--export",
+        nargs="?",
+        const="export/summary.csv",
+        type=str,
+        help="Path to CSV summary export (optional; defaults to export/summary.csv)",
+    )
     # runtime flag overrides
     p_run.add_argument(
         "--demo-fallbacks",
@@ -670,6 +816,17 @@ def _build_parser() -> argparse.ArgumentParser:
             "Disable analytics embedding for this run (default ON). Leave unset or set "
             "run.csv.embed_analytics=true to keep analytics columns."
         ),
+    )
+    p_run.add_argument(
+        "--evo-enabled",
+        action="store_true",
+        help="Enable EvoBridge scaffold hooks for this run.",
+    )
+    p_run.add_argument(
+        "--trial-tag",
+        type=str,
+        default=None,
+        help="Assign an Evo trial tag for downstream cohort tracking.",
     )
     p_run.add_argument(
         "--webhook-url",

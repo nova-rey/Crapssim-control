@@ -341,6 +341,8 @@ class ControlStrategy:
             "webhook_url",
             "webhook_timeout",
             "webhook_url_source",
+            "evo_enabled",
+            "trial_tag",
         )
         if flags is None:
             return {}

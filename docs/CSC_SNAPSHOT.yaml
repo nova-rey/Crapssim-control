@@ -1,5 +1,5 @@
 phase: 4
-checkpoint: 4
-title: Evo Integration Hooks (Scaffold)
-description: Added placeholder EvoBridge class and evo manifest fields for future integration.
-status: active
+checkpoint: 5
+title: Baseline & Tag
+description: Seeded integration baseline captured and release tag v0.32.0-phase4-baseline created.
+status: complete
