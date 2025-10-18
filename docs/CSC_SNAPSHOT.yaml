@@ -1,5 +1,5 @@
 phase: 6
-checkpoint: 1
-title: Inbound Command Channel
-description: Introduced /commands endpoint and in-process queue; validated, deduped, and applied at legal timing windows with journaling.
+checkpoint: 2
+title: Node-RED Flow (Listen → Decide → Command)
+description: Added webhook integration, Node-RED demo flow, timing-reject test, and HTTP toggle.
 status: active

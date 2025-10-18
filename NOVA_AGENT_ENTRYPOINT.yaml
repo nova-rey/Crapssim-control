@@ -1,5 +1,5 @@
 current_phase: 6
-current_checkpoint: 1
-checkpoint_title: Inbound Command Channel
+current_checkpoint: 2
+checkpoint_title: Node-RED Flow (Listen → Decide → Command)
 allow_behavior_change: true
-notes: Bible is append-only; do not overwrite prior phases.
+notes: Bible is append-only; add new sections, do not overwrite.

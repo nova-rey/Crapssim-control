@@ -1,0 +1,32 @@
+[
+  {
+    "id": "a1",
+    "type": "http in",
+    "url": "/webhook",
+    "method": "post",
+    "name": "CSC Webhook In"
+  },
+  {
+    "id": "a2",
+    "type": "switch",
+    "property": "payload.event",
+    "rules": [{"t":"eq","v":"roll.processed"}],
+    "checkall": "true",
+    "name": "On Roll"
+  },
+  {
+    "id": "a3",
+    "type": "function",
+    "name": "Decide",
+    "func": "if (msg.payload.bankroll_after < 900){\n msg.payload = {\n  run_id: msg.payload.run_id,\n  action: 'switch_profile',\n  args: {name:'Recovery'},\n  source:'node-red@demo:v1',\n  correlation_id: Date.now().toString()\n };\n return msg;\n}\nreturn null;"
+  },
+  {
+    "id": "a4",
+    "type": "http request",
+    "method": "POST",
+    "ret": "obj",
+    "url": "http://127.0.0.1:8089/commands",
+    "name": "Send Command"
+  },
+  {"id": "a5","type": "debug","name": "Command Result"}
+]
