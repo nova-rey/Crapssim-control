@@ -22,6 +22,7 @@ from .config import (
 from .logging_utils import setup_logging
 from .spec_validation import VALIDATION_ENGINE_VERSION
 from .spec_loader import load_spec_file
+from .rules_engine.author import RuleBuilder
 
 log = logging.getLogger("crapssim-ctl")
 
@@ -764,8 +765,24 @@ def _build_parser() -> argparse.ArgumentParser:
         "-v", "--verbose", action="count", default=0,
         help="increase verbosity (use -vv for debug)",
     )
+    parser.add_argument(
+        "--lint-rules",
+        dest="lint_rules",
+        help="Validate rule spec JSON or YAML file.",
+    )
+    parser.add_argument(
+        "--expand-macros",
+        dest="expand_macros",
+        help="Expand macros into full rule JSON.",
+    )
+    parser.add_argument(
+        "--macros",
+        dest="macros",
+        default="templates/core_macros.yaml",
+        help="Path to macro YAML file.",
+    )
 
-    sub = parser.add_subparsers(dest="cmd", required=True)
+    sub = parser.add_subparsers(dest="cmd", required=False)
 
     # validate
     p_val = sub.add_parser("validate", help="Validate a strategy spec (JSON or YAML)")
@@ -873,6 +890,37 @@ def main(argv: List[str] | None = None) -> int:
     args = parser.parse_args(argv)
     setattr(args, "_cli_flags", cli_flags)
     setup_logging(args.verbose)
+    handled = False
+    builder: RuleBuilder | None = None
+
+    if getattr(args, "lint_rules", None) or getattr(args, "expand_macros", None):
+        builder = RuleBuilder(macros_file=args.macros)
+
+    if getattr(args, "lint_rules", None):
+        assert builder is not None
+        rules = builder.expand(args.lint_rules)
+        warnings = builder.lint(rules)
+        if warnings:
+            for warn in warnings:
+                print(f"Lint: {warn}")
+        else:
+            print("No issues found.")
+        handled = True
+
+    if getattr(args, "expand_macros", None):
+        assert builder is not None
+        rules = builder.expand(args.expand_macros)
+        builder.save(rules, "expanded_rules.json")
+        print("Expanded to expanded_rules.json")
+        handled = True
+
+    if handled and not getattr(args, "cmd", None):
+        return 0
+
+    if not hasattr(args, "func") or args.func is None:
+        parser.print_help()
+        return 1
+
     return args.func(args)
 
 

@@ -12,6 +12,7 @@ license = { text = "MIT" }
 authors = [{ name = "CrapsSim Control Team" }]
 dependencies = [
   "crapssim>=0.3.1",
+  "PyYAML>=6.0",
 ]
 
 # Optional extras: YAML loading for specs

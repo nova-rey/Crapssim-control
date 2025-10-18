@@ -280,6 +280,11 @@ Replaced ad-hoc decision logging with a formal Decision Journal system.
 All rule evaluations and actions now produce standardized records with timestamps and safety status.
 Safeties include cooldowns, once-per-scope locks, and duplicate blocking.
 
+### Checkpoint 4 — Spec Authoring Aids
+Introduced Rule Builder helpers so authors can compose rulesets in YAML with macros and parameters instead of hand-editing JSON.
+The CLI now expands macros, substitutes `$param` placeholders, and performs lint checks for unknown variables, verbs, and schema regressions.
+This makes the rule engine approachable while keeping validation strict before rules ever reach the evaluator.
+
 ---
 
 ## Phase 6 — Node-RED Driven Control (External Brain)

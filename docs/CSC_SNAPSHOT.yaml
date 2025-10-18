@@ -1,5 +1,5 @@
 phase: 5
-checkpoint: 3
-title: Decision Journal & Safeties
-description: Added structured Decision Journal with cooldown and scope protections.
+checkpoint: 4
+title: Spec Authoring Aids
+description: Added rule builder, macro expansion, and lint utilities.
 status: active
