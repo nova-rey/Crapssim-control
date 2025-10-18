@@ -1,7 +1,7 @@
 {
   "run_id": "phase5-ittt-demo",
   "seed": 12345,
-  "journal_schema_version": "1.0",
+  "journal_schema_version": "1.2",
   "journal": "baselines/phase5/decision_journal.jsonl",
   "csv": "baselines/phase5/journal.csv",
   "records": 12,
@@ -11,5 +11,47 @@
     "bankroll_guard_001",
     "box_trigger_002"
   ],
-  "timing_enforced": true
+  "timing_enforced": true,
+  "summary_schema_version": "1.2",
+  "manifest_path": "baselines/phase5/manifest.json",
+  "metadata": {
+    "demo_fallbacks_default": false,
+    "validation_engine": "v1",
+    "engine": {
+      "name": "CrapsSim-Control",
+      "version": "CrapsSim-Control",
+      "python": "3.12.10"
+    },
+    "artifacts": {
+      "journal": "baselines/phase5/decision_journal.jsonl",
+      "report": "baselines/phase5/report.json",
+      "manifest": "baselines/phase5/manifest.json"
+    },
+    "run_flags": {
+      "values": {
+        "demo_fallbacks": false,
+        "strict": false,
+        "embed_analytics": true
+      },
+      "sources": {
+        "demo_fallbacks": "default",
+        "strict": "default",
+        "embed_analytics": "default",
+        "export": "default",
+        "webhook_enabled": "default",
+        "evo_enabled": "default",
+        "trial_tag": "default"
+      },
+      "webhook_enabled": false,
+      "webhook_url_source": "default",
+      "webhook_url_masked": false,
+      "strict_source": "default",
+      "demo_fallbacks_source": "default",
+      "embed_analytics_source": "default",
+      "export_source": "default",
+      "webhook_enabled_source": "default",
+      "evo_enabled_source": "default",
+      "trial_tag_source": "default"
+    }
+  }
 }

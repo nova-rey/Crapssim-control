@@ -6,6 +6,7 @@ import json
 from datetime import datetime, UTC
 import csv
 from pathlib import Path
+import platform
 import sys
 from typing import Dict, List
 
@@ -16,6 +17,8 @@ from crapssim_control.controller import ControlStrategy
 from crapssim_control.rules_engine.evaluator import evaluate_rules
 from crapssim_control.rules_engine.actions import ACTIONS, is_legal_timing
 from crapssim_control.rules_engine.journal import DecisionJournal
+from crapssim_control.schemas import JOURNAL_SCHEMA_VERSION, SUMMARY_SCHEMA_VERSION
+from crapssim_control.spec_validation import VALIDATION_ENGINE_VERSION
 
 BASELINE_DIR = Path("baselines/phase5")
 SPEC_PATH = Path("examples/internal_brain_demo/spec.yaml")
@@ -169,10 +172,27 @@ def main() -> None:
             writer.writerow(record)
 
     report_path = BASELINE_DIR / "report.json"
+    engine_version = getattr(controller, "engine_version", "unknown")
+    run_flag_values = {
+        "demo_fallbacks": False,
+        "strict": False,
+        "embed_analytics": True,
+    }
+    run_flag_sources = {
+        "demo_fallbacks": "default",
+        "strict": "default",
+        "embed_analytics": "default",
+        "export": "default",
+        "webhook_enabled": "default",
+        "evo_enabled": "default",
+        "trial_tag": "default",
+    }
     report = {
         "run_id": RUN_ID,
         "seed": SEED,
-        "journal_schema_version": "1.0",
+        "manifest_path": str(BASELINE_DIR / "manifest.json"),
+        "journal_schema_version": JOURNAL_SCHEMA_VERSION,
+        "summary_schema_version": SUMMARY_SCHEMA_VERSION,
         "journal": str(journal_path),
         "csv": str(journal_csv),
         "records": total_records,
@@ -180,6 +200,34 @@ def main() -> None:
         "events_simulated": len(EVENT_SEQUENCE),
         "rules": [str(rule.get("id")) for rule in ruleset if isinstance(rule, dict)],
         "timing_enforced": True,
+        "metadata": {
+            "demo_fallbacks_default": False,
+            "validation_engine": VALIDATION_ENGINE_VERSION,
+            "run_flags": {
+                "values": run_flag_values,
+                "sources": run_flag_sources,
+                "webhook_enabled": False,
+                "webhook_url_source": "default",
+                "webhook_url_masked": False,
+                "strict_source": "default",
+                "demo_fallbacks_source": "default",
+                "embed_analytics_source": "default",
+                "export_source": "default",
+                "webhook_enabled_source": "default",
+                "evo_enabled_source": "default",
+                "trial_tag_source": "default",
+            },
+        },
+    }
+    report["metadata"]["engine"] = {
+        "name": "CrapsSim-Control",
+        "version": engine_version,
+        "python": platform.python_version(),
+    }
+    report["metadata"]["artifacts"] = {
+        "journal": str(journal_path),
+        "report": str(report_path),
+        "manifest": str(BASELINE_DIR / "manifest.json"),
     }
     report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
 
@@ -195,6 +243,10 @@ def main() -> None:
             "report": str(report_path),
         },
         "events": roll_summaries,
+    }
+    manifest["schema"] = {
+        "journal": JOURNAL_SCHEMA_VERSION,
+        "summary": SUMMARY_SCHEMA_VERSION,
     }
     manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 

@@ -1367,10 +1367,16 @@ class ControlStrategy:
         run_flags["webhook_enabled_source"] = str(
             cli_flags_dict.get("webhook_enabled_source", "default")
         )
+        run_flags["evo_enabled_source"] = str(
+            cli_flags_dict.get("evo_enabled_source", "default")
+        )
+        run_flags["trial_tag_source"] = str(cli_flags_dict.get("trial_tag_source", "default"))
 
         run_flag_sources_meta = dict(self._flag_sources)
         run_flag_sources_meta["export"] = run_flags["export_source"]
         run_flag_sources_meta["webhook_enabled"] = run_flags["webhook_enabled_source"]
+        run_flag_sources_meta["evo_enabled"] = run_flags["evo_enabled_source"]
+        run_flag_sources_meta["trial_tag"] = run_flags["trial_tag_source"]
 
         report: Dict[str, Any] = {
             "identity": identity,
@@ -1502,21 +1508,53 @@ class ControlStrategy:
             manifest_run_id = manifest.get("run_id")
         if manifest_run_id:
             self._run_id = str(manifest_run_id)
-        report["run_id"] = self._run_id
-        report["manifest_path"] = outputs["manifest"]
+        report_run_id = str(manifest_run_id) if manifest_run_id else str(self._run_id)
+        report["run_id"] = report_run_id
+
+        manifest_path_value = resolved_export_paths.get("manifest") or "export/manifest.json"
+        report["manifest_path"] = manifest_path_value
         report["journal_schema_version"] = JOURNAL_SCHEMA_VERSION
         report["summary_schema_version"] = SUMMARY_SCHEMA_VERSION
-        report.setdefault("metadata", {})
-        report["metadata"]["engine"] = {
+
+        metadata_block = report.setdefault("metadata", {})
+        metadata_block["engine"] = {
             "name": "CrapsSim-Control",
             "version": getattr(self, "engine_version", "unknown"),
             "python": platform.python_version(),
         }
-        report["metadata"]["artifacts"] = {
-            "journal": outputs.get("journal"),
-            "report": outputs.get("report"),
-            "manifest": outputs.get("manifest"),
+        metadata_block["artifacts"] = {
+            "journal": resolved_export_paths.get("journal"),
+            "report": resolved_export_paths.get("report"),
+            "manifest": resolved_export_paths.get("manifest"),
         }
+
+        run_flags_meta_final = metadata_block.setdefault("run_flags", {})
+        run_flags_meta_final.setdefault("values", run_flag_values)
+        run_flags_meta_final.setdefault("sources", run_flag_sources_meta)
+        run_flags_meta_final.setdefault("webhook_enabled", webhook_enabled)
+        run_flags_meta_final.setdefault("webhook_url_source", self._webhook_url_source)
+        run_flags_meta_final["webhook_url_masked"] = bool(run_flags.get("webhook_url"))
+
+        def _source_for_contract(key: str, default: str = "default") -> str:
+            src = run_flags.get(f"{key}_source")
+            if isinstance(src, str) and src:
+                return src
+            existing = run_flags_meta_final.get(f"{key}_source")
+            if isinstance(existing, str) and existing:
+                return existing
+            return default
+
+        for key in (
+            "strict",
+            "demo_fallbacks",
+            "embed_analytics",
+            "export",
+            "webhook_enabled",
+            "evo_enabled",
+            "trial_tag",
+        ):
+            if key in run_flags or key in run_flags_meta_final:
+                run_flags_meta_final[f"{key}_source"] = _source_for_contract(key)
         if report_file is not None:
             try:
                 report_file.write_text(
