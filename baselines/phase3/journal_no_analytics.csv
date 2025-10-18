@@ -1,0 +1,5 @@
+# journal_schema_version: 1.2
+ts,run_id,seed,event_type,point,rolls_since_point,on_comeout,mode,units,bankroll,source,id,action,bet_type,amount,notes,extra
+2025-10-18T00:35:30+00:00,P3C5-N,12345,point_established,6,0,False,Main,5.0,,template,template:Main,set,pass_line,10.0,template diff,"{""event_point"":6,""memory"":{},""mode_change"":false,""roll"":6,""seq"":1}"
+2025-10-18T00:35:30+00:00,P3C5-N,12345,point_established,5,0,False,Main,5.0,,template,template:Main,set,pass_line,10.0,template diff,"{""event_point"":5,""memory"":{},""mode_change"":false,""roll"":5,""seq"":1}"
+2025-10-18T00:35:30+00:00,P3C5-N,12345,summary,,,True,,,,rule,summary:run,switch_mode,,,end_of_run,"{""identity"":{""run_id"":""P3C5-N"",""seed"":12345},""memory"":{},""roll"":0,""stats"":{""actions_total"":2,""by_event_type"":{""comeout"":2,""point_established"":2,""roll"":3,""seven_out"":2},""events_total"":9},""summary"":true}"

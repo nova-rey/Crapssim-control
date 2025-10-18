@@ -182,3 +182,10 @@ The end-of-run report now aggregates analytics from the tracker:
 
 Both CSV and report outputs now include explicit schema version labels (`journal_schema_version` and `summary_schema_version`, both "1.2").  
 A central `schemas.py` file defines these constants to keep exports and documentation aligned.
+
+**Checkpoint 5 (P3·C5): Baseline & Tag**
+
+A deterministic analytics-enabled run was captured as the Phase 3 baseline.  
+Artifacts include CSVs, reports, and manifests with and without analytics.  
+All schema versions set to "1.2".  
+Tagged release: **v0.31.0-phase3-baseline**.
