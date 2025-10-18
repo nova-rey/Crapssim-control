@@ -185,8 +185,8 @@ time_above_water_pct, by_bet_type_digest
 ### 5.3 Schema Versioning
 Add headers:
 
-journal_schema_version: “1.1”
-summary_schema_version: “1.1”
+journal_schema_version: “1.2”
+summary_schema_version: “1.2”
 analytics_embedded: true
 
 ### 5.4 Implementation Hooks
