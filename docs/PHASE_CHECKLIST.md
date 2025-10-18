@@ -30,7 +30,7 @@ Artifacts captured in `baselines/phase2/` (journal.csv, report.json, manifest.js
 | Checkpoint | Title | Status | Summary |
 |-------------|--------|---------|----------|
 | P4·C0 | Docs Kickoff & Roadmap Setup | ✅ Complete | Update docs for Phase 4 structure and visibility. |
-| P4·C1 | CLI Flag & Manifest Framework | ⏳ | Unify CLI flags; introduce run-manifest schema. |
+| P4·C1 | CLI Flag & Manifest Framework | ✅ Complete | Unified CLI flag handling and added standardized run-manifest schema. |
 | P4·C2 | Node-RED / Webhook Stub Integration | ⏳ | Add minimal hooks for external orchestration. |
 | P4·C3 | Runtime Report & Metadata Polish | ⏳ | Expand metadata, improve report clarity. |
 | P4·C4 | Evo Integration Hooks (Scaffold) | ⏳ | Lay down stub interfaces for CrapsSim-Evo. |

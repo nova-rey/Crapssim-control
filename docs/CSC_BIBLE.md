@@ -204,3 +204,9 @@ Purpose: Extend CrapsSim-Control outward. This phase focuses on interface polish
 - **P4·C3 — Runtime Report & Metadata Polish:** Refine report readability and metadata consistency.
 - **P4·C4 — Evo Integration Hooks (Scaffold):** Lay foundation for CrapsSim-Evo interop (no coupling yet).
 - **P4·C5 — Baseline & Tag:** Capture seeded integration baseline and tag v0.32.0-phase4-baseline.
+
+### Checkpoint 1 — CLI Flag & Manifest Framework
+
+This checkpoint standardized how CLI flags are parsed and stored.  
+It introduced `cli_flags.py` for consistent defaults and `manifest.py` for generating a structured `manifest.json` alongside each export.  
+The manifest enables external orchestration tools to read run metadata and schema versions without parsing reports directly.
