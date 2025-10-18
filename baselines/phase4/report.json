@@ -1,0 +1,70 @@
+{
+  "csv": {
+    "path": "export/journal.csv"
+  },
+  "identity": {
+    "run_id": "baseline_p4",
+    "seed": 12345
+  },
+  "journal_schema_version": "1.2",
+  "manifest_path": "export/manifest.json",
+  "memory": {},
+  "metadata": {
+    "artifacts": {
+      "journal": "export/journal.csv",
+      "manifest": "export/manifest.json",
+      "report": "export/report.json"
+    },
+    "demo_fallbacks_default": false,
+    "deprecations": [],
+    "engine": {
+      "name": "CrapsSim-Control",
+      "python": "3.12.10",
+      "version": "CrapsSim-Control"
+    },
+    "run_flags": {
+      "demo_fallbacks_source": "cli",
+      "embed_analytics_source": "default",
+      "export_source": "cli",
+      "sources": {
+        "demo_fallbacks": "cli",
+        "embed_analytics": "default",
+        "export": "cli",
+        "strict": "cli",
+        "webhook_enabled": "cli"
+      },
+      "strict_source": "cli",
+      "values": {
+        "demo_fallbacks": true,
+        "embed_analytics": true,
+        "strict": true
+      },
+      "webhook_enabled": true,
+      "webhook_enabled_source": "cli",
+      "webhook_url_masked": true,
+      "webhook_url_source": "cli"
+    },
+    "validation_engine": "v1"
+  },
+  "mode": "Main",
+  "on_comeout": true,
+  "point": null,
+  "run_id": "baseline_p4",
+  "source_files": {
+    "csv": "export/journal.csv",
+    "meta": null
+  },
+  "summary": {
+    "actions_total": 0,
+    "bankroll_low": 0.0,
+    "bankroll_peak": 0.0,
+    "by_event_type": {},
+    "events_total": 0,
+    "max_drawdown": 0.0,
+    "points_made": 0,
+    "pso_count": 0,
+    "total_hands": 0,
+    "total_rolls": 0
+  },
+  "summary_schema_version": "1.2"
+}

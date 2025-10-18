@@ -224,6 +224,19 @@ All webhook payloads now include `run_id` (and seed/fingerprint on `run.started`
 ### Checkpoint 4 — Evo Integration Hooks (Scaffold)
 
 A new `EvoBridge` interface defines the minimal handshake points for future CrapsSim-Evo integration.
-It is disabled by default and inert, writing optional stub logs for visibility.  
+It is disabled by default and inert, writing optional stub logs for visibility.
 Manifest and CLI support `evo_enabled` and `trial_tag` fields, allowing downstream systems
 to recognize and group trial cohorts without affecting simulation behavior.
+
+### Checkpoint 5 — Baseline & Tag
+
+Phase 4 closes with a seeded baseline capturing the complete Control Surface flow:
+CLI flags → Manifest → Webhook → Report → Evo Scaffold.
+
+Artifacts are stored under `baselines/phase4/`:
+- `journal.csv`
+- `report.json`
+- `manifest.json`
+
+This baseline serves as the reference for Phase 5 dashboard integration.
+Tag: **v0.32.0-phase4-baseline**.
