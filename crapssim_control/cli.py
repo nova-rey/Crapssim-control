@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Tuple, Optional
 
 from .logging_utils import setup_logging
+from .cli_flags import CLIFlags, parse_flags
 from .config import (
     EMBED_ANALYTICS_DEFAULT,
     STRICT_DEFAULT,
@@ -338,6 +339,16 @@ def _merge_cli_run_flags(spec: Dict[str, Any], args: argparse.Namespace) -> None
     if not isinstance(spec, dict):
         return
 
+    cli_flags_obj = getattr(args, "_cli_flags", None)
+    if not isinstance(cli_flags_obj, CLIFlags):
+        cli_flags_obj = CLIFlags(
+            strict=bool(getattr(args, "strict", False)),
+            demo_fallbacks=bool(getattr(args, "demo_fallbacks", False)),
+            embed_analytics=not bool(getattr(args, "no_embed_analytics", False)),
+            export=bool(getattr(args, "export", None)),
+        )
+        setattr(args, "_cli_flags", cli_flags_obj)
+
     run_blk = spec.get("run")
     run_dict: Dict[str, Any]
     if isinstance(run_blk, dict):
@@ -351,17 +362,17 @@ def _merge_cli_run_flags(spec: Dict[str, Any], args: argparse.Namespace) -> None
     if not isinstance(sources, dict):
         sources = {}
 
-    if getattr(args, "demo_fallbacks", False):
+    if cli_flags_obj.demo_fallbacks:
         run_dict["demo_fallbacks"] = True
         sources["demo_fallbacks"] = "cli"
         changed = True
 
-    if getattr(args, "strict", False):
+    if cli_flags_obj.strict:
         run_dict["strict"] = True
         sources["strict"] = "cli"
         changed = True
 
-    if getattr(args, "no_embed_analytics", False):
+    if not cli_flags_obj.embed_analytics:
         csv_blk = run_dict.get("csv")
         if not isinstance(csv_blk, dict):
             csv_blk = {}
@@ -392,6 +403,10 @@ def run(args: argparse.Namespace) -> int:
     # Load spec
     spec_path = Path(args.spec)
     spec = _load_spec_file(spec_path)
+    try:
+        spec["_csc_spec_path"] = str(spec_path)
+    except Exception:
+        pass
 
     # Merge CLI flag overrides (before normalization/adapter usage)
     _merge_cli_run_flags(spec, args)
@@ -654,8 +669,10 @@ def main(argv: List[str] | None = None) -> int:
     _scrub_inert_env()  # keep CSC_FORCE_SEED intact
     if argv is None:
         argv = sys.argv[1:]
+    cli_flags = parse_flags(argv)
     parser = _build_parser()
     args = parser.parse_args(argv)
+    setattr(args, "_cli_flags", cli_flags)
     setup_logging(args.verbose)
     return args.func(args)
 

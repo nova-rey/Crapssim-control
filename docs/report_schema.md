@@ -86,3 +86,7 @@ journal_schema_version: 1.2
 - **summary_schema_version** (string): `"1.2"`.  
   Present in the end-of-run report JSON.  
   Corresponds to the schema defined in Phase 3 (bankroll/roll analytics fields).
+
+### Cross-Reference
+Each report is accompanied by a `manifest.json` file that contains run-level metadata.  
+See [run_manifest_schema.md](run_manifest_schema.md) for details.

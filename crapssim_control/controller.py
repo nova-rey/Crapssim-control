@@ -1,6 +1,7 @@
 # crapssim_control/controller.py
 from __future__ import annotations
  
+from dataclasses import asdict, is_dataclass
 from typing import Any, Dict, List, Optional, Tuple
 import json
 from pathlib import Path
@@ -25,6 +26,7 @@ from .config import (
 from .spec_validation import VALIDATION_ENGINE_VERSION
 from .analytics.tracker import Tracker
 from .analytics.types import HandCtx, RollCtx, SessionCtx
+from .manifest import generate_manifest
 from .schemas import JOURNAL_SCHEMA_VERSION, SUMMARY_SCHEMA_VERSION
 
 
@@ -48,6 +50,9 @@ class ControlStrategy:
         ctrl_state: Any | None = None,
         table_cfg: Optional[Dict[str, Any]] = None,
         spec_deprecations: Optional[List[Dict[str, Any]]] = None,
+        *,
+        spec_path: Optional[str | Path] = None,
+        cli_flags: Optional[Any] = None,
     ) -> None:
         embedded_deprecations: List[Dict[str, Any]] = []
         if spec_deprecations is not None:
@@ -63,6 +68,9 @@ class ControlStrategy:
         self._spec_deprecations: List[Dict[str, Any]] = embedded_deprecations
 
         self.spec = spec
+        self._spec_path: Optional[str] = str(spec_path) if spec_path is not None else None
+        self._cli_flags_context: Optional[Any] = cli_flags
+        self._export_paths: Dict[str, Optional[str]] = {}
         self.table_cfg = table_cfg or spec.get("table") or {}
         self.point: Optional[int] = None
         self.rolls_since_point: int = 0
@@ -837,12 +845,50 @@ class ControlStrategy:
         auto = bool(auto_val) if auto_val is not None else False
         return report_path, auto
 
-    def generate_report(self, report_path: Optional[str | Path] = None) -> Dict[str, Any]:
+    def generate_report(
+        self,
+        report_path: Optional[str | Path] = None,
+        *,
+        spec_path: Optional[str | Path] = None,
+        cli_flags: Optional[Any] = None,
+        export_paths: Optional[Dict[str, str]] = None,
+    ) -> Dict[str, Any]:
         """
         Build a run report JSON and return it as a dict.
         Prefers meta.json for identity/memory if present; otherwise falls back to
         in-memory controller state and CSV config. If a path is configured, also writes it.
         """
+        if spec_path is not None:
+            self._spec_path = str(spec_path)
+
+        raw_cli_flags = cli_flags if cli_flags is not None else self._cli_flags_context
+        cli_flags_dict: Dict[str, bool] = {}
+        if raw_cli_flags is not None:
+            candidate = raw_cli_flags
+            if is_dataclass(candidate):
+                candidate = asdict(candidate)  # type: ignore[arg-type]
+            if isinstance(candidate, dict):
+                for key in ("demo_fallbacks", "strict", "embed_analytics", "export"):
+                    if key in candidate:
+                        cli_flags_dict[key] = bool(candidate[key])
+        if cli_flags_dict:
+            self._cli_flags_context = dict(cli_flags_dict)
+        elif isinstance(self._cli_flags_context, dict):
+            cli_flags_dict = dict(self._cli_flags_context)
+        else:
+            cli_flags_dict = {}
+
+        resolved_export_paths: Dict[str, Optional[str]] = {}
+        if export_paths is not None:
+            resolved_export_paths.update(
+                {
+                    str(k): (str(v) if v is not None else None)
+                    for k, v in export_paths.items()
+                }
+            )
+        elif isinstance(self._export_paths, dict):
+            resolved_export_paths.update(self._export_paths)
+
         # Resolve output path (support both run.report and run.memory.report_path)
         if report_path is None:
             cfg_path, _ = self._report_cfg_from_spec()
@@ -886,6 +932,10 @@ class ControlStrategy:
             "meta": str(meta_path) if meta_path is not None else None,
         }
 
+        csv_source = source_files.get("csv")
+        if csv_source:
+            resolved_export_paths["journal"] = str(csv_source)
+
         run_flag_values = {
             "demo_fallbacks": bool(self._flags.get("demo_fallbacks", False)),
             "strict": bool(self._flags.get("strict", False)),
@@ -893,6 +943,9 @@ class ControlStrategy:
                 self._flags.get("embed_analytics", EMBED_ANALYTICS_DEFAULT)
             ),
         }
+
+        run_flags = dict(run_flag_values)
+        run_flags["export"] = bool(cli_flags_dict.get("export", False))
 
         report: Dict[str, Any] = {
             "identity": identity,
@@ -946,6 +999,7 @@ class ControlStrategy:
         if isinstance(report_path, (str, Path)) and str(report_path):
             p = Path(report_path)
             p.parent.mkdir(parents=True, exist_ok=True)
+            resolved_export_paths["report"] = str(p)
             try:
                 p.write_text(
                     json.dumps(report, ensure_ascii=False, separators=(",", ":"), sort_keys=True),
@@ -953,6 +1007,46 @@ class ControlStrategy:
                 )
             except Exception:
                 pass
+
+        spec_file_value: Optional[str] = self._spec_path
+        if spec_file_value is None and isinstance(self.spec, dict):
+            raw_spec = self.spec.get("_csc_spec_path")
+            if isinstance(raw_spec, (str, Path)):
+                spec_file_value = str(raw_spec)
+        if spec_file_value is None:
+            spec_file_value = ""
+
+        outputs = {
+            "journal": resolved_export_paths.get("journal"),
+            "report": resolved_export_paths.get("report"),
+            "manifest": resolved_export_paths.get("manifest", "export/manifest.json"),
+        }
+
+        manifest_path_str = outputs["manifest"]
+        if manifest_path_str is None:
+            manifest_path_str = "export/manifest.json"
+            outputs["manifest"] = manifest_path_str
+        resolved_export_paths["manifest"] = manifest_path_str
+        manifest_path = Path(manifest_path_str)
+        try:
+            manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            pass
+
+        try:
+            manifest = generate_manifest(
+                spec_file_value,
+                run_flags,
+                outputs,
+                engine_version="CrapsSim-Control",
+            )
+            with open(manifest_path, "w", encoding="utf-8") as f:
+                json.dump(manifest, f, indent=2)
+        except Exception:
+            pass
+
+        report["manifest_path"] = outputs["manifest"]
+        self._export_paths = dict(resolved_export_paths)
 
         return report
 
