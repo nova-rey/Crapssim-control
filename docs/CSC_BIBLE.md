@@ -264,11 +264,16 @@ Tag: **v0.32.0-phase4-baseline**.
    Seeded runs proving 3+ rule patterns. Tag `v0.34.0-phase5-ittt`.
 
 ### Checkpoint 1 — Rule Schema & Evaluator (Read-Only)
-Introduced a deterministic rule schema (JSON) and evaluator that checks rule conditions safely using a whitelisted expression parser.  
-Outputs candidate decisions for each roll/hand without mutating state.  
+Introduced a deterministic rule schema (JSON) and evaluator that checks rule conditions safely using a whitelisted expression parser.
+Outputs candidate decisions for each roll/hand without mutating state.
 This forms the foundation for CSC’s internal rules engine.
 
 **Guardrails:** no `eval`; deterministic vars only; if not in the decision journal, it didn’t happen.
+
+### Checkpoint 2 — Action Catalog & Timing Guards
+Established CSC’s canonical action verbs and legality framework.  
+Rules now trigger queued actions that pass timing validation.  
+Each action records its legality and result in `decision_journal.jsonl`.
 
 ---
 

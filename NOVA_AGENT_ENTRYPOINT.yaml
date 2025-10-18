@@ -1,6 +1,6 @@
 current_phase: 5
-current_checkpoint: 1
-checkpoint_title: Rule Schema & Evaluator (Read-Only)
+current_checkpoint: 2
+checkpoint_title: Action Catalog & Timing Guards
 allow_behavior_change: true
 roadmap_version: dual-brain-v1
 notes: >

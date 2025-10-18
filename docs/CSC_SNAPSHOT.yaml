@@ -1,5 +1,5 @@
 phase: 5
-checkpoint: 1
-title: Rule Schema & Evaluator (Read-Only)
-description: Added deterministic rule schema and evaluator; logs decision candidates only.
+checkpoint: 2
+title: Action Catalog & Timing Guards
+description: Implemented canonical action verbs with timing validation.
 status: active

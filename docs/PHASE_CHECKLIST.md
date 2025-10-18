@@ -49,3 +49,4 @@ Artifacts captured in `baselines/phase2/` (journal.csv, report.json, manifest.js
 | Checkpoint | Title | Status | Notes |
 |-------------|--------|--------|-------|
 | P5·C1 | Rule Schema & Evaluator (Read-Only) | ✅ Complete | Added rule DSL and deterministic evaluator; no actions yet. |
+| P5·C2 | Action Catalog & Timing Guards | ✅ Complete | Implemented canonical verbs and legality checks. |
