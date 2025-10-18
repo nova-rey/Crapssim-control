@@ -7,7 +7,12 @@ import logging
 import threading
 from typing import Iterable, Sequence
 
-import requests
+try:  # pragma: no cover - exercised via monkeypatch in tests
+    import requests  # type: ignore
+except ModuleNotFoundError:  # pragma: no cover - fallback path
+    from crapssim_control._compat import ensure_requests_module
+
+    requests = ensure_requests_module()
 
 log = logging.getLogger("CSC.Webhooks")
 log.addHandler(logging.NullHandler())
