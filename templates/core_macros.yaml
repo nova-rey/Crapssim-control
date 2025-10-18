@@ -1,0 +1,10 @@
+macros:
+  bankroll_guard:
+    when: "bankroll_after < $threshold"
+    scope: session
+    action: "switch_profile('$profile')"
+
+  martingale_loss:
+    when: "dc_losses >= $count"
+    scope: hand
+    action: "martingale('dc', $delta, $max)"

@@ -51,3 +51,4 @@ Artifacts captured in `baselines/phase2/` (journal.csv, report.json, manifest.js
 | P5·C1 | Rule Schema & Evaluator (Read-Only) | ✅ Complete | Added rule DSL and deterministic evaluator; no actions yet. |
 | P5·C2 | Action Catalog & Timing Guards | ✅ Complete | Implemented canonical verbs and legality checks. |
 | P5·C3 | Decision Journal & Safeties | ✅ Complete | Added cooldowns, once-per-scope, and structured logging. |
+| P5·C4 | Spec Authoring Aids | ✅ Complete | Added macro expansion and lint tooling for authoring rule specs. |
