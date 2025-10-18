@@ -238,90 +238,27 @@ Artifacts are stored under `baselines/phase4/`:
 - `report.json`
 - `manifest.json`
 
-This baseline serves as the reference for Phase 5 dashboard integration.
+This baseline serves as the reference point for Phase 6 external command integration.
 Tag: **v0.32.0-phase4-baseline**.
-
----
-
-## Phase 5 — CSC-Native Rules Engine (Internal Brain)
-
-**Goal:** deterministic “if-this-then-that” strategy switching inside CSC, no network dependency.  
-
-### Checkpoints
-1. **P5·C1 — Rule Schema & Evaluator (read-only)**  
-   JSON rule DSL: `when/scope/cooldown/guards/action/id`.  
-   Whitelisted vars: `bankroll_after`, `drawdown_after`, `hand_id`, `roll_in_hand`, `point_on`, `last_roll_total`, `box_hits[]`, `dc_losses`, etc.  
-   Deterministic evaluator returns decisions only.  
-2. **P5·C2 — Action Catalog & Timing Guards**  
-   Actions: `switch_profile`, `regress`, `press_and_collect`, `martingale(step_key, delta, max_level)`.  
-   Apply only at legal windows.  
-3. **P5·C3 — Decision Journal & Safeties**  
-   decisions.jsonl/csv with rule id, snapshot vars, action applied.  
-   Cooldowns and once-per-scope; conflict resolution.  
-4. **P5·C4 — Spec Authoring Aids**  
-   Rule templates/macros; validation with helpful errors.  
-5. **P5·C5 — Baseline & Tag**
-   Seeded runs proving 3+ rule patterns. Tag `v0.34.0-phase5-ittt`.
-
-### Checkpoint 5 — Baseline & Tag
-Completed a seeded integration run demonstrating CSC’s internal rules engine.
-Confirmed deterministic rule evaluation, timing guards, cooldowns, and decision journaling.
-Artifacts stored under `baselines/phase5/`.
-Tagged v0.34.0-phase5-ittt.
-
-### Checkpoint 1 — Rule Schema & Evaluator (Read-Only)
-Introduced a deterministic rule schema (JSON) and evaluator that checks rule conditions safely using a whitelisted expression parser.
-Outputs candidate decisions for each roll/hand without mutating state.
-This forms the foundation for CSC’s internal rules engine.
-
-**Guardrails:** no `eval`; deterministic vars only; if not in the decision journal, it didn’t happen.
-
-### Checkpoint 2 — Action Catalog & Timing Guards
-Established CSC’s canonical action verbs and legality framework.
-Rules now trigger queued actions that pass timing validation.
-Each action records its legality and result in `decision_journal.jsonl`.
-
-### Checkpoint 3 — Decision Journal & Safeties
-Replaced ad-hoc decision logging with a formal Decision Journal system.
-All rule evaluations and actions now produce standardized records with timestamps and safety status.
-Safeties include cooldowns, once-per-scope locks, and duplicate blocking.
-
-### Checkpoint 4 — Spec Authoring Aids
-Introduced Rule Builder helpers so authors can compose rulesets in YAML with macros and parameters instead of hand-editing JSON.
-The CLI now expands macros, substitutes `$param` placeholders, and performs lint checks for unknown variables, verbs, and schema regressions.
-This makes the rule engine approachable while keeping validation strict before rules ever reach the evaluator.
 
 ---
 
 ## Phase 6 — Node-RED Driven Control (External Brain)
 
-**Goal:** Node-RED listens to CSC events and sends the same actions back; CSC enforces legality and logs all external decisions.  
+This phase extends CSC’s control surface so external systems like Node-RED can listen to CSC events and send back validated commands.  
+All legality and timing remain enforced inside CSC; external brains never bypass safeguards.
 
-### Checkpoints
-1. **P6·C1 — Inbound Command Channel**  
-   `POST /commands {run_id, action, args, source}`; queued and applied at legal windows; illegal timing → rejection.  
-2. **P6·C2 — Node-RED Flow (Listen → Decide → Command)**  
-   Sample flow from webhooks to commands; snapshot flow/version in manifest for reproducibility.  
-3. **P6·C3 — Decision Journal Unification**  
-   Journal includes `origin: rule:<id>` or `external: node-red@<flowId>`; optional command tape for deterministic replay.  
-4. **P6·C4 — Safety & Backpressure**  
-   Rate limiting, dedupe `(run_id,event)`; determinism mode for baselines (disable externals or replay tape).  
-5. **P6·C5 — Baseline & Tag**  
-   Replicate Phase 5 scenarios, driven externally. Tag `v0.35.0-phase6-external`.
+### Roadmap
+| Checkpoint | Title | Summary |
+|-------------|--------|----------|
+| **P6·C1** | Inbound Command Channel | Implement `/commands` endpoint with legality/timing enforcement and queuing. |
+| **P6·C2** | Node-RED Flow | Example Node-RED flow that subscribes to CSC webhooks and issues commands. |
+| **P6·C3** | Decision Journal Unification | Merge internal and external actions into one journal; add optional command tape. |
+| **P6·C4** | Safety & Backpressure | Rate-limit and deduplicate external inputs; add deterministic replay mode. |
+| **P6·C5** | Baseline & Tag | Demonstrate full external control loop and tag `v0.35.0-phase6-external`. |
 
-**Guardrails:** CSC never blocks on network; rejects/records illegal commands; simulation continues.  
-
----
-
-### Shared Contract (both brains)
-- **Action verbs v1:** `switch_profile`, `regress`, `press_and_collect`, `martingale`.  
-- **Legality/timing:** enforced centrally in CSC, identical for internal rules and external commands.  
-- **Decision journal:** single format with `origin` field (`rule` vs `external`).  
-- **Determinism mode:** recordable command tape; baseline runs replay or forbid external control.  
-
----
-
-### Downstream Phases (renumbered)
-- **Phase 7 — Web Dashboard MVP (old Phase 5):** live run + history + artifact links; read-only. Tag `v0.36.0-phase7-baseline`.
-- **Phase 8 — Run Launcher & Spec Library (old Phase 6):** `/runs` API, worker launcher, spec library. Tag `v0.37.0-phase8-baseline`.
-- **Phase 9 — Integrated Spec Builder & Chained Runs (old Phase 7):** Node-RED builder embedded/ported; chained runs, diffs/compare. Tag `v0.38.0-phase9-baseline`.
+### Goals
+- Deterministic replays via recorded command tapes  
+- Identical legality checks for both brains  
+- Stable reporting schema (v1.2) maintained  
+- Seamless path toward future dashboard integrations

@@ -1,8 +1,4 @@
-current_phase: 5
-current_checkpoint: 5
-checkpoint_title: Baseline & Tag
-allow_behavior_change: false
-roadmap_version: dual-brain-v1
-notes: >
-  Updated roadmap: Phase 5 = internal rule engine; Phase 6 = Node-RED external brain;
-  later phases renumbered (7–9). Shared action contract maintained across both.
+current_phase: 6
+current_checkpoint: 0
+checkpoint_title: Docs Kickoff & Roadmap Setup
+allow_behavior_change: true
