@@ -7,10 +7,12 @@ import json
 from pathlib import Path
 import platform
 import shutil
+import threading
 import zipfile
 from datetime import datetime
 from uuid import uuid4
 import hashlib  # P5C5: for content fingerprints
+import uvicorn
 
 from .templates import render_template as render_runtime_template, diff_bets
 from .actions import make_action  # Action Envelope helper
@@ -36,6 +38,8 @@ from .manifest import generate_manifest
 from .schemas import JOURNAL_SCHEMA_VERSION, SUMMARY_SCHEMA_VERSION
 from .integrations.hooks import Outbound
 from .integrations.evo_hooks import EvoBridge
+from crapssim_control.external.command_channel import CommandQueue
+from crapssim_control.external.http_api import create_app
 
 
 class ControlStrategy:
@@ -203,6 +207,25 @@ class ControlStrategy:
 
         # P5C3: structured decision journal with safeties
         self.journal = DecisionJournal()
+
+        # P6C1: External command channel (HTTP intake + in-process queue)
+        self.command_queue = CommandQueue()
+
+        def _active_run_id() -> Optional[str]:
+            return getattr(self, "run_id", None)
+
+        self._api_app = create_app(self.command_queue, _active_run_id)
+        self._api_thread = threading.Thread(
+            target=lambda: uvicorn.run(
+                self._api_app,
+                host="127.0.0.1",
+                port=8089,
+                log_level="warning",
+            ),
+            name="csc-external-api",
+            daemon=True,
+        )
+        self._api_thread.start()
 
         # Phase 3 analytics scaffolding
         self._tracker: Optional[Tracker] = None
@@ -1146,6 +1169,42 @@ class ControlStrategy:
                     ])
 
             self._analytics_record_roll(event)
+
+            current_state = self._current_state_for_eval()
+            tracker = self._tracker
+            pending = self.command_queue.drain() if hasattr(self, "command_queue") else []
+            for cmd in pending:
+                verb = cmd["action"]
+                args = cmd.get("args", {})
+                source = cmd.get("source", "unknown")
+                origin = f"external:{source}"
+                corr = cmd.get("correlation_id")
+                legal, reason = is_legal_timing(current_state, {"verb": verb})
+                record = {
+                    "run_id": self.run_id,
+                    "hand_id": tracker.hand_id if tracker is not None else None,
+                    "roll_in_hand": tracker.roll_in_hand if tracker is not None else None,
+                    "action": verb,
+                    "args": args,
+                    "origin": origin,
+                    "correlation_id": corr,
+                    "timing_legal": legal,
+                }
+                if not legal:
+                    record["executed"] = False
+                    record["rejection_reason"] = f"timing:{reason}"
+                    self.journal.record(record)
+                    continue
+                try:
+                    result = ACTIONS[verb].execute(self.__dict__, {"args": args})
+                except Exception as exc:  # pragma: no cover - defensive
+                    record["executed"] = False
+                    record["rejection_reason"] = f"execution:{exc}"[:256]
+                    self.journal.record(record)
+                    continue
+                record["executed"] = True
+                record["result"] = result
+                self.journal.record(record)
 
             rule_actions = self._apply_rules_for_event(event)
             switches, setvars, rule_non_special = self._split_switch_setvar_other(rule_actions)

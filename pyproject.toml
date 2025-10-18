@@ -13,6 +13,9 @@ authors = [{ name = "CrapsSim Control Team" }]
 dependencies = [
   "crapssim>=0.3.1",
   "PyYAML>=6.0",
+  "fastapi>=0.110",
+  "uvicorn>=0.23",
+  "httpx>=0.27",
 ]
 
 # Optional extras: YAML loading for specs
