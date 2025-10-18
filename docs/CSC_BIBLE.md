@@ -318,3 +318,6 @@ Established a minimal `/commands` HTTP endpoint with an internal queue.
 Commands include `run_id`, `action`, `args`, `source`, and `correlation_id`. 
 CSC validates action verbs and timing; legal commands execute at the next window. 
 All outcomes are recorded in the Decision Journal with `origin: external:<source>`.
+
+### Checkpoint 1 — Inbound Command Channel
+Added /commands HTTP intake with a deterministic queue. Commands validated for run_id, verb, and dedup by correlation_id. Applied at legal windows; all outcomes journaled with origin and correlation_id.

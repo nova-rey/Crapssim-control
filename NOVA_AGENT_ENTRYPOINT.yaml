@@ -2,5 +2,4 @@ current_phase: 6
 current_checkpoint: 1
 checkpoint_title: Inbound Command Channel
 allow_behavior_change: true
-notes: >
-  Bible is append-only: add new Phase 6 sections, do not overwrite prior phases.
+notes: Bible is append-only; do not overwrite prior phases.
