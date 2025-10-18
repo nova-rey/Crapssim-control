@@ -82,8 +82,8 @@ Added a load-time normalization pass that migrates deprecated spec keys to
 their canonical names, prefers modern fields when both are present, and records
 each migration under `report.metadata.deprecations` for easy auditing.
 
-**Checkpoint 5 (P2·C5): Baseline & Tag**  
-Pending — capture seeded integration artifacts and tag `v0.30.0-phase2-baseline`.
+**Checkpoint 5 (P2·C5): Baseline & Tag**
+Baseline artifacts captured and tagged `v0.30.0-phase2-baseline`.
 
 ---
 
@@ -192,3 +192,15 @@ Tagged release: **v0.31.0-phase3-baseline**.
 
 > Note: When `run.csv.embed_analytics=false`, analytics fields in the summary may be zero or omitted.
 > The `summary_schema_version` remains `"1.2"` for compatibility.
+
+## Phase 4 — Control Surface & Integrations
+
+Purpose: Extend CrapsSim-Control outward. This phase focuses on interface polish and external linkages — CLI ergonomics, Node-RED/webhook scaffolds, and metadata clarity for downstream systems like CrapsSim-Evo.
+
+### Checkpoints
+- **P4·C0 — Docs Kickoff & Roadmap Setup:** Establish Phase 4 structure and roadmap visibility.
+- **P4·C1 — CLI Flag & Manifest Framework:** Unify CLI flags and implement a standard run-manifest schema.
+- **P4·C2 — Node-RED / Webhook Stub Integration:** Introduce minimal communication stubs for orchestration.
+- **P4·C3 — Runtime Report & Metadata Polish:** Refine report readability and metadata consistency.
+- **P4·C4 — Evo Integration Hooks (Scaffold):** Lay foundation for CrapsSim-Evo interop (no coupling yet).
+- **P4·C5 — Baseline & Tag:** Capture seeded integration baseline and tag v0.32.0-phase4-baseline.
