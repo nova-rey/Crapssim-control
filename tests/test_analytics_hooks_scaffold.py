@@ -120,6 +120,14 @@ def test_embed_flag_controls_csv_schema(tmp_path):
         sanitized = deepcopy(report)
         sanitized["metadata"]["run_flags"]["values"]["embed_analytics"] = None
         sanitized["metadata"]["run_flags"]["sources"]["embed_analytics"] = None
+        sanitized["metadata"]["engine"] = {}
+        sanitized["metadata"]["artifacts"] = {
+            "journal": "SANITIZED",
+            "report": "SANITIZED",
+            "manifest": "SANITIZED",
+        }
+        sanitized["run_id"] = "SANITIZED"
+        sanitized["manifest_path"] = "SANITIZED"
         sanitized["source_files"]["csv"] = "SANITIZED"
         sanitized["csv"]["path"] = "SANITIZED"
         summary = sanitized.get("summary", {})

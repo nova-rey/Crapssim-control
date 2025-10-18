@@ -214,3 +214,9 @@ The manifest enables external orchestration tools to read run metadata and schem
 ### Checkpoint 2 — Node-RED / Webhook Stub Integration
 
 Outbound lifecycle hooks (run/hand/roll) are available behind explicit flags. Defaults remain no-op. Payloads are intentionally small; failures never interrupt simulations. Sensitive configuration (webhook URL) is masked in reports and summarized in the manifest.
+
+### Checkpoint 3 — Runtime Report & Metadata Polish
+
+Reports now include `run_id`, `manifest_path`, and an `engine` and `artifacts` block under `metadata`.
+Each run flag records a `*_source` indicating CLI/spec/default provenance.
+All webhook payloads now include `run_id` (and seed/fingerprint on `run.started` when available) for downstream correlation.

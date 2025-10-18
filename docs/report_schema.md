@@ -88,5 +88,22 @@ journal_schema_version: 1.2
   Corresponds to the schema defined in Phase 3 (bankroll/roll analytics fields).
 
 ### Cross-Reference
-Each report is accompanied by a `manifest.json` file that contains run-level metadata.  
+Each report is accompanied by a `manifest.json` file that contains run-level metadata.
 See [run_manifest_schema.md](run_manifest_schema.md) for details.
+
+### Traceability & Metadata
+
+Top-level fields:
+- `run_id` (string): Stable identifier for the run (matches manifest `run_id`).
+- `manifest_path` (string): Path to the run’s manifest file.
+- `journal_schema_version` (string): Journal CSV schema version (e.g., "1.2").
+- `summary_schema_version` (string): Report summary schema version (e.g., "1.2").
+
+`metadata.engine`:
+- `name` (string), `version` (string), `python` (string)
+
+`metadata.artifacts`:
+- `journal`, `report`, `manifest` (strings; run-relative paths)
+
+`metadata.run_flags`:
+- Includes provenance keys `*_source` indicating where each flag came from (`cli`, `spec`, or `default`).
