@@ -1,7 +1,7 @@
 current_phase: 5
-current_checkpoint: 4
-checkpoint_title: Spec Authoring Aids
-allow_behavior_change: true
+current_checkpoint: 5
+checkpoint_title: Baseline & Tag
+allow_behavior_change: false
 roadmap_version: dual-brain-v1
 notes: >
   Updated roadmap: Phase 5 = internal rule engine; Phase 6 = Node-RED external brain;

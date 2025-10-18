@@ -1,0 +1,2 @@
+spec,rolls,final_bankroll,seed,note
+examples/internal_brain_demo/spec.yaml,60,747.0,12345,modern

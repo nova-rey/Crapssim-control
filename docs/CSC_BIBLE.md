@@ -263,6 +263,12 @@ Tag: **v0.32.0-phase4-baseline**.
 5. **P5·C5 — Baseline & Tag**
    Seeded runs proving 3+ rule patterns. Tag `v0.34.0-phase5-ittt`.
 
+### Checkpoint 5 — Baseline & Tag
+Completed a seeded integration run demonstrating CSC’s internal rules engine.
+Confirmed deterministic rule evaluation, timing guards, cooldowns, and decision journaling.
+Artifacts stored under `baselines/phase5/`.
+Tagged v0.34.0-phase5-ittt.
+
 ### Checkpoint 1 — Rule Schema & Evaluator (Read-Only)
 Introduced a deterministic rule schema (JSON) and evaluator that checks rule conditions safely using a whitelisted expression parser.
 Outputs candidate decisions for each roll/hand without mutating state.

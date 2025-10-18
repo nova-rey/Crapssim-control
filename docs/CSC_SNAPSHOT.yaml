@@ -1,5 +1,5 @@
 phase: 5
-checkpoint: 4
-title: Spec Authoring Aids
-description: Added rule builder, macro expansion, and lint utilities.
-status: active
+checkpoint: 5
+title: Baseline & Tag
+description: Seeded integration run validating internal rule engine; tagged v0.34.0-phase5-ittt.
+status: complete
