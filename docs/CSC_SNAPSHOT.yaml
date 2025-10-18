@@ -1,5 +1,5 @@
 phase: 3
-checkpoint: 3
-title: Summary Expansion
-description: Report includes analytics summary fields and summary_schema_version "1.2"; no gameplay or CSV changes.
+checkpoint: 4
+title: Journal Schema Versioning
+description: Added explicit journal and summary schema version fields (v1.2) with centralized constants.
 status: active

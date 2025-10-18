@@ -130,6 +130,8 @@ Command-Line Flags
 * `--no-embed-analytics` disables CSV analytics embedding. Omit the flag (or set
   `run.csv.embed_analytics=true`) to keep analytics columns.
 
+> Outputs now include schema version labels (journal_schema_version and summary_schema_version) to help external tools verify compatibility.
+
 
 ⸻
 

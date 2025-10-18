@@ -6,10 +6,13 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from crapssim_control.csv_journal import CSVJournal
+from crapssim_control.schemas import JOURNAL_SCHEMA_VERSION
+from tests import skip_csv_preamble
 
 
 def _read_all(path: str) -> List[Dict[str, str]]:
     with open(path, newline="", encoding="utf-8") as f:
+        skip_csv_preamble(f)
         reader = csv.DictReader(f)
         return list(reader)
 
@@ -101,8 +104,10 @@ def test_header_written_and_rows_appended_once():
         # Ensure header wasn't duplicated by checking first line of file explicitly
         with open(out, encoding="utf-8") as f:
             first_line = f.readline().strip()
+            second_line = f.readline().strip()
+        assert first_line == f"# journal_schema_version: {JOURNAL_SCHEMA_VERSION}"
         # Columns are stable and should include these keys in order
-        assert first_line.startswith("ts,run_id,seed,event_type,point,rolls_since_point,on_comeout,mode,units,bankroll,source,id,action,bet_type,amount,notes,extra")
+        assert second_line.startswith("ts,run_id,seed,event_type,point,rolls_since_point,on_comeout,mode,units,bankroll,source,id,action,bet_type,amount,notes,extra")
 
 
 def test_blank_amount_when_none_and_missing_snapshot_is_ok():

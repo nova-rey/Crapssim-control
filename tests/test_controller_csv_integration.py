@@ -6,10 +6,12 @@ import tempfile
 from pathlib import Path
 
 from crapssim_control.controller import ControlStrategy
+from tests import skip_csv_preamble
 
 
 def _read_csv_rows(path):
     with open(path, "r", encoding="utf-8", newline="") as f:
+        skip_csv_preamble(f)
         reader = csv.DictReader(f)
         rows = list(reader)
         return reader.fieldnames, rows

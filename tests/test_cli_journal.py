@@ -9,6 +9,7 @@ import tempfile
 import pytest
 
 from crapssim_control.cli import main as cli_main
+from tests import skip_csv_preamble
 
 
 def _write_journal(path: Path, rows):
@@ -189,6 +190,7 @@ def test_cli_journal_summarize_writes_summary_csv(tmp_path: Path):
 
     # Read back and validate a few fields
     with out_summary.open("r", encoding="utf-8", newline="") as f:
+        skip_csv_preamble(f)
         r = list(csv.DictReader(f))
     assert len(r) == 1
     row = r[0]

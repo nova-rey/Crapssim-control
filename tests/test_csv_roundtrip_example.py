@@ -10,10 +10,12 @@ import pytest
 
 from crapssim_control.csv_journal import CSVJournal
 from crapssim_control.csv_summary import summarize_journal, write_summary_csv
+from tests import skip_csv_preamble
 
 
 def _read_csv_rows(path: Path):
     with path.open(encoding="utf-8") as f:
+        skip_csv_preamble(f)
         return list(csv.DictReader(f))
 
 

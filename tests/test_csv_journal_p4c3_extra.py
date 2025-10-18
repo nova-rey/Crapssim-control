@@ -2,6 +2,7 @@ import csv
 from pathlib import Path
 
 from crapssim_control.csv_journal import CSVJournal
+from tests import skip_csv_preamble
 
 def test_csv_extra_enrichment(tmp_path: Path):
     p = tmp_path / "journal.csv"
@@ -29,7 +30,9 @@ def test_csv_extra_enrichment(tmp_path: Path):
     assert n == 2
     assert p.exists()
 
-    rows = list(csv.DictReader(open(p, newline="", encoding="utf-8")))
+    with open(p, newline="", encoding="utf-8") as fh:
+        skip_csv_preamble(fh)
+        rows = list(csv.DictReader(fh))
     assert len(rows) == 2
     # schema columns still present
     for col in ["ts","run_id","seed","event_type","point","rolls_since_point","on_comeout","mode","units","bankroll","source","id","action","bet_type","amount","notes","extra"]:

@@ -4,6 +4,7 @@ from pathlib import Path
 
 from crapssim_control.controller import ControlStrategy
 from crapssim_control.events import COMEOUT, POINT_ESTABLISHED
+from tests import skip_csv_preamble
 
 
 def _spec(csv_path: Path):
@@ -50,7 +51,9 @@ def test_summary_row_extra_includes_run_identity(tmp_path):
     # Finalize → summary row appended
     c.finalize_run()
 
-    rows = list(csv.DictReader(open(csv_path, newline="", encoding="utf-8")))
+    with open(csv_path, newline="", encoding="utf-8") as fh:
+        skip_csv_preamble(fh)
+        rows = list(csv.DictReader(fh))
     assert len(rows) == len(acts) + 1
 
     summary = rows[-1]
