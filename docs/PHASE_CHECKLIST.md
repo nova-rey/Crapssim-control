@@ -35,3 +35,11 @@ Artifacts captured in `baselines/phase2/` (journal.csv, report.json, manifest.js
 | P4·C3 | Runtime Report & Metadata Polish | ✅ Complete | Added run_id/manifest_path, engine & artifacts blocks, and flag provenance; webhooks carry run_id. |
 | P4·C4 | Evo Integration Hooks (Scaffold) | ✅ Complete | Added EvoBridge stub and manifest evo block for future CrapsSim-Evo interoperability. |
 | P4·C5 | Baseline & Tag | ✅ Complete | Captured seeded integration baseline and tagged v0.32.0-phase4-baseline. |
+
+| Phase | Title | Status | Tag | Notes |
+|-------|--------|---------|------|-------|
+| 5 | CSC-Native Rules Engine (Internal Brain) | ⏳ In Progress | v0.34.0-phase5-ittt | Deterministic rule evaluation and decision journaling. |
+| 6 | Node-RED Driven Control (External Brain) | ⏳ Planned | v0.35.0-phase6-external | External command interface, unified decision journal. |
+| 7 | Web Dashboard MVP | ⏳ Planned | v0.36.0-phase7-baseline | Live monitoring, run history, artifacts. |
+| 8 | Run Launcher & Spec Library | ⏳ Planned | v0.37.0-phase8-baseline | /runs API and spec management. |
+| 9 | Integrated Spec Builder & Chained Runs | ⏳ Planned | v0.38.0-phase9-baseline | Unified builder, chained run support. |
