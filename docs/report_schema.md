@@ -79,3 +79,18 @@ A report is a JSON object with these primary sections:
 - Schema version tracked implicitly via checkpoint documentation.
 - Payload fields remain backward-compatible; new keys are additive.
 - Consumers should ignore unknown keys while relying on documented sections.
+
+### Summary (Schema v1.2)
+
+The end-of-run report includes an expanded summary when analytics are enabled:
+
+- `total_hands` (int): Number of hands played.
+- `total_rolls` (int): Number of rolls across the session.
+- `points_made` (int): Count of established points that were made.
+- `pso_count` (int): Point–Seven-Out events (7-out on first roll after establishing a point).
+- `bankroll_peak` (number): Highest bankroll observed during the run.
+- `bankroll_low` (number): Lowest bankroll observed during the run.
+- `max_drawdown` (number): `bankroll_peak - bankroll_min_at_time`.
+- `summary_schema_version` (string): `"1.2"`.
+
+> Note: When `run.csv.embed_analytics=false`, `summary_schema_version` is still `"1.2"`, and analytics-derived fields may be zero or omitted depending on configuration.

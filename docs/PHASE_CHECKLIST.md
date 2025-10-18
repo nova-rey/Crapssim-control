@@ -20,7 +20,7 @@ Artifacts captured in `baselines/phase2/` (journal.csv, report.json, manifest.js
 |-------------|--------|--------|-------|
 | P3·C1 | Analytics Hook Scaffolding | ✅ Complete | Introduced analytics package with Tracker/Ledger stubs and lifecycle hook wiring. |
 | P3·C2 | Bankroll & Roll Tracking Integration | ✅ Complete | Enabled live bankroll tracking and per-roll/hand context columns (hand_id, roll_in_hand, bankroll_after, drawdown_after). |
-| P3·C3 | Summary Expansion | ⏳ Pending | Expand report summaries with bankroll and roll metrics. |
+| P3·C3 | Summary Expansion | ✅ Complete | Report now includes analytics summary fields and summary_schema_version "1.2". |
 | P3·C4 | Journal Schema Versioning | ⏳ Pending | Add schema version fields for CSV and summary outputs. |
 | P3·C5 | Baseline & Tag | ⏳ Pending | Capture seeded analytics run and tag v0.31.0-phase3-baseline. |
 
