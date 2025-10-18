@@ -43,3 +43,9 @@ Artifacts captured in `baselines/phase2/` (journal.csv, report.json, manifest.js
 | 7 | Web Dashboard MVP | ⏳ Planned | v0.36.0-phase7-baseline | Live monitoring, run history, artifacts. |
 | 8 | Run Launcher & Spec Library | ⏳ Planned | v0.37.0-phase8-baseline | /runs API and spec management. |
 | 9 | Integrated Spec Builder & Chained Runs | ⏳ Planned | v0.38.0-phase9-baseline | Unified builder, chained run support. |
+
+## Phase 5 — CSC-Native Rules Engine (Internal Brain)
+
+| Checkpoint | Title | Status | Notes |
+|-------------|--------|--------|-------|
+| P5·C1 | Rule Schema & Evaluator (Read-Only) | ✅ Complete | Added rule DSL and deterministic evaluator; no actions yet. |

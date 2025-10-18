@@ -1,16 +1,5 @@
 phase: 5
-title: CSC-Native Rules Engine (Internal Brain)
-description: Introduces deterministic rule-based strategy switching inside CSC.
-next_phases:
-  - phase: 6
-    title: Node-RED Driven Control (External Brain)
-    description: External orchestration via webhooks and command API using same action verbs.
-  - phase: 7
-    title: Web Dashboard MVP
-    description: Live run monitoring and artifact access; read-only.
-  - phase: 8
-    title: Run Launcher & Spec Library
-    description: /runs API and spec management from UI.
-  - phase: 9
-    title: Integrated Spec Builder & Chained Runs
-    description: Unified Node-RED builder with chained runs and comparisons.
+checkpoint: 1
+title: Rule Schema & Evaluator (Read-Only)
+description: Added deterministic rule schema and evaluator; logs decision candidates only.
+status: active
