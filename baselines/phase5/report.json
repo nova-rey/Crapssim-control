@@ -1,0 +1,15 @@
+{
+  "run_id": "phase5-ittt-demo",
+  "seed": 12345,
+  "journal_schema_version": "1.0",
+  "journal": "baselines/phase5/decision_journal.jsonl",
+  "csv": "baselines/phase5/journal.csv",
+  "records": 12,
+  "executed_actions": 4,
+  "events_simulated": 6,
+  "rules": [
+    "bankroll_guard_001",
+    "box_trigger_002"
+  ],
+  "timing_enforced": true
+}

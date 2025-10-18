@@ -1,0 +1,55 @@
+meta:
+  version: 0
+  name: Phase 5 Internal Brain Demo
+
+table:
+  bubble: false
+  level: 15
+  odds_policy: "3-4-5x"
+
+variables:
+  units: 15
+  mode: Main
+
+modes:
+  Main:
+    template:
+      pass: "15"
+      place_6: "18"
+      place_8: "18"
+      field: "5"
+
+run:
+  rolls: 60
+  csv:
+    enabled: true
+    path: export/journal.csv
+    append: false
+
+rules: []
+
+internal_brain:
+  macros:
+    bankroll_guard:
+      when: "bankroll_after < $threshold"
+      scope: session
+      cooldown: 3
+      action: "switch_profile('$profile')"
+      profile: "$profile"
+      target: "$profile"
+    box_trigger:
+      when: "box_hits >= $count"
+      scope: hand
+      cooldown: 1
+      action: "press_and_collect('$pattern')"
+      pattern: "$pattern"
+
+  rules:
+    - use: bankroll_guard
+      params:
+        threshold: 950
+        profile: Recovery
+    - use: box_trigger
+      params:
+        count: 1
+        pattern: conservative

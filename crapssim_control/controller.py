@@ -18,6 +18,7 @@ from .rules_engine import apply_rules  # Runtime rules engine
 from .rules_engine.evaluator import evaluate_rules
 from crapssim_control.rules_engine.actions import ACTIONS, is_legal_timing
 from .rules_engine.journal import DecisionJournal
+from .rules_engine.schema import validate_ruleset
 from .csv_journal import CSVJournal  # Per-event journaling
 from .events import canonicalize_event, COMEOUT, POINT_ESTABLISHED, ROLL, SEVEN_OUT
 from .eval import evaluate, EvalError
@@ -210,6 +211,7 @@ class ControlStrategy:
 
         self._init_tracker()
         self._update_outbound_from_flags(self._cli_flags_context)
+        self._load_internal_rules()
 
     # ----- helpers -----
 
@@ -402,6 +404,87 @@ class ControlStrategy:
         if self._outbound.enabled and not self._outbound_run_started:
             self._emit_run_started()
 
+    # ----- Phase 5: Internal Brain ruleset ----------------------------------
+
+    @staticmethod
+    def _copy_rule_template(data: Dict[str, Any]) -> Dict[str, Any]:
+        try:
+            return json.loads(json.dumps(data))
+        except Exception:
+            return dict(data)
+
+    @staticmethod
+    def _substitute_placeholders(payload: Any, key: str, value: Any) -> Any:
+        placeholder = f"${key}"
+        if isinstance(payload, str):
+            return payload.replace(placeholder, str(value))
+        if isinstance(payload, list):
+            return [ControlStrategy._substitute_placeholders(item, key, value) for item in payload]
+        if isinstance(payload, dict):
+            return {
+                k: ControlStrategy._substitute_placeholders(v, key, value)
+                for k, v in payload.items()
+            }
+        return payload
+
+    def _load_internal_rules(self) -> None:
+        self.ruleset: List[Dict[str, Any]] = []
+        self._ruleset_errors: List[str] = []
+
+        brain_cfg = {}
+        raw_brain = self.spec.get("internal_brain") if isinstance(self.spec, dict) else None
+        if isinstance(raw_brain, dict):
+            brain_cfg = raw_brain
+
+        macros_raw = brain_cfg.get("macros", {}) if isinstance(brain_cfg, dict) else {}
+        rules_raw = brain_cfg.get("rules") if isinstance(brain_cfg, dict) else None
+
+        if not isinstance(rules_raw, list) or not rules_raw:
+            return
+
+        macros: Dict[str, Dict[str, Any]] = {}
+        if isinstance(macros_raw, dict):
+            for name, template in macros_raw.items():
+                if isinstance(template, dict):
+                    macros[str(name)] = self._copy_rule_template(template)
+
+        expanded: List[Dict[str, Any]] = []
+        for idx, entry in enumerate(rules_raw, start=1):
+            if not isinstance(entry, dict):
+                continue
+
+            rule_obj: Dict[str, Any]
+            if "use" in entry:
+                macro_name = str(entry.get("use", "")).strip()
+                macro = macros.get(macro_name)
+                if not macro:
+                    continue
+                rule_obj = self._copy_rule_template(macro)
+                params = entry.get("params")
+                if isinstance(params, dict):
+                    for param_key, param_val in params.items():
+                        rule_obj = self._substitute_placeholders(rule_obj, str(param_key), param_val)
+                for key, val in entry.items():
+                    if key in {"use", "params"}:
+                        continue
+                    rule_obj[key] = val
+                if "id" not in rule_obj or not rule_obj.get("id"):
+                    rule_obj["id"] = entry.get("id") or f"{macro_name}_{idx:03d}"
+            else:
+                rule_obj = self._copy_rule_template(entry)
+                if "id" not in rule_obj or not rule_obj.get("id"):
+                    rule_obj["id"] = f"rule_{idx:03d}"
+
+            rule_obj.setdefault("enabled", True)
+            expanded.append(rule_obj)
+
+        if not expanded:
+            return
+
+        errors = validate_ruleset(expanded)
+        self._ruleset_errors = errors
+        self.ruleset = expanded
+
     def _emit_run_started(self) -> None:
         if self._outbound_run_started or not self._outbound.enabled:
             return
@@ -542,6 +625,8 @@ class ControlStrategy:
                             ctx[key] = float(val)
                         except ValueError:
                             continue
+            if "box_hits" not in ctx:
+                ctx["box_hits"] = 0
             if isinstance(total, (int, float)):
                 ctx["last_roll_total"] = total
             fired_rules: List[Dict[str, Any]] = []
@@ -646,6 +731,7 @@ class ControlStrategy:
                             decision["note"] = timing_reason
 
                     decision["run_id"] = self.run_id
+                    decision["origin"] = f"rule:{rule_id}"
                     self.journal.record(decision)
         if self._outbound.enabled:
             snap = tracker.get_roll_snapshot() if tracker is not None else {}
