@@ -243,6 +243,56 @@ Tag: **v0.32.0-phase4-baseline**.
 
 ---
 
+## Phase 5 — CSC-Native Rules Engine (Internal Brain)
+
+**Goal:** deterministic “if-this-then-that” strategy switching inside CSC, no network dependency.
+
+### Checkpoints
+1. **P5·C1 — Rule Schema & Evaluator (read-only)**
+   JSON rule DSL: `when/scope/cooldown/guards/action/id`.
+   Whitelisted vars: `bankroll_after`, `drawdown_after`, `hand_id`, `roll_in_hand`, `point_on`, `last_roll_total`, `box_hits[]`, `dc_losses`, etc.
+   Deterministic evaluator returns decisions only.
+2. **P5·C2 — Action Catalog & Timing Guards**
+   Actions: `switch_profile`, `regress`, `press_and_collect`, `martingale(step_key, delta, max_level)`.
+   Apply only at legal windows.
+3. **P5·C3 — Decision Journal & Safeties**
+   decisions.jsonl/csv with rule id, snapshot vars, action applied.
+   Cooldowns and once-per-scope; conflict resolution.
+4. **P5·C4 — Spec Authoring Aids**
+   Rule templates/macros; validation with helpful errors.
+5. **P5·C5 — Baseline & Tag**
+   Seeded runs proving 3+ rule patterns. Tag `v0.34.0-phase5-ittt`.
+
+### Checkpoint 5 — Baseline & Tag
+Completed a seeded integration run demonstrating CSC’s internal rules engine.
+Confirmed deterministic rule evaluation, timing guards, cooldowns, and decision journaling.
+Artifacts stored under `baselines/phase5/`.
+Tagged v0.34.0-phase5-ittt.
+
+### Checkpoint 1 — Rule Schema & Evaluator (Read-Only)
+Introduced a deterministic rule schema (JSON) and evaluator that checks rule conditions safely using a whitelisted expression parser.
+Outputs candidate decisions for each roll/hand without mutating state.
+This forms the foundation for CSC’s internal rules engine.
+
+**Guardrails:** no `eval`; deterministic vars only; if not in the decision journal, it didn’t happen.
+
+### Checkpoint 2 — Action Catalog & Timing Guards
+Established CSC’s canonical action verbs and legality framework.
+Rules now trigger queued actions that pass timing validation.
+Each action records its legality and result in `decision_journal.jsonl`.
+
+### Checkpoint 3 — Decision Journal & Safeties
+Replaced ad-hoc decision logging with a formal Decision Journal system.
+All rule evaluations and actions now produce standardized records with timestamps and safety status.
+Safeties include cooldowns, once-per-scope locks, and duplicate blocking.
+
+### Checkpoint 4 — Spec Authoring Aids
+Introduced Rule Builder helpers so authors can compose rulesets in YAML with macros and parameters instead of hand-editing JSON.
+The CLI now expands macros, substitutes `$param` placeholders, and performs lint checks for unknown variables, verbs, and schema regressions.
+This makes the rule engine approachable while keeping validation strict before rules ever reach the evaluator.
+
+---
+
 ## Phase 6 — Node-RED Driven Control (External Brain)
 
 This phase extends CSC’s control surface so external systems like Node-RED can listen to CSC events and send back validated commands.  
