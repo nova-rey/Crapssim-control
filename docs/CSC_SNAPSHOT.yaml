@@ -1,5 +1,5 @@
 phase: 5
-checkpoint: 2
-title: Action Catalog & Timing Guards
-description: Implemented canonical action verbs with timing validation.
+checkpoint: 3
+title: Decision Journal & Safeties
+description: Added structured Decision Journal with cooldown and scope protections.
 status: active
