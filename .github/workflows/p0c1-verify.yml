@@ -58,7 +58,7 @@ jobs:
         run: |
           set -e
           python -m pip install -U pip
-          pip install "crapssim==${{ steps.pin.outputs.CRAPSSIM_VERSION }}" "PyYAML>=6.0"
+          pip install "crapssim==${{ steps.pin.outputs.CRAPSSIM_VERSION }}" "PyYAML>=6.0" "requests>=2.31"
           pip install -e .
 
       - name: Run baseline (capture RESULT only)
@@ -78,7 +78,7 @@ jobs:
         run: |
           set -e
           python -m pip install -U pip
-          pip install "crapssim==${{ steps.pin.outputs.CRAPSSIM_VERSION }}" "PyYAML>=6.0"
+          pip install "crapssim==${{ steps.pin.outputs.CRAPSSIM_VERSION }}" "PyYAML>=6.0" "requests>=2.31"
           pip install -e .
 
       - name: Run candidate (capture RESULT only)
