@@ -333,3 +333,7 @@ Artifacts stored in `baselines/phase6/`.
 Unified internal and external decision logging (shared fields and sequencing). Added a command tape recorder and deterministic replay mode.
 Introduced a `/version` endpoint in diagnostics and lightweight webhook retries.
 Artifacts stored under `baselines/phase6/unified_journal/`.
+
+### Checkpoint 4 — Safety & Backpressure
+Introduced external-command guardrails: queue depth, per-source quotas, token-bucket rate limiting, per-roll dedupe, and circuit breaker with cool-down/reset.
+Standardized rejection reasons and added telemetry summary in report metadata.

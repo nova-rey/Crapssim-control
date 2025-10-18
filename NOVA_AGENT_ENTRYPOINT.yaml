@@ -1,5 +1,5 @@
 current_phase: 6
-current_checkpoint: 3
-checkpoint_title: Decision Journal Unification
+current_checkpoint: 4
+checkpoint_title: Safety & Backpressure
 allow_behavior_change: true
 notes: Bible is append-only; do not overwrite prior phases; append new sections.

@@ -154,7 +154,7 @@ def serve_commands(
             try:
                 data = json.loads(body)
             except Exception:
-                self._write_json(400, {"status": "rejected", "reason": "bad_json"})
+                self._write_json(400, {"status": "rejected", "reason": "missing:payload"})
                 return
             code, payload = ingest_command(data, queue, active_run_id_supplier)
             self._write_json(code, payload)

@@ -1,5 +1,5 @@
 phase: 6
-checkpoint: 3
-title: Decision Journal Unification
-description: Unified journal for internal and external decisions; added command tape recording and deterministic replay mode; diagnostics now include /version and webhook retry.
+checkpoint: 4
+title: Safety & Backpressure
+description: External-command limits (rate, dedupe, quotas, circuit breaker, telemetry).
 status: active
