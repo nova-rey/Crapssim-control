@@ -210,3 +210,7 @@ Purpose: Extend CrapsSim-Control outward. This phase focuses on interface polish
 This checkpoint standardized how CLI flags are parsed and stored.  
 It introduced `cli_flags.py` for consistent defaults and `manifest.py` for generating a structured `manifest.json` alongside each export.  
 The manifest enables external orchestration tools to read run metadata and schema versions without parsing reports directly.
+
+### Checkpoint 2 — Node-RED / Webhook Stub Integration
+
+Outbound lifecycle hooks (run/hand/roll) are available behind explicit flags. Defaults remain no-op. Payloads are intentionally small; failures never interrupt simulations. Sensitive configuration (webhook URL) is masked in reports and summarized in the manifest.

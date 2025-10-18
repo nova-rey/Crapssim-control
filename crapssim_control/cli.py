@@ -346,6 +346,16 @@ def _merge_cli_run_flags(spec: Dict[str, Any], args: argparse.Namespace) -> None
             demo_fallbacks=bool(getattr(args, "demo_fallbacks", False)),
             embed_analytics=not bool(getattr(args, "no_embed_analytics", False)),
             export=bool(getattr(args, "export", None)),
+            webhook_url=getattr(args, "webhook_url", None),
+            webhook_timeout=(
+                float(getattr(args, "webhook_timeout", 2.0))
+                if getattr(args, "webhook_timeout", None) is not None
+                else 2.0
+            ),
+            webhook_enabled=(
+                bool(getattr(args, "webhook_url", None))
+                and not bool(getattr(args, "no_webhook", False))
+            ),
         )
         setattr(args, "_cli_flags", cli_flags_obj)
 
@@ -647,6 +657,25 @@ def _build_parser() -> argparse.ArgumentParser:
             "Disable analytics embedding for this run (default ON). Leave unset or set "
             "run.csv.embed_analytics=true to keep analytics columns."
         ),
+    )
+    p_run.add_argument(
+        "--webhook-url",
+        type=str,
+        default=None,
+        help=(
+            "POST lifecycle events to this webhook endpoint (disabled unless URL provided)."
+        ),
+    )
+    p_run.add_argument(
+        "--webhook-timeout",
+        type=float,
+        default=2.0,
+        help="Timeout in seconds for outbound webhook POSTs (default 2.0).",
+    )
+    p_run.add_argument(
+        "--no-webhook",
+        action="store_true",
+        help="Disable outbound webhook emission even if a URL is configured.",
     )
     p_run.add_argument("--rng-audit", action="store_true",
                        help="(scaffold) Print RNG inspection info (does not affect results).")

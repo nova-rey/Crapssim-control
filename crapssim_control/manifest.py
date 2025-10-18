@@ -21,5 +21,12 @@ def generate_manifest(spec_file: str, cli_flags: dict, outputs: dict, engine_ver
             "summary": SUMMARY_SCHEMA_VERSION
         },
         "engine_version": engine_version,
-        "output_paths": outputs
+        "output_paths": outputs,
+        "integrations": {
+            "webhook": {
+                "enabled": bool(cli_flags.get("webhook_enabled", False)),
+                "url_present": bool(cli_flags.get("webhook_url")),
+                "timeout": float(cli_flags.get("webhook_timeout", 2.0)),
+            }
+        },
     }

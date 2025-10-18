@@ -28,6 +28,7 @@ from .analytics.tracker import Tracker
 from .analytics.types import HandCtx, RollCtx, SessionCtx
 from .manifest import generate_manifest
 from .schemas import JOURNAL_SCHEMA_VERSION, SUMMARY_SCHEMA_VERSION
+from .integrations.hooks import Outbound
 
 
 class ControlStrategy:
@@ -69,8 +70,16 @@ class ControlStrategy:
 
         self.spec = spec
         self._spec_path: Optional[str] = str(spec_path) if spec_path is not None else None
-        self._cli_flags_context: Optional[Any] = cli_flags
+        self._cli_flags_context: Dict[str, Any] = self._normalize_cli_flags(cli_flags)
         self._export_paths: Dict[str, Optional[str]] = {}
+        self._outbound: Outbound = Outbound()
+        self._webhook_url_source: str = "default"
+        self._webhook_url_actual: Optional[str] = None
+        self._webhook_url_present: bool = False
+        self._webhook_timeout: float = 2.0
+        self._outbound_run_started: bool = False
+        self._outbound_run_finished: bool = False
+        self._update_outbound_from_flags(self._cli_flags_context)
         self.table_cfg = table_cfg or spec.get("table") or {}
         self.point: Optional[int] = None
         self.rolls_since_point: int = 0
@@ -262,6 +271,92 @@ class ControlStrategy:
         self._tracker_session_ctx = session_ctx
         tracker.on_session_start(session_ctx)
 
+    @staticmethod
+    def _normalize_cli_flags(flags: Any) -> Dict[str, Any]:
+        keys = (
+            "demo_fallbacks",
+            "strict",
+            "embed_analytics",
+            "export",
+            "webhook_enabled",
+            "webhook_url",
+            "webhook_timeout",
+            "webhook_url_source",
+        )
+        if flags is None:
+            return {}
+        candidate: Any = flags
+        if is_dataclass(candidate):
+            candidate = asdict(candidate)  # type: ignore[arg-type]
+        out: Dict[str, Any] = {}
+        if isinstance(candidate, dict):
+            for key in keys:
+                if key in candidate:
+                    out[key] = candidate[key]
+        else:
+            for key in keys:
+                if hasattr(candidate, key):
+                    out[key] = getattr(candidate, key)
+        return out
+
+    def _update_outbound_from_flags(self, flags: Dict[str, Any]) -> None:
+        if not isinstance(flags, dict):
+            flags = {}
+        url_raw = flags.get("webhook_url")
+        url = None
+        if isinstance(url_raw, str):
+            url = url_raw.strip() or None
+        self._webhook_url_actual = url
+        self._webhook_url_present = bool(url)
+
+        timeout_raw = flags.get("webhook_timeout", self._webhook_timeout)
+        try:
+            timeout_val = float(timeout_raw)
+        except (TypeError, ValueError):
+            timeout_val = 2.0
+        self._webhook_timeout = timeout_val
+
+        enabled_flag = bool(flags.get("webhook_enabled", False)) and bool(url)
+
+        source_raw = flags.get("webhook_url_source")
+        if isinstance(source_raw, str) and source_raw.strip():
+            source = source_raw.strip()
+        else:
+            source = "cli" if url else "default"
+        self._webhook_url_source = source
+        if isinstance(flags, dict):
+            flags.setdefault("webhook_url_source", source)
+
+        self._outbound = Outbound(enabled=enabled_flag, url=url, timeout=timeout_val)
+        if self._outbound.enabled and not self._outbound_run_started:
+            self._emit_run_started()
+
+    def _emit_run_started(self) -> None:
+        if self._outbound_run_started or not self._outbound.enabled:
+            return
+        spec_path = self._spec_path or ""
+        manifest_hint = self._export_paths.get("manifest", "export/manifest.json")
+        self._outbound.emit(
+            "run.started",
+            {
+                "spec": spec_path,
+                "manifest_path": manifest_hint,
+            },
+        )
+        self._outbound_run_started = True
+
+    def _emit_run_finished(self, report: Dict[str, Any]) -> None:
+        if self._outbound_run_finished or not self._outbound.enabled:
+            return
+        self._outbound.emit(
+            "run.finished",
+            {
+                "summary_schema_version": report.get("summary_schema_version"),
+                "journal_schema_version": report.get("journal_schema_version"),
+            },
+        )
+        self._outbound_run_finished = True
+
     def _analytics_start_hand(self, point_value: Optional[int] = None) -> None:
         tracker = self._tracker
         if tracker is None:
@@ -270,6 +365,8 @@ class ControlStrategy:
         hand_id = tracker.hand_id + 1
         hand_ctx = HandCtx(hand_id=hand_id, point=point_value)
         tracker.on_hand_start(hand_ctx)
+        if self._outbound.enabled:
+            self._outbound.emit("hand.started", {"hand_id": hand_id})
 
     @staticmethod
     def _analytics_to_float(val: Any) -> Optional[float]:
@@ -344,6 +441,15 @@ class ControlStrategy:
                 tracker.max_drawdown,
                 tracker.bankroll_peak - tracker.bankroll,
             )
+        if self._outbound.enabled:
+            snap = tracker.get_roll_snapshot() if tracker is not None else {}
+            self._outbound.emit(
+                "roll.processed",
+                {
+                    "hand_id": snap.get("hand_id"),
+                    "roll_in_hand": snap.get("roll_in_hand"),
+                },
+            )
 
     def _analytics_end_hand(self, point_value: Optional[int]) -> None:
         tracker = self._tracker
@@ -352,6 +458,8 @@ class ControlStrategy:
 
         hand_ctx = HandCtx(hand_id=tracker.hand_id, point=point_value)
         tracker.on_hand_end(hand_ctx)
+        if self._outbound.enabled:
+            self._outbound.emit("hand.finished", {"hand_id": tracker.hand_id})
 
     def _analytics_session_end(self) -> None:
         tracker = self._tracker
@@ -861,22 +969,13 @@ class ControlStrategy:
         if spec_path is not None:
             self._spec_path = str(spec_path)
 
-        raw_cli_flags = cli_flags if cli_flags is not None else self._cli_flags_context
-        cli_flags_dict: Dict[str, bool] = {}
-        if raw_cli_flags is not None:
-            candidate = raw_cli_flags
-            if is_dataclass(candidate):
-                candidate = asdict(candidate)  # type: ignore[arg-type]
-            if isinstance(candidate, dict):
-                for key in ("demo_fallbacks", "strict", "embed_analytics", "export"):
-                    if key in candidate:
-                        cli_flags_dict[key] = bool(candidate[key])
-        if cli_flags_dict:
-            self._cli_flags_context = dict(cli_flags_dict)
-        elif isinstance(self._cli_flags_context, dict):
-            cli_flags_dict = dict(self._cli_flags_context)
-        else:
-            cli_flags_dict = {}
+        cli_flags_dict: Dict[str, Any] = dict(self._cli_flags_context)
+        if cli_flags is not None:
+            normalized = self._normalize_cli_flags(cli_flags)
+            if normalized:
+                cli_flags_dict.update(normalized)
+        self._cli_flags_context = dict(cli_flags_dict)
+        self._update_outbound_from_flags(self._cli_flags_context)
 
         resolved_export_paths: Dict[str, Optional[str]] = {}
         if export_paths is not None:
@@ -946,6 +1045,11 @@ class ControlStrategy:
 
         run_flags = dict(run_flag_values)
         run_flags["export"] = bool(cli_flags_dict.get("export", False))
+        webhook_enabled = bool(self._outbound.enabled)
+        run_flags["webhook_enabled"] = webhook_enabled
+        run_flags["webhook_timeout"] = float(self._webhook_timeout)
+        run_flags["webhook_url_source"] = self._webhook_url_source
+        run_flags["webhook_url"] = bool(self._webhook_url_present)
 
         report: Dict[str, Any] = {
             "identity": identity,
@@ -964,6 +1068,15 @@ class ControlStrategy:
                 },
             },
         }
+
+        run_flags_meta = report["metadata"].setdefault("run_flags", {})
+        run_flags_meta.update(
+            {
+                "webhook_enabled": webhook_enabled,
+                "webhook_url_source": self._webhook_url_source,
+                "webhook_url_masked": bool(self._webhook_url_present),
+            }
+        )
 
         meta = report.setdefault("metadata", {})
         existing_deprecations = meta.get("deprecations")
@@ -1047,6 +1160,8 @@ class ControlStrategy:
 
         report["manifest_path"] = outputs["manifest"]
         self._export_paths = dict(resolved_export_paths)
+
+        self._emit_run_finished(report)
 
         return report
 
