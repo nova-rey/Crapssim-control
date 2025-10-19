@@ -1,5 +1,5 @@
 phase: 8
-checkpoint: 1
-title: CrapsSim Wiring (press/regress) + Snapshot Normalizer + Seed Handoff
-description: Press and regress verbs call CrapsSim when live_engine is true; snapshot normalized; seed handed off; stub fallback remains.
+checkpoint: 2
+title: Place/Buy/Lay Wiring
+description: Engine-backed box bet controls (place, buy, lay, move, take_down) with extended snapshot normalization and stub fallback.
 status: active

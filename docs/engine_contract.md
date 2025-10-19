@@ -159,6 +159,32 @@ run:
 When CrapsSim is not installed the adapter silently reverts to its stub behavior, ensuring
 replay parity and existing tests remain deterministic.
 
+## Box Bets — Place / Buy / Lay (Phase 8 · C2)
+
+New verbs (engine-backed when `live_engine: true`, with stub fallback otherwise):
+
+- `place_bet` — create/increase a Place bet on 4,5,6,8,9,10.
+- `buy_bet` — create/increase a Buy bet on 4,5,9,10 (engine enforces increments/vig).
+- `lay_bet` — create/increase a Lay bet on 4,5,9,10.
+- `move_bet` — move exposure from one box number to another (e.g., 6 → 8).
+- `take_down` — remove selected box bets and return exposure to bankroll.
+
+**Action JSON (example):**
+```json
+{"verb":"place_bet","target":{"bet":"6"},"amount":{"mode":"dollars","value":6}}
+```
+
+Effect Summary (schema 1.0):
+
+```json
+{"schema":"1.0","verb":"place_bet","target":{"bet":"6"},"bets":{"6":"+6"},"bankroll_delta":-6,"policy":null}
+```
+
+Snapshot Normalization:
+
+- bets includes all box numbers as string keys: "4","5","6","8","9","10".
+- bet_types optionally annotates box bet kind: "place"|"buy"|"lay".
+
 ## Legality Boundary
 
 CSC enforces timing, legality, and bet limits before calling the adapter.

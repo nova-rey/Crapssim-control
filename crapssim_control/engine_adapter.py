@@ -7,6 +7,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from importlib import import_module
+import re
 import warnings
 from typing import Any, Callable, Dict, Mapping, Optional, Tuple, Type, TypedDict
 
@@ -20,6 +21,15 @@ __all__ = [
     "validate_effect_summary",
 ]
 
+
+_BOX_NUMBERS = (4, 5, 6, 8, 9, 10)
+
+
+def _is_box_number(x) -> bool:
+    try:
+        return int(x) in _BOX_NUMBERS
+    except Exception:
+        return False
 
 
 class Effect(TypedDict, total=False):
@@ -83,70 +93,229 @@ def _try_import_crapssim() -> Tuple[Optional[EngineAdapter], Optional[str]]:
         return None, f"instantiate_failed:{exc}"
 
 
-def _normalize_snapshot(raw_snapshot: Optional[Mapping[str, Any]]) -> Dict[str, Any]:
+def _normalize_snapshot(table_or_snapshot: Optional[Any], player: Optional[Any] = None) -> Dict[str, Any]:
     """Normalize arbitrary engine snapshots into CSC's canonical shape."""
 
-    raw_snapshot = raw_snapshot or {}
-    bankroll = raw_snapshot.get("bankroll")
-    try:
-        bankroll_val = float(bankroll) if bankroll is not None else 0.0
-    except (TypeError, ValueError):
-        bankroll_val = 0.0
+    if isinstance(table_or_snapshot, Mapping) or table_or_snapshot is None:
+        raw_snapshot: Mapping[str, Any] = table_or_snapshot or {}
+        bankroll = raw_snapshot.get("bankroll")
+        try:
+            bankroll_val = float(bankroll) if bankroll is not None else 0.0
+        except (TypeError, ValueError):
+            bankroll_val = 0.0
 
-    point_value = raw_snapshot.get("point_value")
-    try:
-        point_val_norm = int(point_value) if point_value is not None else None
-    except (TypeError, ValueError):
-        point_val_norm = None
+        point_value = raw_snapshot.get("point_value")
+        try:
+            point_val_norm = int(point_value) if point_value is not None else None
+        except (TypeError, ValueError):
+            point_val_norm = None
 
-    hand_id = raw_snapshot.get("hand_id")
-    try:
-        hand_id_norm = int(hand_id) if hand_id is not None else 0
-    except (TypeError, ValueError):
-        hand_id_norm = 0
+        hand_id = raw_snapshot.get("hand_id")
+        try:
+            hand_id_norm = int(hand_id) if hand_id is not None else 0
+        except (TypeError, ValueError):
+            hand_id_norm = 0
 
-    roll_in_hand = raw_snapshot.get("roll_in_hand")
-    try:
-        roll_norm = int(roll_in_hand) if roll_in_hand is not None else 0
-    except (TypeError, ValueError):
-        roll_norm = 0
+        roll_in_hand = raw_snapshot.get("roll_in_hand")
+        try:
+            roll_norm = int(roll_in_hand) if roll_in_hand is not None else 0
+        except (TypeError, ValueError):
+            roll_norm = 0
 
-    rng_seed = raw_snapshot.get("rng_seed")
-    try:
-        rng_seed_norm = int(rng_seed) if rng_seed is not None else 0
-    except (TypeError, ValueError):
-        rng_seed_norm = 0
+        rng_seed = raw_snapshot.get("rng_seed")
+        try:
+            rng_seed_norm = int(rng_seed) if rng_seed is not None else 0
+        except (TypeError, ValueError):
+            rng_seed_norm = 0
 
-    bets_norm: Dict[str, float] = {}
-    bets_obj = raw_snapshot.get("bets")
-    if isinstance(bets_obj, Mapping):
-        for key, value in bets_obj.items():
-            amount = value
-            name = key
-            if isinstance(value, Mapping):
-                amount = value.get("amount")
-                name = value.get("name") or key
+        bets_norm: Dict[str, float] = {}
+        bet_types: Dict[str, str] = {}
+        existing_meta = raw_snapshot.get("bet_types")
+        if isinstance(existing_meta, Mapping):
+            for key, value in existing_meta.items():
+                if isinstance(value, str):
+                    bet_types[str(key)] = value
+
+        bets_obj = raw_snapshot.get("bets")
+        if isinstance(bets_obj, Mapping):
+            for key, value in bets_obj.items():
+                amount = value
+                name = key
+                number = None
+                if isinstance(value, Mapping):
+                    amount = value.get("amount")
+                    name = value.get("name") or key
+                    number = value.get("number") or value.get("point")
+                try:
+                    amount_val = float(amount) if amount is not None else 0.0
+                except (TypeError, ValueError):
+                    continue
+
+                name_str = str(name)
+                key_str = str(key)
+                bet_key: Optional[str] = None
+                if number is not None and _is_box_number(number):
+                    bet_key = str(int(number))
+                elif _is_box_number(key_str):
+                    bet_key = str(int(key_str))
+                else:
+                    lower = name_str.lower()
+                    digits = re.findall(r"\d+", lower)
+                    for token in digits:
+                        if _is_box_number(token):
+                            bet_key = str(int(token))
+                            break
+                    if bet_key is None:
+                        if "pass" in lower:
+                            bet_key = "pass"
+                        elif "dont" in lower and "come" in lower and "line" not in lower:
+                            bet_key = "dc"
+
+                if bet_key is None:
+                    bet_key = name_str if name_str else key_str
+
+                bets_norm[bet_key] = bets_norm.get(bet_key, 0.0) + amount_val
+
+                if bet_key in {str(n) for n in _BOX_NUMBERS}:
+                    if bet_key not in bet_types:
+                        lower_name = name_str.lower()
+                        if "buy" in lower_name:
+                            bet_types[bet_key] = "buy"
+                        elif "lay" in lower_name:
+                            bet_types[bet_key] = "lay"
+                        elif "place" in lower_name:
+                            bet_types[bet_key] = "place"
+
+        for num in _BOX_NUMBERS:
+            bets_norm.setdefault(str(num), bets_norm.get(str(num), 0.0))
+
+        normalized = {
+            "bankroll": bankroll_val,
+            "point_on": bool(raw_snapshot.get("point_on", False)) or bool(point_val_norm),
+            "point_value": point_val_norm,
+            "bets": bets_norm,
+            "hand_id": hand_id_norm,
+            "roll_in_hand": roll_norm,
+            "rng_seed": rng_seed_norm,
+        }
+
+        if bet_types:
+            normalized["bet_types"] = bet_types
+
+        if "levels" in raw_snapshot:
+            levels = raw_snapshot.get("levels")
+            if isinstance(levels, Mapping):
+                normalized["levels"] = {
+                    str(k): int(v) for k, v in levels.items() if isinstance(v, (int, float))
+                }
+        if "last_effect" in raw_snapshot:
+            normalized["last_effect"] = raw_snapshot.get("last_effect")
+
+        return normalized
+
+    table = table_or_snapshot
+    if table is None or player is None:
+        return {}
+
+    br = None
+    for attr in ("bankroll", "chips", "total_player_cash", "_bankroll"):
+        if hasattr(player, attr):
             try:
-                bets_norm[str(name)] = float(amount) if amount is not None else 0.0
-            except (TypeError, ValueError):
+                br = float(getattr(player, attr))
+                break
+            except Exception:
                 continue
 
+    pt = getattr(table, "point", None)
+    if pt is not None and not isinstance(pt, (int, type(None))):
+        pt = getattr(pt, "value", getattr(pt, "number", None))
+    try:
+        point_val = int(pt) if pt is not None else None
+    except Exception:
+        point_val = None
+    point_on = bool(point_val and _is_box_number(point_val))
+
+    bets_map: Dict[str, float] = {}
+    meta_types: Dict[str, str] = {}
+    try:
+        bets = getattr(player, "bets", []) or []
+        for bet in bets:
+            name_raw = getattr(bet, "name", getattr(bet, "type", "") or "")
+            name = str(name_raw).lower()
+            number = getattr(bet, "number", getattr(bet, "point", None))
+            try:
+                amt = float(getattr(bet, "amount", 0.0) or 0.0)
+            except Exception:
+                amt = 0.0
+            key = None
+            bet_kind = None
+            if _is_box_number(number):
+                n = str(int(number))
+                key = n
+                if "buy" in name:
+                    bet_kind = "buy"
+                elif "lay" in name:
+                    bet_kind = "lay"
+                elif "place" in name:
+                    bet_kind = "place"
+            elif "pass" in name:
+                key, bet_kind = "pass", "line"
+            elif "dont" in name and "come" in name and "line" not in name:
+                key, bet_kind = "dc", "dont_come"
+            if key:
+                bets_map[key] = bets_map.get(key, 0.0) + amt
+                if bet_kind and key not in meta_types and key in {str(n) for n in _BOX_NUMBERS}:
+                    meta_types[key] = bet_kind
+                if key in {str(n) for n in _BOX_NUMBERS} and key not in meta_types:
+                    cls_name = bet.__class__.__name__.lower()
+                    if "buy" in cls_name:
+                        meta_types[key] = "buy"
+                    elif "lay" in cls_name:
+                        meta_types[key] = "lay"
+                    elif "place" in cls_name:
+                        meta_types[key] = "place"
+    except Exception:
+        pass
+
+    for num in _BOX_NUMBERS:
+        bets_map.setdefault(str(num), bets_map.get(str(num), 0.0))
+
+    hand_id = getattr(table, "hand_id", 0)
+    try:
+        hand_id_norm = int(hand_id)
+    except Exception:
+        hand_id_norm = 0
+
+    roll_ct = getattr(table, "roll_count", getattr(table, "roll_in_hand", 0))
+    try:
+        roll_norm = int(roll_ct)
+    except Exception:
+        roll_norm = 0
+
+    rng_seed = None
+    for attr in ("seed", "rng_seed", "_seed"):
+        if hasattr(table, attr):
+            rng_seed = getattr(table, attr)
+            break
+    if rng_seed is None:
+        dice = getattr(table, "dice", None) or getattr(table, "_dice", None)
+        if dice is not None:
+            rng_seed = getattr(dice, "seed", None)
+    try:
+        rng_seed_norm = int(rng_seed) if rng_seed is not None else 0
+    except Exception:
+        rng_seed_norm = 0
+
     normalized = {
-        "bankroll": bankroll_val,
-        "point_on": bool(raw_snapshot.get("point_on", False)) or bool(point_val_norm),
-        "point_value": point_val_norm,
-        "bets": bets_norm,
+        "bankroll": float(br) if br is not None else 0.0,
+        "point_on": point_on,
+        "point_value": point_val if point_val is not None else None,
+        "bets": bets_map,
+        "bet_types": meta_types,
         "hand_id": hand_id_norm,
         "roll_in_hand": roll_norm,
         "rng_seed": rng_seed_norm,
     }
-
-    if "levels" in raw_snapshot:
-        levels = raw_snapshot.get("levels")
-        if isinstance(levels, Mapping):
-            normalized["levels"] = {str(k): int(v) for k, v in levels.items() if isinstance(v, (int, float))}
-    if "last_effect" in raw_snapshot:
-        normalized["last_effect"] = raw_snapshot.get("last_effect")
 
     return normalized
 
@@ -314,6 +483,10 @@ class VanillaAdapter(EngineAdapter):
         self._engine_adapter: Optional[EngineAdapter] = None
         self._engine_reason: Optional[str] = None
         self._snapshot_cache: Dict[str, Any] = {}
+        self._table: Optional[Any] = None
+        self._player: Optional[Any] = None
+        self._controller: Optional[Any] = None
+        self._cs_bet_module: Optional[Any] = None
 
         self._reset_stub_state()
 
@@ -331,7 +504,9 @@ class VanillaAdapter(EngineAdapter):
 
     def _reset_stub_state(self) -> None:
         self.bankroll: float = 1000.0
-        self.bets: Dict[str, float] = {"6": 0.0, "8": 0.0, "pass": 0.0, "dc": 0.0}
+        self.bets: Dict[str, float] = {str(n): 0.0 for n in _BOX_NUMBERS}
+        self.bets.update({"pass": 0.0, "dc": 0.0})
+        self.box_bet_types: Dict[str, str] = {}
         self.last_effect: Optional[Effect] = None
         self.martingale_levels: Dict[str, int] = {}
         base_snapshot = {
@@ -339,6 +514,7 @@ class VanillaAdapter(EngineAdapter):
             "point_on": False,
             "point_value": None,
             "bets": dict(self.bets),
+            "bet_types": dict(self.box_bet_types),
             "hand_id": 0,
             "roll_in_hand": 0,
             "rng_seed": self.seed or 0,
@@ -373,6 +549,9 @@ class VanillaAdapter(EngineAdapter):
         self.live_engine = False
         self._engine_adapter = None
         self._engine_reason = None
+        self._table = None
+        self._player = None
+        self._cs_bet_module = None
 
         if live_requested:
             engine, reason = _try_import_crapssim()
@@ -380,6 +559,30 @@ class VanillaAdapter(EngineAdapter):
                 self._engine_adapter = engine
                 self.live_engine = True
                 engine.start_session(self.spec)
+                self._table = getattr(engine, "table", None)
+                self._controller = getattr(engine, "controller_player", None)
+                self._player = None
+                if self._table is not None:
+                    try:
+                        players = getattr(self._table, "players", None)
+                        if players:
+                            self._player = players[0]
+                    except Exception:
+                        self._player = None
+                if self._player is None and self._controller is not None:
+                    try:
+                        candidate = getattr(self._controller, "player", None)
+                        if candidate is not None:
+                            self._player = candidate
+                    except Exception:
+                        pass
+                if self._cs_bet_module is None:
+                    try:
+                        import crapssim.bet as _cs_bet  # type: ignore
+
+                        self._cs_bet_module = _cs_bet
+                    except Exception:
+                        self._cs_bet_module = None
                 self.set_seed(self.seed)
                 snapshot = _normalize_snapshot(engine.snapshot_state())
                 self._apply_normalized_snapshot(snapshot)
@@ -428,28 +631,259 @@ class VanillaAdapter(EngineAdapter):
             args = {"policy": policy}
             verb = "apply_policy"
 
-        if self.live_engine and self._engine_adapter is not None and verb in {"press", "regress"}:
+        engine_verbs = {
+            "press",
+            "regress",
+            "place_bet",
+            "buy_bet",
+            "lay_bet",
+            "take_down",
+            "move_bet",
+        }
+        if self.live_engine and self._engine_adapter is not None and verb in engine_verbs:
             try:
-                action_args = args or {}
-                before = _normalize_snapshot(self._engine_adapter.snapshot_state())
-                result = self._engine_adapter.apply_action(verb, action_args)
-                after = _normalize_snapshot(self._engine_adapter.snapshot_state())
-                if isinstance(result, Mapping) and result.get("schema") == "1.0":
-                    effect = result  # type: ignore[assignment]
-                else:
-                    effect = self._effect_from_snapshot_delta(verb, action_args, before, after)
-                self._apply_normalized_snapshot(after)
+                effect = self._apply_engine_action(verb, args or {})
                 self.last_effect = effect
                 return effect
             except Exception:  # pragma: no cover - fail open to stub
                 warnings.warn(
-                    "live_engine_press_regress_failed:fallback_to_stub", RuntimeWarning
+                    f"live_engine_{verb}_failed:fallback_to_stub", RuntimeWarning
                 )
 
         handler = VerbRegistry.get(verb)
         effect = handler(self._effect_context(), args or {})
         self._apply_effect(effect)
         self.last_effect = effect
+        return effect
+
+    def _apply_engine_action(self, verb: str, args: Dict[str, Any]) -> Effect:
+        if not self.live_engine or self._engine_adapter is None:
+            raise RuntimeError("engine_action_unavailable")
+
+        engine = self._engine_adapter
+
+        if verb in {"press", "regress"}:
+            action_args = args or {}
+            before = _normalize_snapshot(engine.snapshot_state())
+            result = engine.apply_action(verb, action_args)
+            after = _normalize_snapshot(engine.snapshot_state())
+            if isinstance(result, Mapping) and result.get("schema") == "1.0":
+                effect = result  # type: ignore[assignment]
+            else:
+                effect = self._effect_from_snapshot_delta(verb, action_args, before, after)
+            self._apply_normalized_snapshot(after)
+            return effect
+
+        table = self._table or getattr(engine, "table", None)
+        player = self._player
+        controller = self._controller or getattr(engine, "controller_player", None)
+        if player is None and table is not None:
+            try:
+                players = getattr(table, "players", None)
+                if players:
+                    player = players[0]
+            except Exception:
+                player = None
+        if player is None and controller is not None:
+            try:
+                candidate = getattr(controller, "player", None)
+                if candidate is not None:
+                    player = candidate
+            except Exception:
+                player = None
+        self._table = table
+        self._player = player
+        self._controller = controller
+
+        cs_bet = self._cs_bet_module
+        if cs_bet is None:
+            try:
+                import crapssim.bet as _cs_bet  # type: ignore
+
+                cs_bet = _cs_bet
+            except Exception:
+                cs_bet = None
+            self._cs_bet_module = cs_bet
+
+        if player is None or table is None or cs_bet is None:
+            raise RuntimeError("engine_handles_unavailable")
+
+        target = (args.get("target") or {}) if isinstance(args, Mapping) else {}
+        amount = (args.get("amount") or {}) if isinstance(args, Mapping) else {}
+        selector = list(target.get("selector") or []) if isinstance(target, Mapping) else []
+        bet_key = target.get("bet") if isinstance(target, Mapping) else None
+        if bet_key:
+            selector.append(bet_key)
+        keys = [str(int(k)) for k in selector if _is_box_number(k)]
+
+        bankroll_delta = 0.0
+        bets_delta: Dict[str, str] = {}
+
+        Place = getattr(cs_bet, "Place", None)
+        Buy = getattr(cs_bet, "Buy", None)
+        Lay = getattr(cs_bet, "Lay", None)
+
+        def _iter_player_bets():
+            bets = getattr(player, "bets", []) or []
+            for b in bets:
+                number = getattr(b, "number", getattr(b, "point", None))
+                try:
+                    num_val = int(number) if number is not None else None
+                except Exception:
+                    num_val = None
+                try:
+                    amt_val = float(getattr(b, "amount", 0.0) or 0.0)
+                except Exception:
+                    amt_val = 0.0
+                name = str(getattr(b, "name", getattr(b, "type", "") or "")).lower()
+                yield b, num_val, amt_val, name
+
+        def _add_bet(bet_obj) -> bool:
+            add_fn = getattr(player, "add_bet", None)
+            if callable(add_fn) and bet_obj is not None:
+                try:
+                    add_fn(bet_obj)
+                    try:
+                        amt = float(getattr(bet_obj, "amount", 0.0) or 0.0)
+                    except Exception:
+                        amt = 0.0
+                    nonlocal bankroll_delta
+                    bankroll_delta -= amt
+                    return True
+                except Exception:
+                    return False
+            return False
+
+        def _remove_bet_object(bet_obj, number: Optional[int] = None) -> bool:
+            remove_methods = ("remove_bet", "take_bet", "take_down", "clear_bet")
+            for name in remove_methods:
+                fn = getattr(player, name, None)
+                if callable(fn):
+                    try:
+                        if name == "remove_bet":
+                            fn(bet_obj)
+                        else:
+                            if number is None:
+                                fn()
+                            else:
+                                fn(number)
+                        return True
+                    except Exception:
+                        continue
+            bet_methods = ("take_down", "remove", "clear")
+            for name in bet_methods:
+                fn = getattr(bet_obj, name, None)
+                if callable(fn):
+                    try:
+                        fn()
+                        return True
+                    except Exception:
+                        continue
+            bets_list = getattr(player, "bets", None)
+            if isinstance(bets_list, list) and bet_obj in bets_list:
+                try:
+                    bets_list.remove(bet_obj)
+                    return True
+                except Exception:
+                    return False
+            return False
+
+        def _pop_bet(number: int):
+            for bet_obj, num_val, amt_val, name in _iter_player_bets():
+                if num_val == number:
+                    if _remove_bet_object(bet_obj, number):
+                        return bet_obj, amt_val, name
+                    break
+            return None, 0.0, ""
+
+        def _make_bet(kind: str, number: int, amt: float):
+            bet_obj = None
+            if kind == "buy" and callable(Buy):
+                for kwargs in ({"number": number, "amount": amt}, {"amount": amt, "number": number}):
+                    try:
+                        return Buy(**kwargs)
+                    except Exception:
+                        continue
+                for args in ((number, amt),):
+                    try:
+                        return Buy(*args)
+                    except Exception:
+                        continue
+            elif kind == "lay" and callable(Lay):
+                for kwargs in ({"number": number, "amount": amt}, {"amount": amt, "number": number}):
+                    try:
+                        return Lay(**kwargs)
+                    except Exception:
+                        continue
+                for args in ((number, amt),):
+                    try:
+                        return Lay(*args)
+                    except Exception:
+                        continue
+            elif callable(Place):
+                for kwargs in ({"number": number, "amount": amt}, {"amount": amt, "number": number}):
+                    try:
+                        return Place(**kwargs)
+                    except Exception:
+                        continue
+                for args in ((number, amt),):
+                    try:
+                        return Place(*args)
+                    except Exception:
+                        continue
+            return bet_obj
+
+        if verb in ("place_bet", "buy_bet", "lay_bet"):
+            incr = float(amount.get("value", 0.0)) if isinstance(amount, Mapping) else 0.0
+            if incr <= 0:
+                raise ValueError(f"{verb}_invalid_amount")
+            kind = {"place_bet": "place", "buy_bet": "buy", "lay_bet": "lay"}[verb]
+            for k in keys:
+                n = int(k)
+                bet_obj = _make_bet(kind, n, incr)
+                if bet_obj and _add_bet(bet_obj):
+                    bets_delta[k] = f"+{int(incr)}"
+
+        elif verb == "take_down":
+            for k in keys:
+                n = int(k)
+                bet_obj, amt, _ = _pop_bet(n)
+                if bet_obj is not None or amt > 0:
+                    bankroll_delta += amt
+                    bets_delta[k] = f"-{int(amt)}"
+
+        elif verb == "move_bet":
+            src = str(target.get("from", "")) if isinstance(target, Mapping) else ""
+            dst = str(target.get("to", "")) if isinstance(target, Mapping) else ""
+            if not (_is_box_number(src) and _is_box_number(dst)):
+                raise ValueError("move_bet_invalid_args")
+            n_src = int(src)
+            bet_obj, amt, name = _pop_bet(n_src)
+            if amt > 0:
+                bankroll_delta += amt
+                bets_delta[src] = f"-{int(amt)}"
+                kind = "place"
+                if "buy" in name:
+                    kind = "buy"
+                elif "lay" in name:
+                    kind = "lay"
+                n_dst = int(dst)
+                new_bet = _make_bet(kind, n_dst, amt)
+                if new_bet and _add_bet(new_bet):
+                    bets_delta[dst] = f"+{int(amt)}"
+
+        snap = _normalize_snapshot(table, player)
+        if snap:
+            self._apply_normalized_snapshot(snap)
+
+        effect: Effect = {
+            "schema": "1.0",
+            "verb": verb,
+            "target": target if isinstance(target, Mapping) else {},
+            "bets": bets_delta,
+            "bankroll_delta": bankroll_delta,
+            "policy": None,
+        }
         return effect
 
     def _effect_context(self) -> Dict[str, Any]:
@@ -461,12 +895,15 @@ class VanillaAdapter(EngineAdapter):
         }
 
     def _apply_effect(self, effect: Effect) -> None:
-        for bet, delta_str in (effect.get("bets") or {}).items():
+        bet_deltas = effect.get("bets") or {}
+        delta_map: Dict[str, float] = {}
+        for bet, delta_str in bet_deltas.items():
             try:
                 delta = float(delta_str)
             except (TypeError, ValueError):
                 continue
             self.bets[bet] = max(0.0, self.bets.get(bet, 0.0) + delta)
+            delta_map[bet] = delta
 
         bankroll_delta = effect.get("bankroll_delta")
         if bankroll_delta is not None:
@@ -474,6 +911,30 @@ class VanillaAdapter(EngineAdapter):
                 self.bankroll = float(self.bankroll + float(bankroll_delta))
             except (TypeError, ValueError):
                 pass
+
+        verb_name = effect.get("verb") if isinstance(effect.get("verb"), str) else None
+        if verb_name in {"place_bet", "buy_bet", "lay_bet"}:
+            kind = {"place_bet": "place", "buy_bet": "buy", "lay_bet": "lay"}[verb_name]
+            for bet, delta in delta_map.items():
+                if delta > 0 and _is_box_number(bet):
+                    self.box_bet_types[str(int(bet))] = kind
+        elif verb_name == "move_bet":
+            target = effect.get("target") or {}
+            src = str(target.get("from", "")) if isinstance(target, Mapping) else ""
+            dst = str(target.get("to", "")) if isinstance(target, Mapping) else ""
+            if _is_box_number(src):
+                existing = self.box_bet_types.get(str(int(src)))
+                if existing and _is_box_number(dst):
+                    self.box_bet_types[str(int(dst))] = existing
+                self.box_bet_types.pop(str(int(src)), None)
+        elif verb_name == "take_down":
+            for bet, delta in delta_map.items():
+                if delta < 0 and _is_box_number(bet):
+                    self.box_bet_types.pop(str(int(bet)), None)
+
+        for bet_key in list(self.box_bet_types.keys()):
+            if self.bets.get(bet_key, 0.0) <= 0.0:
+                self.box_bet_types.pop(bet_key, None)
 
         if "level_update" in effect:
             updates = effect.get("level_update") or {}
@@ -492,6 +953,7 @@ class VanillaAdapter(EngineAdapter):
                 "hand_id": 0,
                 "roll_in_hand": 0,
                 "rng_seed": self.seed or 0,
+                "bet_types": dict(self.box_bet_types),
                 "levels": dict(self.martingale_levels),
                 "last_effect": self.last_effect,
             }
@@ -502,6 +964,15 @@ class VanillaAdapter(EngineAdapter):
         bets = snapshot.get("bets") or {}
         if isinstance(bets, Mapping):
             self.bets = {str(k): float(v) for k, v in bets.items()}
+        bet_types = snapshot.get("bet_types")
+        if isinstance(bet_types, Mapping):
+            self.box_bet_types = {
+                str(k): str(v) for k, v in bet_types.items() if isinstance(v, str)
+            }
+        elif self.live_engine:
+            self.box_bet_types = {
+                k: v for k, v in self.box_bet_types.items() if self.bets.get(k, 0.0) > 0.0
+            }
         rng_seed = snapshot.get("rng_seed")
         if isinstance(rng_seed, (int, float)):
             self.seed = int(rng_seed)
@@ -567,6 +1038,32 @@ class VanillaAdapter(EngineAdapter):
         if self.live_engine and self._engine_adapter is not None:
             raw = self._engine_adapter.snapshot_state()
             snapshot = _normalize_snapshot(raw)
+            overlay = _normalize_snapshot(self._table, self._player)
+            if overlay:
+                merged: Dict[str, Any] = dict(snapshot)
+                bets_combined: Dict[str, float] = {}
+                raw_bets = snapshot.get("bets")
+                if isinstance(raw_bets, Mapping):
+                    bets_combined.update({str(k): float(v) for k, v in raw_bets.items()})
+                overlay_bets = overlay.get("bets")
+                if isinstance(overlay_bets, Mapping):
+                    bets_combined.update({str(k): float(v) for k, v in overlay_bets.items()})
+                filtered_bets: Dict[str, float] = {}
+                for key, val in bets_combined.items():
+                    key_str = str(key)
+                    if _is_box_number(key_str) or key_str in {"pass", "dc"}:
+                        filtered_bets[key_str] = val
+                for key, val in bets_combined.items():
+                    key_str = str(key)
+                    if key_str not in filtered_bets and key_str.lower() not in {"place", "buy", "lay"}:
+                        filtered_bets[key_str] = val
+                merged["bets"] = filtered_bets
+                if overlay.get("bet_types"):
+                    merged["bet_types"] = dict(overlay.get("bet_types") or {})
+                for key in ("bankroll", "point_on", "point_value", "hand_id", "roll_in_hand", "rng_seed"):
+                    if key in overlay and overlay[key] is not None:
+                        merged[key] = overlay[key]
+                snapshot = merged
             if self.last_effect is not None:
                 snapshot["last_effect"] = self.last_effect
             if self.martingale_levels:
@@ -579,6 +1076,7 @@ class VanillaAdapter(EngineAdapter):
             "point_on": False,
             "point_value": None,
             "bets": dict(self.bets),
+            "bet_types": dict(self.box_bet_types),
             "hand_id": 0,
             "roll_in_hand": 0,
             "rng_seed": self.seed or 0,
@@ -640,6 +1138,94 @@ def verb_regress(snapshot: Dict[str, Any], args: Dict[str, Any]) -> Effect:
     }
 
 
+def verb_place_bet(snapshot: Dict[str, Any], args: Dict[str, Any]) -> Effect:
+    target = (args.get("target") or {})
+    amount = (args.get("amount") or {})
+    bet = str(target.get("bet", ""))
+    val = float(amount.get("value", 0.0))
+    if not _is_box_number(bet) or val <= 0:
+        raise ValueError("place_bet_invalid_args")
+    return {
+        "schema": "1.0",
+        "verb": "place_bet",
+        "target": {"bet": bet},
+        "bets": {bet: f"+{int(val)}"},
+        "bankroll_delta": -val,
+        "policy": None,
+    }
+
+
+def verb_buy_bet(snapshot: Dict[str, Any], args: Dict[str, Any]) -> Effect:
+    target = (args.get("target") or {})
+    amount = (args.get("amount") or {})
+    bet = str(target.get("bet", ""))
+    val = float(amount.get("value", 0.0))
+    if not _is_box_number(bet) or val <= 0:
+        raise ValueError("buy_bet_invalid_args")
+    return {
+        "schema": "1.0",
+        "verb": "buy_bet",
+        "target": {"bet": bet},
+        "bets": {bet: f"+{int(val)}"},
+        "bankroll_delta": -val,
+        "policy": None,
+    }
+
+
+def verb_lay_bet(snapshot: Dict[str, Any], args: Dict[str, Any]) -> Effect:
+    target = (args.get("target") or {})
+    amount = (args.get("amount") or {})
+    bet = str(target.get("bet", ""))
+    val = float(amount.get("value", 0.0))
+    if not _is_box_number(bet) or val <= 0:
+        raise ValueError("lay_bet_invalid_args")
+    return {
+        "schema": "1.0",
+        "verb": "lay_bet",
+        "target": {"bet": bet},
+        "bets": {bet: f"+{int(val)}"},
+        "bankroll_delta": -val,
+        "policy": None,
+    }
+
+
+def verb_take_down(snapshot: Dict[str, Any], args: Dict[str, Any]) -> Effect:
+    sel = (args.get("target") or {}).get("selector") or []
+    bets: Dict[str, str] = {}
+    refund = 0.0
+    for k in sel:
+        key = str(k)
+        current = float(snapshot.get("bets", {}).get(key, 0.0))
+        if current > 0:
+            bets[key] = f"-{int(current)}"
+            refund += current
+    return {
+        "schema": "1.0",
+        "verb": "take_down",
+        "target": {"selector": [str(k) for k in sel]},
+        "bets": bets,
+        "bankroll_delta": refund,
+        "policy": None,
+    }
+
+
+def verb_move_bet(snapshot: Dict[str, Any], args: Dict[str, Any]) -> Effect:
+    target = (args.get("target") or {})
+    src = str(target.get("from", ""))
+    dst = str(target.get("to", ""))
+    current = float(snapshot.get("bets", {}).get(src, 0.0))
+    if not (_is_box_number(src) and _is_box_number(dst) and current > 0):
+        raise ValueError("move_bet_invalid_args")
+    return {
+        "schema": "1.0",
+        "verb": "move_bet",
+        "target": {"from": src, "to": dst},
+        "bets": {src: f"-{int(current)}", dst: f"+{int(current)}"},
+        "bankroll_delta": 0.0,
+        "policy": None,
+    }
+
+
 def verb_same_bet(snapshot: Dict[str, Any], args: Dict[str, Any]) -> Effect:
     target = (args.get("target") or {}).get("bet")
     return {
@@ -675,6 +1261,11 @@ def verb_apply_policy(snapshot: Dict[str, Any], args: Dict[str, Any]) -> Effect:
 
 VerbRegistry.register("press", verb_press)
 VerbRegistry.register("regress", verb_regress)
+VerbRegistry.register("place_bet", verb_place_bet)
+VerbRegistry.register("buy_bet", verb_buy_bet)
+VerbRegistry.register("lay_bet", verb_lay_bet)
+VerbRegistry.register("take_down", verb_take_down)
+VerbRegistry.register("move_bet", verb_move_bet)
 VerbRegistry.register("same_bet", verb_same_bet)
 VerbRegistry.register("switch_profile", verb_switch_profile)
 VerbRegistry.register("apply_policy", verb_apply_policy)
