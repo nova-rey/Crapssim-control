@@ -2,8 +2,8 @@
 |-------|-------------|-------|---------|----------|
 | P8·C0 | Docs Kickoff & Roadmap Update | ✅ Complete | Replace old Phase 6 roadmap with new Phase 8 roadmap and mark prior phases as future. |
 | P8·C1 | CrapsSim Wiring (press/regress) + Snapshot Normalizer + Seed Handoff | ✅ Complete | Engine-backed press/regress under flag; seed handoff; minimal normalizer. |
-| P8·C2 | Place/Buy/Lay Wiring | 🟡 In Progress | Engine-backed place/buy/lay/move/take_down; full box coverage; normalized bet_types. |
-| P8·C3 | Line & Come Family + Odds | ⬜ Pending | Add engine wiring for pass/don’t/come/dc and odds logic. |
+| P8·C2 | Place/Buy/Lay Wiring | ✅ Complete | Engine-backed place/buy/lay/move/take_down; full box coverage; normalized bet_types. |
+| P8·C3 | Line & Come Family + Odds Wiring | 🟡 In Progress | Line (pass/don’t), Come/DC, and Odds verbs wired; snapshot captures flats and odds by point. |
 | P8·C4 | Work/Off & Table State Controls | ⬜ Pending | Hook working/off toggles and table resets. |
 | P8·C5 | Roll Loop Integration + Dice Control | ⬜ Pending | Implement step_roll through engine and fixed dice replay. |
 | P8·C6 | Snapshot Normalizer v2 (Comprehensive) | ⬜ Pending | Expand normalizer to full table/player state. |

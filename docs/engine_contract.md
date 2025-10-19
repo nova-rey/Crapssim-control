@@ -159,6 +159,31 @@ run:
 When CrapsSim is not installed the adapter silently reverts to its stub behavior, ensuring
 replay parity and existing tests remain deterministic.
 
+## Line, Come/DC & Odds (Phase 8 · C3)
+
+### Verbs
+- `line_bet` — `{"side":"pass"|"dont_pass","amount":{"mode":"dollars","value":10}}`
+- `come_bet`, `dont_come_bet` — flat entry bets; travel occurs on roll.
+- `set_odds` — `{"on":"pass|dp|dont_pass|come|dc","point":<4|5|6|8|9|10>,"amount":{"mode":"dollars","value":X}}`
+- `take_odds` — same shape as set, decrements exposure.
+- `remove_line`, `remove_come`, `remove_dont_come` — clean take-down and refund.
+
+### Effect Summary (schema 1.0)
+Handlers return standard `effect_summary` objects with `bets` deltas such as:
+```json
+{"schema":"1.0","verb":"set_odds","bets":{"odds_pass":"+20"},"bankroll_delta":-20}
+{"schema":"1.0","verb":"set_odds","bets":{"odds_come_6":"+10"},"bankroll_delta":-10}
+```
+
+Snapshot Fields (additions)
+  • point_value: 4|5|6|8|9|10|null
+  • on_comeout: boolean
+  • come_flat: { "4":0, "5":0, "6":0, "8":0, "9":0, "10":0 }
+  • dc_flat:   { "4":0, "5":0, "6":0, "8":0, "9":0, "10":0 }
+  • odds: { "pass": number, "dont_pass": number, "come": {"4":number,...}, "dc": {"4":number,...} }
+
+Notes: Engine enforces legality windows and increments; failures are surfaced via the adapter error surface (see Phase 8 · C7).
+
 ## Box Bets — Place / Buy / Lay (Phase 8 · C2)
 
 New verbs (engine-backed when `live_engine: true`, with stub fallback otherwise):

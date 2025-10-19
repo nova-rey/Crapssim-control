@@ -1,5 +1,5 @@
 phase: 8
-checkpoint: 2
-title: Place/Buy/Lay Wiring
-description: Engine-backed box bet controls (place, buy, lay, move, take_down) with extended snapshot normalization and stub fallback.
+checkpoint: 3
+title: Line & Come Family + Odds Wiring
+description: Engine-backed pass/don’t, come/dc, and odds verbs with snapshot extensions for flats and odds per point; stub fallback retained.
 status: active
