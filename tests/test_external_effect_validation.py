@@ -1,18 +1,18 @@
-from crapssim_control.engine_adapter import VanillaAdapter, validate_effect_summary
+from crapssim_control.external.http_api import _validate_and_attach_effect
+from crapssim_control.engine_adapter import VanillaAdapter
 
 
-def test_external_path_validates_effect_summary(monkeypatch):
-    class DummyController:
+def test_validate_and_attach_effect_sets_field(monkeypatch):
+    class C:
         pass
 
-    controller = DummyController()
-    controller.adapter = VanillaAdapter()
-    controller.adapter.start_session({"seed": 1})
-
-    controller.adapter.apply_action(
+    c = C()
+    c.adapter = VanillaAdapter()
+    c.adapter.apply_action(
         "press",
         {"target": {"bet": "6"}, "amount": {"mode": "dollars", "value": 6}},
     )
-    effect = controller.adapter.last_effect
-
-    validate_effect_summary(effect, "1.0")
+    entry = {}
+    _validate_and_attach_effect(c, entry)
+    assert "effect_summary" in entry
+    assert entry["effect_summary"]["verb"] == "press"

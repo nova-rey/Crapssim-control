@@ -4,6 +4,7 @@
 |-------------|--------|---------|-------------|
 | P6.5·C1 | Adapter Lockdown & Tag | ✅ Complete | Freeze API/grammar, add validators, lock schemas/baselines, bump and tag. |
 | P6.5·C2 | Final Nits | ✅ Complete | External effect validation, tape args type guard, doc cross-link, warnings filter, and CSV off-mode assertion. |
+| P6.5·C3 | Centralize External Effect Validation | ✅ Complete | Single helper `_validate_and_attach_effect` used by all external command paths. |
 
 # Phase 7 — Engine Contract & Vanilla Adapter
 
