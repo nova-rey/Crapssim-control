@@ -20,10 +20,15 @@ The roadmap below replaces the earlier roadmap entirely, establishing Phase 8 as
 **C0 — Docs Kickoff & Roadmap Update**  
 Initialize phase documentation and archive prior phases.
 
-**C1 — Press/Regress PoC + Seed Handoff + Snapshot Normalizer v1**  
+**C1 — Press/Regress PoC + Seed Handoff + Snapshot Normalizer v1**
 Wire press/regress to CrapsSim under flag; seed engine; normalize minimal snapshot.
 
-**C2 — Place/Buy/Lay: create, take down, move**  
+### Checkpoint 1 — CrapsSim Wiring (press/regress) + Snapshot Normalizer + Seed Handoff
+
+The VanillaAdapter now supports live CrapsSim integration for the `press` and `regress` verbs under `run.adapter.live_engine: true`.
+It seeds the engine RNG, normalizes the table/player snapshot, and preserves a deterministic fallback when CrapsSim is unavailable.
+
+**C2 — Place/Buy/Lay: create, take down, move**
 Support box bet creation and movement; enforce table units.
 
 **C3 — Line & Come Family + Odds**  

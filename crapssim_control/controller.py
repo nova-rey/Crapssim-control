@@ -211,6 +211,22 @@ class ControlStrategy:
         csv_blk = (run_blk or {}).get("csv") if isinstance(run_blk, dict) else {}
 
         self._apply_run_identity_from_spec(run_blk, csv_blk)
+        if isinstance(run_blk, dict):
+            run_seed_val = self._coerce_seed(run_blk.get("seed"))
+            if run_seed_val is not None:
+                self._seed_value = run_seed_val
+
+        try:
+            self.adapter.start_session(spec)
+        except Exception:
+            logger.exception("Adapter start_session failed")
+        if self._seed_value is not None:
+            set_seed_fn = getattr(self.adapter, "set_seed", None)
+            if callable(set_seed_fn):
+                try:
+                    set_seed_fn(self._seed_value)
+                except Exception:
+                    logger.exception("Adapter set_seed failed")
 
         demo_flag = normalize_demo_fallbacks(run_blk if isinstance(run_blk, dict) else None)
 
