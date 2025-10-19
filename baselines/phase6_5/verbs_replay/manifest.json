@@ -1,0 +1,7 @@
+{
+  "phase": "6.5",
+  "checkpoint": 1,
+  "name": "verbs_replay",
+  "effect_schema": "1.0",
+  "tape_schema": "1.0"
+}

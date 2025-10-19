@@ -52,10 +52,18 @@ class CommandTape:
 
 
 TAPE_SCHEMA_VERSION = "1.0"
+_ALLOWED_CMD_KEYS = {"verb", "args"}
 
 
 def record_command_tape(commands: list[dict]) -> dict:
     """Wrap a list of verb/args dicts with schema metadata."""
+
+    for cmd in commands:
+        extra = set(cmd.keys()) - _ALLOWED_CMD_KEYS
+        if extra:
+            raise ValueError(f"tape_cmd_extra_keys:{sorted(extra)}")
+        if "verb" not in cmd:
+            raise ValueError("tape_cmd_missing:verb")
 
     return {
         "tape_schema": TAPE_SCHEMA_VERSION,
@@ -70,4 +78,4 @@ def iter_commands(tape: dict) -> Iterator[tuple[str, Dict[str, Any]]]:
     if schema != TAPE_SCHEMA_VERSION:
         raise ValueError(f"tape_schema_mismatch:{schema}")
     for cmd in tape.get("commands", []):
-        yield cmd.get("verb"), (cmd.get("args") or {})
+        yield cmd["verb"], (cmd.get("args") or {})

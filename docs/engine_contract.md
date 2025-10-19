@@ -62,20 +62,24 @@ Policy JSON
 }
 ```
 
-Effect Summary (schema 1.0)
+## Effect Schema (1.0)
 
-All handlers return:
+All actions (verbs/policies) must return a uniform effect summary:
 
-```json
-{
-  "schema":"1.0",
-  "verb":"<verb or apply_policy>",
-  "target": {...},
-  "bets": {"6":"+6"},
-  "bankroll_delta": -6,
-  "policy": "martingale_v1" | null
-}
-```
+| Field           | Type              | Notes                                      |
+|-----------------|-------------------|--------------------------------------------|
+| `schema`        | string            | Must be `"1.0"`                            |
+| `verb`          | string            | Registered verb name or `"apply_policy"`   |
+| `target`        | object            | Optional; verb-specific targeting          |
+| `bets`          | object<string,str>| Deltas like `"+6"` or `"-12"`              |
+| `bankroll_delta`| number            | Positive returns to bankroll; negative spends |
+| `policy`        | string\|null      | Policy name for `apply_policy`             |
+
+**Validation:** CSC now validates `effect_summary` before journaling; invalid entries raise `ValueError`.
+
+### Deprecations
+- Legacy verb `"martingale"` → **deprecated**; prefer `{ "verb": "apply_policy", "policy": {"name": "martingale_v1", ...}}`.
+- NullAdapter compatibility shims (`attach`, `attach_cls`, `play`) are deprecated and will be removed in Phase 8·C0.
 
 ## Capabilities & Tape Schema
 
@@ -84,7 +88,7 @@ All handlers return:
 
 ```json
 {
-  "effect_schema": "1.0",
+  "schema_versions": {"effect": "1.0", "tape": "1.0"},
   "verbs": ["press","regress","same_bet","switch_profile","apply_policy"],
   "policies": ["martingale_v1"]
 }
@@ -106,7 +110,6 @@ Tapes are versioned for replay parity:
 
 Replay validates the schema and reproduces identical snapshots under the same seed.
 
-Back-compat: legacy verb "martingale" is an alias to apply_policy(policy="martingale_v1") during Phase 7.
 
 ## Adapter Selection & Seeding
 

@@ -1,5 +1,11 @@
-phase: 7
-checkpoint: 5
-title: Capabilities + Tape v2 + Replay-Parity Baselines
-description: Expose verbs/policies/effect schema, adopt tape_schema v1.0, verify live–replay parity, and log deprecation for legacy martingale alias.
-status: active
+phase: 6.5
+checkpoint: 1
+title: Adapter Lockdown & Tag
+description: Adapter API and Verb+Policy grammar frozen; effect/tape schemas validated; baselines and parity locked.
+status: complete
+schemas:
+  effect: "1.0"
+  tape: "1.0"
+capabilities:
+  verbs: ["press","regress","same_bet","switch_profile","apply_policy"]
+  policies: ["martingale_v1"]

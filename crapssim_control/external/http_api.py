@@ -16,7 +16,7 @@ from urllib import request as urllib_request
 from pathlib import Path
 
 from .command_channel import CommandQueue, ALLOWED_ACTIONS
-from crapssim_control.engine_adapter import VerbRegistry, PolicyRegistry
+from crapssim_control.engine_adapter import PolicyRegistry, VerbRegistry
 
 
 logger = logging.getLogger("CSC.HTTP")
@@ -26,7 +26,7 @@ def get_capabilities() -> Dict[str, Any]:
     verbs = sorted(list(VerbRegistry._handlers.keys()))
     policies = sorted(list(PolicyRegistry._handlers.keys()))
     return {
-        "effect_schema": "1.0",
+        "schema_versions": {"effect": "1.0", "tape": "1.0"},
         "verbs": verbs,
         "policies": policies,
     }

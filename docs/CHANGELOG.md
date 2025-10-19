@@ -6,6 +6,13 @@ CHANGELOG.md
 
 All notable changes to this project will be documented here.
 
+## v0.35.0-phase6.5
+- Adapter contract and Verb+Policy grammar frozen
+- Effect/tape schema validation
+- Capabilities endpoint includes schema versions
+- Replay parity + digest check baselines added
+- Deprecations: legacy "martingale" verb; NullAdapter shims scheduled for removal in Phase 8·C0
+
 ## [1.0.0] – 2025-09-19
 ### Added
 - Stable public CLI: `crapssim-ctl` with `validate` and `run` subcommands.

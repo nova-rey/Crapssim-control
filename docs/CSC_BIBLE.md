@@ -352,6 +352,13 @@ Tagged v0.35.0-phase6-external.
 - Per-roll duplicate commands are rejected deterministically and explicitly journaled as `duplicate_roll`.
 - Baselines include smoke and parity validations for live vs replay.
 
+### Phase 6.5 Locked — Adapter Contract
+
+- Finalized EngineAdapter API and Verb+Policy grammar.
+- Added effect_summary validator and stricter tape v2 guard.
+- Baselines captured with digest/parity checks; schemas versioned (effect/tape = 1.0).
+- Deprecations in place (legacy martingale verb; NullAdapter shims) to be removed at Phase 8·C0.
+
 ### Phase 7 — Engine Contract & Adapter
 
 Phase 7 begins the integration of a formal engine contract and adapter layer.
