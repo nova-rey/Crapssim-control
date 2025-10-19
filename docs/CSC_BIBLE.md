@@ -366,5 +366,10 @@ Verified through conformance tests that confirm method presence and expected typ
 
 ### Checkpoint 2 — Vanilla Adapter Skeleton + Determinism Hook
 
-Added VanillaAdapter stub for CrapsSim-Vanilla integration with seeding and deterministic snapshot support.  
+Added VanillaAdapter stub for CrapsSim-Vanilla integration with seeding and deterministic snapshot support.
 Introduced run.adapter.enabled and run.adapter.impl flags, updated controller wiring, and folded in P7·C1 polish fixes.
+
+### Checkpoint 3 — Action Mapping v1
+
+VanillaAdapter now maps press_and_collect, regress, and switch_profile actions deterministically.  
+Decision journal records effect_summary, and CSV output includes bankroll and core bet fields for adapter-enabled runs.

@@ -1308,6 +1308,19 @@ class ControlStrategy:
                 # "flags": dict(self._flags),
             },
         }
+        adapter = getattr(self, "adapter", None)
+        if adapter is not None and not isinstance(adapter, NullAdapter):
+            try:
+                adapter_snapshot = adapter.snapshot_state()
+            except Exception:
+                adapter_snapshot = None
+            if isinstance(adapter_snapshot, dict):
+                snap["adapter_snapshot"] = adapter_snapshot
+                bankroll_after = adapter_snapshot.get("bankroll")
+                bets = adapter_snapshot.get("bets") if isinstance(adapter_snapshot.get("bets"), dict) else {}
+                snap["bankroll_after"] = bankroll_after
+                snap["bet_6"] = bets.get("6")
+                snap["bet_8"] = bets.get("8")
         if self._tracker is not None:
             snap.update(self._tracker.get_roll_snapshot())
         return snap
@@ -1692,6 +1705,9 @@ class ControlStrategy:
                     result = ACTIONS[verb].execute(self.__dict__, {"args": args})
                     executed = True
                     record["result"] = result
+                    adapter_effect = getattr(getattr(self, "adapter", None), "last_effect", None)
+                    if adapter_effect is not None:
+                        record["effect_summary"] = adapter_effect
                 record["executed"] = executed
                 outcome = self.command_queue.record_outcome(
                     source_label,

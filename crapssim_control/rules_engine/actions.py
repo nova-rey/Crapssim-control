@@ -26,50 +26,83 @@ def is_legal_timing(state: Dict[str, Any], action: Dict[str, Any]) -> Tuple[bool
 
 
 class BaseAction:
-    """Base stub for table-safe actions."""
+    """Base stub for table-safe actions with adapter dispatch."""
 
     def __init__(self, name: str):
         self.name = name
 
+    def _adapter(self, runtime: Dict[str, Any]):
+        return runtime.get("adapter") if isinstance(runtime, dict) else None
+
+    @staticmethod
+    def _args(payload: Dict[str, Any]) -> Dict[str, Any]:
+        if not isinstance(payload, dict):
+            return {}
+        inner = payload.get("args")
+        if isinstance(inner, dict):
+            return inner
+        return payload if payload else {}
+
     def execute(self, runtime: Dict[str, Any], args: Dict[str, Any]) -> Dict[str, Any]:
-        """Stub execution — returns a trace entry only."""
-        return {"applied": self.name, "args": args}
+        adapter = self._adapter(runtime)
+        payload = self._args(args)
+        if adapter and hasattr(adapter, "apply_action"):
+            try:
+                return adapter.apply_action(self.name, payload)
+            except Exception:
+                pass
+        return {"verb": self.name, "args": payload, "result": "noop"}
 
 
 class SwitchProfile(BaseAction):
     """Switch active betting profile."""
 
     def execute(self, runtime, args):
-        target = args.get("target") or args.get("profile") or "unknown"
-        # stub: no actual runtime mutation
-        return {"applied": "switch_profile", "target": target}
+        payload = self._args(args)
+        profile = payload.get("profile") or payload.get("target") or "default"
+        adapter = self._adapter(runtime)
+        if adapter and hasattr(adapter, "apply_action"):
+            return adapter.apply_action("switch_profile", {"profile": profile})
+        return {"verb": "switch_profile", "details": {"profile": profile}}
 
 
 class Regress(BaseAction):
     """Reduce working bets by a pattern."""
 
     def execute(self, runtime, args):
-        pattern = args.get("pattern") or "default"
-        return {"applied": "regress", "pattern": pattern}
+        adapter = self._adapter(runtime)
+        payload = self._args(args)
+        if adapter and hasattr(adapter, "apply_action"):
+            return adapter.apply_action("regress", payload)
+        pattern = payload.get("pattern") or "default"
+        return {"verb": "regress", "pattern": pattern}
 
 
 class PressAndCollect(BaseAction):
     """Press and collect pattern."""
 
     def execute(self, runtime, args):
-        pattern = args.get("pattern") or "default"
-        return {"applied": "press_and_collect", "pattern": pattern}
+        adapter = self._adapter(runtime)
+        payload = self._args(args)
+        if adapter and hasattr(adapter, "apply_action"):
+            return adapter.apply_action("press_and_collect", payload)
+        pattern = payload.get("pattern") or "default"
+        return {"verb": "press_and_collect", "pattern": pattern}
 
 
 class Martingale(BaseAction):
     """Martingale progression step."""
 
     def execute(self, runtime, args):
-        key = args.get("step_key")
-        delta = args.get("delta", 1)
-        max_level = args.get("max_level", 3)
+        adapter = self._adapter(runtime)
+        payload = self._args(args)
+        if adapter and hasattr(adapter, "apply_action"):
+            return adapter.apply_action("martingale", payload)
+        key = payload.get("step_key")
+        delta = payload.get("delta", 1)
+        max_level = payload.get("max_level", 3)
         return {
-            "applied": "martingale",
+            "verb": "martingale",
             "step_key": key,
             "delta": delta,
             "max_level": max_level,
