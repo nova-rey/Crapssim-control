@@ -64,6 +64,8 @@ def record_command_tape(commands: list[dict]) -> dict:
             raise ValueError(f"tape_cmd_extra_keys:{sorted(extra)}")
         if "verb" not in cmd:
             raise ValueError("tape_cmd_missing:verb")
+        if "args" in cmd and not isinstance(cmd["args"], dict):
+            raise ValueError("tape_cmd_invalid:args_type")
 
     return {
         "tape_schema": TAPE_SCHEMA_VERSION,
@@ -78,4 +80,8 @@ def iter_commands(tape: dict) -> Iterator[tuple[str, Dict[str, Any]]]:
     if schema != TAPE_SCHEMA_VERSION:
         raise ValueError(f"tape_schema_mismatch:{schema}")
     for cmd in tape.get("commands", []):
-        yield cmd["verb"], (cmd.get("args") or {})
+        verb = cmd["verb"]
+        args = cmd.get("args") or {}
+        if not isinstance(args, dict):
+            raise ValueError("tape_cmd_invalid:args_type")
+        yield verb, args

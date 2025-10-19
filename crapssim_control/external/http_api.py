@@ -16,10 +16,25 @@ from urllib import request as urllib_request
 from pathlib import Path
 
 from .command_channel import CommandQueue, ALLOWED_ACTIONS
-from crapssim_control.engine_adapter import PolicyRegistry, VerbRegistry
+from crapssim_control.engine_adapter import (
+    PolicyRegistry,
+    VerbRegistry,
+    validate_effect_summary,
+)
 
 
 logger = logging.getLogger("CSC.HTTP")
+
+
+def attach_effect_summary(entry: Dict[str, Any], controller: Any, schema: str = "1.0") -> None:
+    """Validate and attach the adapter's last effect to an entry if present."""
+
+    adapter = getattr(controller, "adapter", None)
+    effect = getattr(adapter, "last_effect", None) if adapter is not None else None
+    if not effect:
+        return
+    validate_effect_summary(effect, schema=schema)
+    entry["effect_summary"] = effect
 
 
 def get_capabilities() -> Dict[str, Any]:
