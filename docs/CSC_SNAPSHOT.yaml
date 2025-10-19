@@ -1,5 +1,5 @@
 phase: 8
-checkpoint: 4
-title: Roll & Travel Synchronization
-description: Integrate step_roll with CrapsSim’s roll engine; capture dice, totals, travel, bankroll, and PSO events; extend journaling and normalization for roll events.
+checkpoint: 5
+title: Full System Integration & Baseline
+description: Complete engine integration with simulate_rounds() and replay harness; produce seeded baseline artifacts; validate deterministic replay parity.
 status: active

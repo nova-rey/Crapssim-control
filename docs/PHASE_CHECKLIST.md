@@ -5,7 +5,7 @@
 | P8·C2 | Place/Buy/Lay Wiring | ✅ Complete | Engine-backed place/buy/lay/move/take_down; full box coverage; normalized bet_types. |
 | P8·C3 | Line & Come Family + Odds Wiring | 🟡 In Progress | Line (pass/don’t), Come/DC, and Odds verbs wired; snapshot captures flats and odds by point. |
 | P8·C4 | Roll & Travel Synchronization | 🟡 In Progress | Wire step_roll to CrapsSim’s dice engine; update snapshot and journaling; detect travel, PSO, and bankroll changes. |
-| P8·C5 | Roll Loop Integration + Dice Control | ⬜ Pending | Implement step_roll through engine and fixed dice replay. |
+| P8·C5 | Full System Integration & Baseline | 🟢 Complete | End-to-end run using CrapsSim; generate seeded baselines and validate replay parity. |
 | P8·C6 | Snapshot Normalizer v2 (Comprehensive) | ⬜ Pending | Expand normalizer to full table/player state. |
 | P8·C7 | Error Surface & Journaling Consistency | ⬜ Pending | Map engine errors and enforce effect_summary validation. |
 | P8·C8 | Replay Parity (Engine-backed) + Tape Additions | ⬜ Pending | Verify live vs replay parity using engine-derived snapshots. |
