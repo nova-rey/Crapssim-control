@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+import warnings
 from pathlib import Path
 
 
@@ -16,3 +17,4 @@ def _ensure_repo_on_path() -> None:
 
 
 _ensure_repo_on_path()
+warnings.simplefilter("default", DeprecationWarning)

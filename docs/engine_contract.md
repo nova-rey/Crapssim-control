@@ -37,6 +37,22 @@ state:
 Same seed → identical outcomes and state transitions.
 All random processes must derive from a reproducible seed recorded by CSC.
 
+## Adapter Selection & Seeding
+
+CSC supports multiple adapter implementations, configured via `run.adapter` settings.
+
+```yaml
+run:
+  adapter:
+    enabled: false
+    impl: "null"   # or "vanilla"
+    seed: 12345
+```
+
+- When enabled=false, CSC uses NullAdapter (no engine calls).
+- When enabled=true and impl="vanilla", CSC uses VanillaAdapter for CrapsSim-Vanilla integration.
+- Seeds are recorded and passed to adapter instances for deterministic replay.
+
 ## Legality Boundary
 
 CSC enforces timing, legality, and bet limits before calling the adapter.

@@ -9,6 +9,7 @@ from typing import Any, Dict, Optional, Tuple, Type
 __all__ = [
     "EngineAdapter",
     "NullAdapter",
+    "VanillaAdapter",
     "CrapsSimAdapter",
     "EngineAttachResult",
     "check_engine_ready",
@@ -49,7 +50,9 @@ class EngineAttachResult:
 # Engine contract
 # --------------------------------------------------------------------------------------
 class EngineAdapter(ABC):
-    """Abstract base adapter defining the CrapsSim engine interface."""
+    """Abstract base adapter defining the CrapsSim engine interface.
+    See docs/engine_contract.md for method definitions and determinism expectations.
+    """
 
     @abstractmethod
     def start_session(self, spec: Dict[str, Any]) -> None:
@@ -133,6 +136,39 @@ class NullAdapter(EngineAdapter):
             DeprecationWarning,
         )
         return {"shooters": int(shooters), "rolls": int(rolls), "status": "noop"}
+
+
+class VanillaAdapter(EngineAdapter):
+    """Stub adapter for CrapsSim-Vanilla integration; supports seeding and deterministic snapshot."""
+
+    def __init__(self) -> None:
+        self.spec: Dict[str, Any] = {}
+        self.seed: Optional[int] = None
+
+    def set_seed(self, seed: Optional[int]) -> None:
+        self.seed = seed
+
+    def start_session(self, spec: Dict[str, Any]) -> None:
+        self.spec = spec or {}
+
+    def step_roll(
+        self, dice: Optional[Tuple[int, int]] = None, seed: Optional[int] = None
+    ) -> Dict[str, Any]:
+        self.seed = seed or self.seed
+        return {"result": "stub", "dice": dice, "seed": self.seed}
+
+    def apply_action(self, verb: str, args: Dict[str, Any]) -> Dict[str, Any]:
+        return {"verb": verb, "args": args, "result": "stub"}
+
+    def snapshot_state(self) -> Dict[str, Any]:
+        return {
+            "bankroll": 1000.0,
+            "point_on": False,
+            "bets": {},
+            "hand_id": 0,
+            "roll_in_hand": 0,
+            "rng_seed": self.seed or 0,
+        }
 
 
 # --------------------------------------------------------------------------------------

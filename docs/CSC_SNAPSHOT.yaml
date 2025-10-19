@@ -1,5 +1,5 @@
 phase: 7
-checkpoint: 1
-title: Engine Contract Doc + Adapter ABC Scaffold
-description: Added formal adapter contract and no-op NullAdapter implementation wired into controller; no behavior change.
+checkpoint: 2
+title: Vanilla Adapter Skeleton + Determinism Hook
+description: Introduced VanillaAdapter stub, added adapter config flags, seed determinism, and integrated prior nit fixes.
 status: active
