@@ -7,6 +7,7 @@ import copy
 import logging
 import os
 import random
+import inspect
 import sys
 import traceback
 from pathlib import Path
@@ -618,7 +619,11 @@ def run(args: argparse.Namespace) -> int:
     # Attach engine
     try:
         from crapssim_control.engine_adapter import EngineAdapter  # lazy
+        if inspect.isabstract(EngineAdapter):
+            raise RuntimeError("engine adapter scaffolding not connected")
         adapter = EngineAdapter()
+        if not hasattr(adapter, "attach"):
+            raise RuntimeError("engine adapter missing attach() implementation")
         attach_result = adapter.attach(spec)
         table = attach_result.table
         # CRITICAL: seed the actual dice/rng instance now that it exists

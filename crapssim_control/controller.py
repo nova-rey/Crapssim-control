@@ -18,6 +18,7 @@ from collections import deque
 import subprocess
 
 from .templates import render_template as render_runtime_template, diff_bets
+from .engine_adapter import NullAdapter
 from .actions import make_action  # Action Envelope helper
 from .rules_engine import apply_rules  # Runtime rules engine
 from .rules_engine.evaluator import evaluate_rules
@@ -130,6 +131,7 @@ class ControlStrategy:
         self._command_tape: Optional[CommandTape] = None
         self._command_tape_path: Optional[str] = None
         self._replay_commands: Deque[Dict[str, Any]] = deque()
+        self.adapter = NullAdapter()  # P7C1: inert engine adapter placeholder
         self.external_mode, self._external_mode_source = self._resolve_external_mode()
         self._command_tape_path = self._resolve_command_tape_path()
         if self.external_mode == "replay":
