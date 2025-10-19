@@ -1,5 +1,3 @@
-import math
-
 from crapssim_control.tracker import Tracker
 from crapssim_control.bet_attrib import attach_bet_attrib
 

@@ -1,4 +1,3 @@
-import pytest
 from crapssim_control.spec_validation import validate_spec
 
 def _good_spec():

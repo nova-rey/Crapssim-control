@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-import json, pathlib, hashlib, sys
+import hashlib
+import json
+import pathlib
+import sys
 
 BASE = pathlib.Path("baselines/p0c3")
 MANIFEST = BASE / "manifest.json"

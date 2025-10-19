@@ -133,6 +133,6 @@ class FastAPI:
         await send({"type": "http.response.body", "body": content})
 
 
-from .testclient import TestClient  # noqa: E402
+from .testclient import TestClient  # noqa: E402,F401
 
 __all__.append("TestClient")

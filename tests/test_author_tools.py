@@ -1,7 +1,5 @@
 import json
 
-import yaml
-
 from crapssim_control.rules_engine.author import RuleBuilder
 
 

@@ -14,10 +14,10 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in os.sys.path:
     os.sys.path.insert(0, str(ROOT))
 
-from crapssim_control.controller import ControlStrategy
-from crapssim_control.simulators import NodeRedSimulator
-from crapssim_control.spec_loader import load_spec_file
-from scripts.phase6_baseline_utils import generate_event_sequence, iter_event_dicts
+from crapssim_control.controller import ControlStrategy  # noqa: E402
+from crapssim_control.simulators import NodeRedSimulator  # noqa: E402
+from crapssim_control.spec_loader import load_spec_file  # noqa: E402
+from scripts.phase6_baseline_utils import generate_event_sequence, iter_event_dicts  # noqa: E402
 
 FINAL_DIR = ROOT / "baselines" / "phase6" / "final"
 COMMAND_TAPE_PATH = FINAL_DIR / "command_tape.jsonl"

@@ -3,16 +3,15 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
-
-VALIDATION_ENGINE_VERSION = "v1"
-
-from .events import CANONICAL_EVENT_TYPES  # includes shooter_change & bet_resolved
 from .config import (
     DEMO_FALLBACKS_DEFAULT,
     EMBED_ANALYTICS_DEFAULT,
     STRICT_DEFAULT,
     coerce_flag,
 )
+from .events import CANONICAL_EVENT_TYPES  # includes shooter_change & bet_resolved
+
+VALIDATION_ENGINE_VERSION = "v1"
 
 
 class SpecValidationError(Exception):
@@ -322,7 +321,7 @@ def _validate_table_rules_block(tr: Any) -> List[str]:
                     errs.append("table_rules.max.odds must be an object")
                 else:
                     typ = odds.get("type")
-                    if typ is not None and not (typ in ("3_4_5x", "flat")):
+                    if typ is not None and typ not in ("3_4_5x", "flat"):
                         errs.append("table_rules.max.odds.type must be '3_4_5x' or 'flat'")
                     if typ == "flat":
                         mult = odds.get("multiplier")

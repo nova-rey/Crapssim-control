@@ -1,7 +1,6 @@
 # tests/test_controller_csv_integration.py
 
 import csv
-import os
 import tempfile
 from pathlib import Path
 

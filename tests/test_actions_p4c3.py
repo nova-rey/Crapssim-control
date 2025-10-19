@@ -1,5 +1,3 @@
-import pytest
-
 from crapssim_control.actions import (
     make_action, normalize_action, is_bet_action,
     SOURCE_TEMPLATE, SOURCE_RULE,

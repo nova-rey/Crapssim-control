@@ -1,8 +1,4 @@
-# crapssim_control/rules_engine.py
-from __future__ import annotations
-
-"""
-rules_engine.py — Runtime Rules (Phase 4 · Checkpoint 4)
+"""rules_engine.py — Runtime Rules (Phase 4 · Checkpoint 4).
 
 Purpose
 -------
@@ -36,6 +32,8 @@ Design notes
     • prefer a non-empty "name" → id="rule:<name>"
     • else fall back to 1-based index → id="rule:#<index>"
 """
+
+from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Tuple
 

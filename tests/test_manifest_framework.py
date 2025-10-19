@@ -1,4 +1,3 @@
-import json, os
 from crapssim_control.manifest import generate_manifest
 from crapssim_control.schemas import JOURNAL_SCHEMA_VERSION, SUMMARY_SCHEMA_VERSION
 

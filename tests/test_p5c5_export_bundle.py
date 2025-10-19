@@ -2,7 +2,6 @@
 import json
 import zipfile
 from pathlib import Path
-import pytest
 
 from crapssim_control.controller import ControlStrategy
 from crapssim_control.events import COMEOUT, POINT_ESTABLISHED

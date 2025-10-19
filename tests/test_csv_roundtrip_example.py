@@ -1,12 +1,10 @@
 # tests/test_csv_roundtrip_example.py
 from __future__ import annotations
+
 import csv
 import sys
 import subprocess
-import tempfile
 from pathlib import Path
-
-import pytest
 
 from crapssim_control.csv_journal import CSVJournal
 from crapssim_control.csv_summary import summarize_journal, write_summary_csv

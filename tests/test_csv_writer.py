@@ -3,7 +3,7 @@ import csv
 import os
 import tempfile
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Dict, List
 
 from crapssim_control.csv_journal import CSVJournal
 from crapssim_control.schemas import JOURNAL_SCHEMA_VERSION

@@ -3,8 +3,6 @@ from __future__ import annotations
 
 import csv
 import json
-from pathlib import Path
-
 from crapssim_control.controller import ControlStrategy
 from crapssim_control.events import COMEOUT, POINT_ESTABLISHED
 from tests import skip_csv_preamble
