@@ -351,3 +351,9 @@ Tagged v0.35.0-phase6-external.
 - Webhook retry is covered by a unit test; behavior is light backoff with retries and non-blocking failure.
 - Per-roll duplicate commands are rejected deterministically and explicitly journaled as `duplicate_roll`.
 - Baselines include smoke and parity validations for live vs replay.
+
+### Phase 7 — Engine Contract & Adapter
+
+Phase 7 begins the integration of a formal engine contract and adapter layer.
+This isolates CSC from CrapsSim-Vanilla internals and allows future engine replacements without rewriting runtime logic.
+Former Phases 7–9 have been renumbered to 8–10 (Web Dashboard MVP, Run Launcher & Spec Library, Integrated Builder & Chained Runs).

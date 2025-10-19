@@ -1,6 +1,5 @@
-current_phase: 6
-current_checkpoint: 5
-checkpoint_title: Baseline & Tag
-allow_behavior_change: true
-baseline_hint: baselines/phase6/final
-notes: Bible is append-only; do not overwrite prior phases; append new sections.
+current_phase: 7
+current_checkpoint: 0
+checkpoint_title: Docs Kickoff & Renumber
+allow_behavior_change: false
+notes: CSC_BIBLE.md edits must always be additive; roadmap file reflects current truth.
