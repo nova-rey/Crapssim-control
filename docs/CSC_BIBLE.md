@@ -28,6 +28,12 @@ Wire press/regress to CrapsSim under flag; seed engine; normalize minimal snapsh
 The VanillaAdapter now supports live CrapsSim integration for the `press` and `regress` verbs under `run.adapter.live_engine: true`.
 It seeds the engine RNG, normalizes the table/player snapshot, and preserves a deterministic fallback when CrapsSim is unavailable.
 
+### Checkpoint 2 — Place/Buy/Lay Wiring
+
+Added engine-backed verbs for Place/Buy/Lay, plus Move and Take Down for box bets (4,5,6,8,9,10).  
+Snapshot normalization now covers all box numbers and annotates bet kind in `bet_types`.  
+Stub math remains available when the engine is not installed; effect summaries remain schema 1.0.
+
 **C2 — Place/Buy/Lay: create, take down, move**
 Support box bet creation and movement; enforce table units.
 
