@@ -3,10 +3,21 @@ Minimal HTTP /commands endpoint with stdlib http.server.
 If FASTAPI is available, create_app() returns a FastAPI app. Otherwise,
 serve_commands() starts a stdlib server.
 """
+from __future__ import annotations
+
 from typing import Any, Callable, Dict, Optional, Tuple
+import asyncio
 import json
+import logging
+import threading
+import time
+from urllib import error as urllib_error
+from urllib import request as urllib_request
 
 from .command_channel import CommandQueue, ALLOWED_ACTIONS
+
+
+logger = logging.getLogger("CSC.HTTP")
 
 def ingest_command(body: Dict[str, Any], queue: CommandQueue, active_run_id_supplier: Callable[[], str]) -> Tuple[int, Dict[str, Any]]:
     rid = body.get("run_id")
@@ -37,16 +48,16 @@ def register_diagnostics(
         return
 
     @app.get("/health")
-    async def health(_request=None):
+    def health(_request=None):
         return JSONResponse({"status": "ok"})
 
     @app.get("/run_id")
-    async def run_id(_request=None):
+    def run_id(_request=None):
         rid = active_run_id_supplier() or ""
         return JSONResponse({"run_id": rid})
 
     @app.get("/version")
-    async def version(_request=None):
+    def version(_request=None):
         version_value = "unknown"
         build_hash_value = "unknown"
         if callable(version_supplier):
@@ -163,3 +174,188 @@ def serve_commands(
 
     httpd = HTTPServer((host, port), Handler)
     return httpd  # caller decides threading/lifecycle
+
+
+class HTTPServerHandle:
+    """Simple lifecycle wrapper for whichever HTTP server is active."""
+
+    def __init__(self, host: str, port: int) -> None:
+        self.host = host
+        self.port = port
+        self._thread: Optional[threading.Thread] = None
+        self._httpd = None
+        self._uvicorn_server = None
+        self._uvicorn_loop: Optional[asyncio.AbstractEventLoop] = None
+        self._using_uvicorn = False
+        self._stopped = False
+
+    @property
+    def using_uvicorn(self) -> bool:
+        return self._using_uvicorn
+
+    def _start_uvicorn(
+        self,
+        app,
+        *,
+        log_level: str = "warning",
+    ) -> None:
+        import uvicorn
+
+        config = uvicorn.Config(
+            app,
+            host=self.host,
+            port=self.port,
+            log_level=log_level,
+            lifespan="auto",
+        )
+        server = uvicorn.Server(config)
+        server.install_signal_handlers = lambda: None  # type: ignore[assignment]
+
+        loop_ready = threading.Event()
+        exc_holder: list[BaseException] = []
+
+        def _runner() -> None:
+            loop = asyncio.new_event_loop()
+            self._uvicorn_loop = loop
+            asyncio.set_event_loop(loop)
+            loop_ready.set()
+            try:
+                loop.run_until_complete(server.serve())
+            except BaseException as exc:  # noqa: BLE001
+                exc_holder.append(exc)
+            finally:
+                try:
+                    loop.close()
+                finally:
+                    self._uvicorn_loop = None
+
+        thread = threading.Thread(
+            target=_runner,
+            name="csc-external-api",
+            daemon=True,
+        )
+        thread.start()
+        loop_ready.wait(timeout=1.0)
+        time.sleep(0.05)
+        if exc_holder:
+            thread.join(timeout=1.0)
+            raise exc_holder[0]
+        if not thread.is_alive():
+            thread.join(timeout=1.0)
+            raise RuntimeError("uvicorn server exited during startup")
+        self._thread = thread
+        self._uvicorn_server = server
+        self._using_uvicorn = True
+
+    def _start_stdlib(
+        self,
+        queue: CommandQueue,
+        active_run_id_supplier: Callable[[], str],
+        *,
+        version_supplier: Optional[Callable[[], str]] = None,
+        build_hash_supplier: Optional[Callable[[], str]] = None,
+    ) -> None:
+        httpd = serve_commands(
+            queue,
+            active_run_id_supplier,
+            host=self.host,
+            port=self.port,
+            version_supplier=version_supplier,
+            build_hash_supplier=build_hash_supplier,
+        )
+        actual_host, actual_port = httpd.server_address
+        self.host = str(actual_host)
+        self.port = int(actual_port)
+        thread = threading.Thread(
+            target=httpd.serve_forever,
+            name="csc-external-httpd",
+            daemon=True,
+        )
+        thread.start()
+        self._thread = thread
+        self._httpd = httpd
+        self._using_uvicorn = False
+
+    def stop(self) -> None:
+        if self._stopped:
+            return
+        try:
+            if self._using_uvicorn and self._uvicorn_server is not None:
+                self._uvicorn_server.should_exit = True
+                self._uvicorn_server.force_exit = True
+                loop = self._uvicorn_loop
+                if loop is not None:
+                    loop.call_soon_threadsafe(lambda: None)
+                self._uvicorn_server = None
+            elif self._httpd is not None:
+                self._httpd.shutdown()
+                self._httpd.server_close()
+                self._httpd = None
+            if self._thread is not None and self._thread.is_alive():
+                self._thread.join(timeout=2.0)
+            self._thread = None
+        finally:
+            self._stopped = True
+            logger.info("[CSC.HTTP] server stopped")
+
+    def _probe_health(self) -> None:
+        time.sleep(0.1)
+        url = f"http://{self.host}:{self.port}/health"
+        try:
+            with urllib_request.urlopen(url, timeout=2.0) as resp:
+                status = resp.getcode()
+        except urllib_error.URLError as exc:
+            logger.error(
+                "[CSC.HTTP] health probe failed: %s: %s for %s",
+                exc.__class__.__name__,
+                getattr(exc, "reason", exc),
+                url,
+            )
+            return
+        if status != 200:
+            logger.error("[CSC.HTTP] health=%s for %s", status, url)
+        else:
+            logger.info("[CSC.HTTP] health=200 for %s:%s", self.host, self.port)
+
+
+def start_http_server(
+    queue: CommandQueue,
+    active_run_id_supplier: Callable[[], str],
+    *,
+    host: str = "127.0.0.1",
+    port: int = 8089,
+    version_supplier: Optional[Callable[[], str]] = None,
+    build_hash_supplier: Optional[Callable[[], str]] = None,
+) -> HTTPServerHandle:
+    handle = HTTPServerHandle(host, port)
+    app = create_app(
+        queue,
+        active_run_id_supplier,
+        version_supplier=version_supplier,
+        build_hash_supplier=build_hash_supplier,
+    )
+
+    if app is not None:
+        try:
+            handle._start_uvicorn(app)
+        except BaseException as exc:  # noqa: BLE001
+            logger.warning(
+                "[CSC.HTTP] uvicorn failed: %s: %s (%s:%s). Falling back to stdlib server.",
+                exc.__class__.__name__,
+                exc,
+                host,
+                port,
+            )
+        else:
+            handle._probe_health()
+            return handle
+
+    handle._start_stdlib(
+        queue,
+        active_run_id_supplier,
+        version_supplier=version_supplier,
+        build_hash_supplier=build_hash_supplier,
+    )
+    logger.info("[CSC.HTTP] running stdlib HTTP on %s:%s", handle.host, handle.port)
+    handle._probe_health()
+    return handle

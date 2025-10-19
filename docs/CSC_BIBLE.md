@@ -343,3 +343,4 @@ Captured seeded external-control baseline with rate limits, dedupe, and circuit 
 Validated deterministic replay and full journaling parity.
 Diagnostics endpoints verified healthy.
 Tagged v0.35.0-phase6-external.
+- Diagnostics hardened: loud failure logs, automatic stdlib fallback, boot-time health probe, and clean shutdown; semantics for /commands unchanged.

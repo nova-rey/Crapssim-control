@@ -78,3 +78,7 @@ Each payload includes:
 ### Reliability
 
 Webhooks retry up to two additional times with exponential backoff (250 ms then 500 ms plus jitter). A final failure logs a warning but does not interrupt the run.
+
+### Server behavior
+- If the uvicorn server cannot start (e.g., port in use), CSC logs the failure and falls back to the stdlib HTTP server automatically.
+- Diagnostics endpoints (`/health`, `/run_id`, `/version`) are served by whichever server is active.

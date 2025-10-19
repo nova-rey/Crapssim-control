@@ -8,7 +8,6 @@ import logging
 from pathlib import Path
 import platform
 import shutil
-import threading
 import zipfile
 from datetime import datetime
 from uuid import uuid4
@@ -47,7 +46,7 @@ from .integrations.evo_hooks import EvoBridge
 from crapssim_control.integrations.webhooks import WebhookPublisher
 from crapssim_control.external.command_channel import CommandQueue
 from crapssim_control.external.command_tape import CommandTape
-from crapssim_control.external.http_api import create_app, serve_commands
+from crapssim_control.external.http_api import HTTPServerHandle, start_http_server
 
 
 class _ConfigAccessor:
@@ -295,8 +294,7 @@ class ControlStrategy:
         limits_cfg = self.config.get("run.external.limits", None)
         self.command_queue = CommandQueue(limits_cfg)
         self.command_queue.add_rejection_handler(self._on_command_rejection)
-        self._api_thread: Optional[threading.Thread] = None
-        self._httpd = None
+        self._http_server: Optional[HTTPServerHandle] = None
         http_enabled_cfg = bool(self.config.get("run.http_commands.enabled", True))
         self._http_commands_enabled = http_enabled_cfg and self.external_mode == "live"
 
@@ -304,51 +302,17 @@ class ControlStrategy:
             def _active_run_id() -> Optional[str]:
                 return getattr(self, "run_id", None)
 
-            _app = create_app(
-                self.command_queue,
-                _active_run_id,
-                version_supplier=lambda: getattr(self, "engine_version", "unknown"),
-                build_hash_supplier=lambda: self._engine_build_hash,
-            )
-            if _app is not None:
-                try:
-                    import uvicorn
-
-                    def _run_uvicorn() -> None:
-                        try:
-                            uvicorn.run(
-                                _app,
-                                host="127.0.0.1",
-                                port=8089,
-                                log_level="warning",
-                            )
-                        except BaseException:
-                            return
-
-                    self._api_thread = threading.Thread(
-                        target=_run_uvicorn,
-                        name="csc-external-api",
-                        daemon=True,
-                    )
-                    self._api_thread.start()
-                except Exception:
-                    pass
-            else:
-                try:
-                    self._httpd = serve_commands(
-                        self.command_queue,
-                        _active_run_id,
-                        version_supplier=lambda: getattr(self, "engine_version", "unknown"),
-                        build_hash_supplier=lambda: self._engine_build_hash,
-                    )
-                    self._api_thread = threading.Thread(
-                        target=self._httpd.serve_forever,
-                        name="csc-external-httpd",
-                        daemon=True,
-                    )
-                    self._api_thread.start()
-                except Exception:
-                    pass
+            try:
+                self._http_server = start_http_server(
+                    self.command_queue,
+                    _active_run_id,
+                    host="127.0.0.1",
+                    port=8089,
+                    version_supplier=lambda: getattr(self, "engine_version", "unknown"),
+                    build_hash_supplier=lambda: self._engine_build_hash,
+                )
+            except Exception:
+                logger.exception("Failed to start diagnostics HTTP server")
 
         # Phase 3 analytics scaffolding
         self._tracker: Optional[Tracker] = None
@@ -814,6 +778,16 @@ class ControlStrategy:
         webhooks_enabled = getattr(getattr(self, "webhooks", None), "enabled", False)
         if (self._outbound.enabled or webhooks_enabled) and not self._outbound_run_started:
             self._emit_run_started()
+
+    def stop(self) -> None:
+        self._stop_http_server()
+
+    def _stop_http_server(self) -> None:
+        server = getattr(self, "_http_server", None)
+        if server is None:
+            return
+        server.stop()
+        self._http_server = None
 
     # ----- Phase 5: Internal Brain ruleset ----------------------------------
 
@@ -2457,6 +2431,7 @@ class ControlStrategy:
                 # fail-open: exporting is optional
                 pass
 
+        self._stop_http_server()
         self._analytics_session_end()
 
     def state_snapshot(self) -> Dict[str, Any]:
