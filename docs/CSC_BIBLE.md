@@ -357,3 +357,9 @@ Tagged v0.35.0-phase6-external.
 Phase 7 begins the integration of a formal engine contract and adapter layer.
 This isolates CSC from CrapsSim-Vanilla internals and allows future engine replacements without rewriting runtime logic.
 Former Phases 7–9 have been renumbered to 8–10 (Web Dashboard MVP, Run Launcher & Spec Library, Integrated Builder & Chained Runs).
+
+### Checkpoint 1 — Engine Contract Doc + Adapter ABC Scaffold
+
+Introduced a documented engine contract and abstract adapter interface.
+NullAdapter created and wired into controller with no behavior changes.
+Verified through conformance tests that confirm method presence and expected types.

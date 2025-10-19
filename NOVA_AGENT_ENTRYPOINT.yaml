@@ -1,5 +1,5 @@
 current_phase: 7
-current_checkpoint: 0
-checkpoint_title: Docs Kickoff & Renumber
+current_checkpoint: 1
+checkpoint_title: Engine Contract Doc + Adapter ABC Scaffold
 allow_behavior_change: false
 notes: CSC_BIBLE.md edits must always be additive; roadmap file reflects current truth.

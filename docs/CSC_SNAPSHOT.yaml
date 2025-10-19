@@ -1,6 +1,5 @@
 phase: 7
-checkpoint: 0
-title: Engine Contract & Vanilla Adapter
-description: Bridge CSC to a real craps engine through a stable contract; isolate engine internals for future flexibility.
-status: in_progress
-success_criteria: Deterministic adapter interface, modular swap capability, verified replay parity.
+checkpoint: 1
+title: Engine Contract Doc + Adapter ABC Scaffold
+description: Added formal adapter contract and no-op NullAdapter implementation wired into controller; no behavior change.
+status: active

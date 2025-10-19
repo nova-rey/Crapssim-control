@@ -4,6 +4,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 import importlib
+import inspect
 import pytest
 
 
@@ -27,7 +28,7 @@ def _good_minimal_spec():
 
 
 def _engine_available() -> bool:
-    """Return True when the core CrapsSim primitives are importable."""
+    """Return True when the core CrapsSim primitives and adapter are importable."""
 
     def _has_attr(mod_name: str, attr: str) -> bool:
         try:
@@ -39,6 +40,14 @@ def _engine_available() -> bool:
     try:
         tbl = importlib.import_module("crapssim.table")
     except Exception:
+        return False
+
+    try:
+        from crapssim_control.engine_adapter import EngineAdapter  # noqa: WPS433
+    except Exception:
+        return False
+
+    if inspect.isabstract(EngineAdapter):
         return False
 
     has_player = hasattr(tbl, "Player") or _has_attr("crapssim.player", "Player")
