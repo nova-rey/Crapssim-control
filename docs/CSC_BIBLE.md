@@ -337,3 +337,9 @@ Artifacts stored under `baselines/phase6/unified_journal/`.
 ### Checkpoint 4 — Safety & Backpressure
 Introduced external-command guardrails: queue depth, per-source quotas, token-bucket rate limiting, per-roll dedupe, and circuit breaker with cool-down/reset.
 Standardized rejection reasons and added telemetry summary in report metadata.
+
+### Checkpoint 5 — Baseline & Tag (v0.35.0-phase6-external)
+Captured seeded external-control baseline with rate limits, dedupe, and circuit breaker active.
+Validated deterministic replay and full journaling parity.
+Diagnostics endpoints verified healthy.
+Tagged v0.35.0-phase6-external.

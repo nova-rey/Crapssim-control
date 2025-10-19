@@ -1,0 +1,106 @@
+{
+  "csv": {
+    "path": "/workspace/Crapssim-control/export/journal_replay.csv"
+  },
+  "identity": {
+    "run_id": "phase6-external-replay",
+    "seed": 13579
+  },
+  "journal_schema_version": "1.2",
+  "manifest_path": "/workspace/Crapssim-control/baselines/phase6/replay_validation/manifest.json",
+  "memory": {},
+  "metadata": {
+    "artifacts": {
+      "command_tape": "/workspace/Crapssim-control/baselines/phase6/final/command_tape.jsonl",
+      "journal": "/workspace/Crapssim-control/baselines/phase6/replay_validation/decision_journal.jsonl",
+      "manifest": "/workspace/Crapssim-control/baselines/phase6/replay_validation/manifest.json",
+      "report": "/workspace/Crapssim-control/baselines/phase6/replay_validation/report.json",
+      "journal_csv": "/workspace/Crapssim-control/export/journal_replay.csv"
+    },
+    "demo_fallbacks_default": false,
+    "deprecations": [],
+    "engine": {
+      "name": "CrapsSim-Control",
+      "python": "3.12.10",
+      "version": "CrapsSim-Control"
+    },
+    "limits": {
+      "circuit_breaker": {
+        "consecutive_rejects": 10,
+        "cool_down_seconds": 10.0
+      },
+      "per_source_quota": 40,
+      "queue_max_depth": 100,
+      "rate": {
+        "refill_seconds": 2.0,
+        "tokens": 3
+      },
+      "stats": {
+        "enqueued": 14,
+        "executed": 13,
+        "rejected": {
+          "duplicate_roll": 1,
+          "rate_limited": 24,
+          "timing:duplicate_correlation_id": 2
+        }
+      }
+    },
+    "run_flags": {
+      "demo_fallbacks_source": "default",
+      "embed_analytics_source": "default",
+      "evo_enabled_source": "default",
+      "export_source": "default",
+      "external_mode": "replay",
+      "external_mode_source": "spec",
+      "sources": {
+        "demo_fallbacks": "default",
+        "embed_analytics": "default",
+        "evo_enabled": "default",
+        "export": "default",
+        "external_mode": "spec",
+        "strict": "default",
+        "trial_tag": "default",
+        "webhook_enabled": "replay"
+      },
+      "strict_source": "default",
+      "trial_tag_source": "default",
+      "values": {
+        "demo_fallbacks": false,
+        "embed_analytics": true,
+        "strict": false
+      },
+      "webhook_enabled": false,
+      "webhook_enabled_source": "replay",
+      "webhook_url_masked": false,
+      "webhook_url_source": "replay"
+    },
+    "validation_engine": "v1"
+  },
+  "mode": "Main",
+  "on_comeout": true,
+  "point": null,
+  "run_id": "phase6-external-replay",
+  "source_files": {
+    "csv": "/workspace/Crapssim-control/export/journal_replay.csv",
+    "meta": null,
+    "decision_journal": "/workspace/Crapssim-control/baselines/phase6/replay_validation/decision_journal.jsonl"
+  },
+  "summary": {
+    "actions_total": 14,
+    "bankroll_low": 0.0,
+    "bankroll_peak": 1042.0,
+    "by_event_type": {
+      "comeout": 7,
+      "point_established": 7,
+      "roll": 42,
+      "seven_out": 7
+    },
+    "events_total": 63,
+    "max_drawdown": 502.0,
+    "points_made": 0,
+    "pso_count": 0,
+    "total_hands": 7,
+    "total_rolls": 63
+  },
+  "summary_schema_version": "1.2"
+}

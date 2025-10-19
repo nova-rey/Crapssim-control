@@ -1,4 +1,4 @@
-from typing import Any, Dict, Deque, Tuple, Iterable, Optional
+from typing import Any, Dict, Deque, Tuple, Iterable, Optional, Callable, List
 from collections import defaultdict, deque
 import threading
 import logging
@@ -77,6 +77,7 @@ class CommandQueue:
             "executed": 0,
             "rejected": defaultdict(int),
         }
+        self._rejection_handlers: List[Callable[[Dict[str, Any]], None]] = []
 
     @staticmethod
     def _merge_limits(limits: Optional[Dict[str, Any]]) -> Dict[str, Any]:
@@ -134,12 +135,17 @@ class CommandQueue:
             self._circuit_breakers[source] = breaker
         return breaker
 
+    def add_rejection_handler(self, handler: Callable[[Dict[str, Any]], None]) -> None:
+        if handler not in self._rejection_handlers:
+            self._rejection_handlers.append(handler)
+
     def _reject_locked(
         self,
         source: str,
         reason: str,
         *,
         update_breaker: bool = True,
+        cmd: Optional[Dict[str, Any]] = None,
     ) -> Tuple[bool, str]:
         if update_breaker:
             breaker = self._get_breaker(source)
@@ -147,6 +153,16 @@ class CommandQueue:
             if event == "trip":
                 logger.warning("Command source '%s' tripped circuit breaker", source)
         self.stats["rejected"][reason] += 1
+        payload = {
+            "source": source,
+            "reason": reason,
+            "command": cmd,
+        }
+        for handler in list(self._rejection_handlers):
+            try:
+                handler(payload)
+            except Exception:
+                logger.exception("Command rejection handler failed")
         return False, reason
 
     def enqueue(self, cmd: Dict[str, Any]) -> Tuple[bool, str]:
@@ -154,37 +170,51 @@ class CommandQueue:
             source_label = str(cmd.get("source", "external"))
             cid = str(cmd.get("correlation_id", "")).strip()
             if not cid:
-                return self._reject_locked(source_label, "missing:correlation_id")
+                return self._reject_locked(source_label, "missing:correlation_id", cmd=cmd)
 
             missing = [k for k in REQUIRED_KEYS if k not in cmd]
             if missing:
                 missing_key = str(sorted(missing)[0])
-                return self._reject_locked(source_label, f"missing:{missing_key}")
+                return self._reject_locked(source_label, f"missing:{missing_key}", cmd=cmd)
 
             action = cmd.get("action")
             if action not in ALLOWED_ACTIONS:
-                return self._reject_locked(source_label, "unknown_action")
+                return self._reject_locked(source_label, "unknown_action", cmd=cmd)
 
             if cid in self._seen:
-                return self._reject_locked(source_label, "timing:duplicate_correlation_id")
+                return self._reject_locked(source_label, "timing:duplicate_correlation_id", cmd=cmd)
 
-            queue_max = int(self.limits.get("queue_max_depth", DEFAULT_LIMITS["queue_max_depth"]))
-            if len(self._q) >= queue_max:
-                return self._reject_locked(source_label, "queue_full")
+            replay_mode = bool(cmd.pop("_csc_replay", False))
 
-            per_source_max = int(
-                self.limits.get("per_source_quota", DEFAULT_LIMITS["per_source_quota"])
-            )
-            if self._per_source_counts[source_label] >= per_source_max:
-                return self._reject_locked(source_label, "per_source_quota")
+            if not replay_mode:
+                queue_max = int(
+                    self.limits.get("queue_max_depth", DEFAULT_LIMITS["queue_max_depth"])
+                )
+                if len(self._q) >= queue_max:
+                    return self._reject_locked(source_label, "queue_full", cmd=cmd)
 
-            limiter = self._get_limiter(source_label)
-            if not limiter.allow():
-                return self._reject_locked(source_label, "rate_limited")
+                per_source_max = int(
+                    self.limits.get("per_source_quota", DEFAULT_LIMITS["per_source_quota"])
+                )
+                if self._per_source_counts[source_label] >= per_source_max:
+                    return self._reject_locked(source_label, "per_source_quota", cmd=cmd)
 
-            breaker = self._get_breaker(source_label)
-            if not breaker.allow():
-                return self._reject_locked(source_label, "circuit_breaker", update_breaker=False)
+                limiter = self._get_limiter(source_label)
+                if not limiter.allow():
+                    return self._reject_locked(source_label, "rate_limited", cmd=cmd)
+
+                breaker = self._get_breaker(source_label)
+                if not breaker.allow():
+                    return self._reject_locked(
+                        source_label,
+                        "circuit_breaker",
+                        update_breaker=False,
+                        cmd=cmd,
+                    )
+            else:
+                # Replay injections bypass runtime rate/circuit enforcement but still
+                # participate in duplicate detection and queue stats.
+                breaker = self._get_breaker(source_label)
 
             payload = {
                 "run_id": str(cmd["run_id"]),

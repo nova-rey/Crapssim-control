@@ -80,6 +80,8 @@ def create_app(
         return None
 
     app = FastAPI()
+    if not callable(getattr(app, "__call__", None)) or not hasattr(app, "router"):
+        return None
 
     register_diagnostics(
         app,
