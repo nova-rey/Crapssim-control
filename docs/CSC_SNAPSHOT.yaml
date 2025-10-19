@@ -1,6 +1,6 @@
 phase: 6
 checkpoint: 5
 title: Baseline & Tag
-description: Self-contained live + replay baselines using in-process Node-RED simulator; determinism verified.
+description: Self-contained live + replay baselines proving external control stability and determinism; diagnostics hardened; summary metrics added.
 status: complete
 tag: v0.35.0-phase6-external

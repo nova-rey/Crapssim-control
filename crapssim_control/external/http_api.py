@@ -13,11 +13,40 @@ import threading
 import time
 from urllib import error as urllib_error
 from urllib import request as urllib_request
+from pathlib import Path
 
 from .command_channel import CommandQueue, ALLOWED_ACTIONS
 
 
 logger = logging.getLogger("CSC.HTTP")
+
+
+def _load_snapshot_tag(snapshot_path: Optional[str | Path] = None) -> Optional[str]:
+    path: Path
+    if snapshot_path is None:
+        try:
+            path = Path(__file__).resolve().parents[2] / "docs" / "CSC_SNAPSHOT.yaml"
+        except Exception:
+            return None
+    else:
+        try:
+            path = Path(snapshot_path)
+        except Exception:
+            return None
+    try:
+        text = path.read_text(encoding="utf-8")
+    except Exception:
+        return None
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("tag:"):
+            _, _, value = line.partition(":")
+            val = value.strip().strip('"').strip("'")
+            if val:
+                return val
+    return None
 
 def ingest_command(body: Dict[str, Any], queue: CommandQueue, active_run_id_supplier: Callable[[], str]) -> Tuple[int, Dict[str, Any]]:
     rid = body.get("run_id")
@@ -37,6 +66,7 @@ def register_diagnostics(
     active_run_id_supplier: Callable[[], str],
     version_supplier: Optional[Callable[[], str]] = None,
     build_hash_supplier: Optional[Callable[[], str]] = None,
+    tag_supplier: Optional[Callable[[], str]] = None,
 ):
     try:
         from fastapi import FastAPI
@@ -60,6 +90,7 @@ def register_diagnostics(
     def version(_request=None):
         version_value = "unknown"
         build_hash_value = "unknown"
+        tag_value = "unknown"
         if callable(version_supplier):
             try:
                 value = version_supplier()
@@ -74,7 +105,18 @@ def register_diagnostics(
                 build_val = None
             if isinstance(build_val, str) and build_val:
                 build_hash_value = build_val
-        return JSONResponse({"version": version_value, "build_hash": build_hash_value})
+        if callable(tag_supplier):
+            try:
+                tag_val = tag_supplier()
+            except Exception:
+                tag_val = None
+            if isinstance(tag_val, str) and tag_val:
+                tag_value = tag_val
+        if tag_value == "unknown":
+            snapshot_tag = _load_snapshot_tag()
+            if isinstance(snapshot_tag, str) and snapshot_tag:
+                tag_value = snapshot_tag
+        return JSONResponse({"version": version_value, "build_hash": build_hash_value, "tag": tag_value})
 
 
 def create_app(
@@ -83,6 +125,7 @@ def create_app(
     *,
     version_supplier: Optional[Callable[[], str]] = None,
     build_hash_supplier: Optional[Callable[[], str]] = None,
+    tag_supplier: Optional[Callable[[], str]] = None,
 ):
     try:
         from fastapi import FastAPI, Request
@@ -99,6 +142,7 @@ def create_app(
         active_run_id_supplier,
         version_supplier=version_supplier,
         build_hash_supplier=build_hash_supplier,
+        tag_supplier=tag_supplier,
     )
 
     @app.post("/commands")
@@ -119,6 +163,7 @@ def serve_commands(
     *,
     version_supplier: Optional[Callable[[], str]] = None,
     build_hash_supplier: Optional[Callable[[], str]] = None,
+    tag_supplier: Optional[Callable[[], str]] = None,
 ):
     from http.server import BaseHTTPRequestHandler, HTTPServer
 
@@ -140,6 +185,7 @@ def serve_commands(
             if self.path == "/version":
                 version_value = "unknown"
                 build_hash_value = "unknown"
+                tag_value = "unknown"
                 if callable(version_supplier):
                     try:
                         val = version_supplier()
@@ -154,7 +200,21 @@ def serve_commands(
                         bval = None
                     if isinstance(bval, str) and bval:
                         build_hash_value = bval
-                self._write_json(200, {"version": version_value, "build_hash": build_hash_value})
+                if callable(tag_supplier):
+                    try:
+                        tval = tag_supplier()
+                    except Exception:
+                        tval = None
+                    if isinstance(tval, str) and tval:
+                        tag_value = tval
+                if tag_value == "unknown":
+                    snapshot_tag = _load_snapshot_tag()
+                    if isinstance(snapshot_tag, str) and snapshot_tag:
+                        tag_value = snapshot_tag
+                self._write_json(
+                    200,
+                    {"version": version_value, "build_hash": build_hash_value, "tag": tag_value},
+                )
                 return
             self._write_json(404, {"status": "not_found"})
 
@@ -254,6 +314,7 @@ class HTTPServerHandle:
         *,
         version_supplier: Optional[Callable[[], str]] = None,
         build_hash_supplier: Optional[Callable[[], str]] = None,
+        tag_supplier: Optional[Callable[[], str]] = None,
     ) -> None:
         httpd = serve_commands(
             queue,
@@ -262,6 +323,7 @@ class HTTPServerHandle:
             port=self.port,
             version_supplier=version_supplier,
             build_hash_supplier=build_hash_supplier,
+            tag_supplier=tag_supplier,
         )
         actual_host, actual_port = httpd.server_address
         self.host = str(actual_host)
@@ -326,6 +388,7 @@ def start_http_server(
     port: int = 8089,
     version_supplier: Optional[Callable[[], str]] = None,
     build_hash_supplier: Optional[Callable[[], str]] = None,
+    tag_supplier: Optional[Callable[[], str]] = None,
 ) -> HTTPServerHandle:
     handle = HTTPServerHandle(host, port)
     app = create_app(
@@ -333,6 +396,7 @@ def start_http_server(
         active_run_id_supplier,
         version_supplier=version_supplier,
         build_hash_supplier=build_hash_supplier,
+        tag_supplier=tag_supplier,
     )
 
     if app is not None:
@@ -355,6 +419,7 @@ def start_http_server(
         active_run_id_supplier,
         version_supplier=version_supplier,
         build_hash_supplier=build_hash_supplier,
+        tag_supplier=tag_supplier,
     )
     logger.info("[CSC.HTTP] running stdlib HTTP on %s:%s", handle.host, handle.port)
     handle._probe_health()

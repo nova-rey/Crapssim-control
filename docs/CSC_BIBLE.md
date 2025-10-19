@@ -344,3 +344,10 @@ Validated deterministic replay and full journaling parity.
 Diagnostics endpoints verified healthy.
 Tagged v0.35.0-phase6-external.
 - Diagnostics hardened: loud failure logs, automatic stdlib fallback, boot-time health probe, and clean shutdown; semantics for /commands unchanged.
+
+#### Phase 6 — Final Polishing Notes
+- Report now includes `summary` block: bankroll_final, hands_played, journal_lines, external_executed, external_rejected, and rejections_total.
+- Diagnostics `/version` includes the release tag for easier remote triage.
+- Webhook retry is covered by a unit test; behavior is light backoff with retries and non-blocking failure.
+- Per-roll duplicate commands are rejected deterministically and explicitly journaled as `duplicate_roll`.
+- Baselines include smoke and parity validations for live vs replay.

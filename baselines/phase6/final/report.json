@@ -13,9 +13,9 @@
     "artifacts": {
       "command_tape": "/workspace/Crapssim-control/baselines/phase6/final/command_tape.jsonl",
       "journal": "/workspace/Crapssim-control/baselines/phase6/final/decision_journal.jsonl",
+      "journal_csv": "/workspace/Crapssim-control/export/journal.csv",
       "manifest": "/workspace/Crapssim-control/baselines/phase6/final/manifest.json",
-      "report": "/workspace/Crapssim-control/baselines/phase6/final/report.json",
-      "journal_csv": "/workspace/Crapssim-control/export/journal.csv"
+      "report": "/workspace/Crapssim-control/baselines/phase6/final/report.json"
     },
     "demo_fallbacks_default": false,
     "deprecations": [],
@@ -82,11 +82,12 @@
   "run_id": "phase6-external-live",
   "source_files": {
     "csv": "/workspace/Crapssim-control/export/journal.csv",
-    "meta": null,
-    "decision_journal": "/workspace/Crapssim-control/baselines/phase6/final/decision_journal.jsonl"
+    "decision_journal": "/workspace/Crapssim-control/baselines/phase6/final/decision_journal.jsonl",
+    "meta": null
   },
   "summary": {
     "actions_total": 14,
+    "bankroll_final": 540.0,
     "bankroll_low": 0.0,
     "bankroll_peak": 1042.0,
     "by_event_type": {
@@ -96,9 +97,14 @@
       "seven_out": 7
     },
     "events_total": 63,
+    "external_executed": 13,
+    "external_rejected": 31,
+    "hands_played": 7,
+    "journal_lines": 101,
     "max_drawdown": 502.0,
     "points_made": 0,
     "pso_count": 0,
+    "rejections_total": 27,
     "total_hands": 7,
     "total_rolls": 63
   },
