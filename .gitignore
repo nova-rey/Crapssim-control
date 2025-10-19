@@ -25,6 +25,7 @@ baselines/_tmp/
 !examples/*.json
 !baselines/**/*.csv
 !baselines/**/*.json
+!docs/reports/**/*.json
 
 # Editor / OS junk
 .vscode/
