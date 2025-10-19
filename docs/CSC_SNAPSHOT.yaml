@@ -1,11 +1,5 @@
-phase: 6.5
-checkpoint: 1
-title: Adapter Lockdown & Tag
-description: Adapter API and Verb+Policy grammar frozen; effect/tape schemas validated; baselines and parity locked.
-status: complete
-schemas:
-  effect: "1.0"
-  tape: "1.0"
-capabilities:
-  verbs: ["press","regress","same_bet","switch_profile","apply_policy"]
-  policies: ["martingale_v1"]
+phase: 8
+checkpoint: 0
+title: Docs Kickoff & Roadmap Update
+description: Phase 8 focuses on engine plumbing and full control wiring. Prior planned phases are paused and marked as future proposed.
+status: active

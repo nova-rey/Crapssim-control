@@ -1,5 +1,5 @@
-current_phase: 6.5
-current_checkpoint: 1
-checkpoint_title: Adapter Lockdown & Tag
+current_phase: 8
+current_checkpoint: 0
+checkpoint_title: Docs Kickoff & Roadmap Update
 allow_behavior_change: false
 notes: CSC_BIBLE.md edits must always be additive; roadmap file reflects current truth.

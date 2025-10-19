@@ -9,6 +9,58 @@ Where the snapshot tracks *state*, the Bible records *story*—why decisions wer
 
 ---
 
+### Checkpoint 0 — Docs Kickoff & Roadmap Update
+
+Phase 8 begins the full engine plumbing effort. Previous Phase 6 content has been archived and retitled “Future Proposed Phases.”  
+This phase introduces live CrapsSim integration across all bet controls, roll cycles, and error mapping.  
+The roadmap below replaces the earlier roadmap entirely, establishing Phase 8 as the current working sequence.
+
+#### Phase 8 — Engine Plumbing & Full Control Wiring
+
+**C0 — Docs Kickoff & Roadmap Update**  
+Initialize phase documentation and archive prior phases.
+
+**C1 — Press/Regress PoC + Seed Handoff + Snapshot Normalizer v1**  
+Wire press/regress to CrapsSim under flag; seed engine; normalize minimal snapshot.
+
+**C2 — Place/Buy/Lay: create, take down, move**  
+Support box bet creation and movement; enforce table units.
+
+**C3 — Line & Come Family + Odds**  
+Connect pass/don’t/come/dc lines and odds controls.
+
+**C4 — Work/Off & Table State Controls**  
+Implement work/off toggles and table clearing.
+
+**C5 — Roll Loop Integration + Dice Control**  
+Drive roll cycles and RNG seeding.
+
+**C6 — Snapshot Normalizer v2 (Comprehensive)**  
+Unify state translation across bankroll, bets, odds, and rolls.
+
+**C7 — Error Surface & Journaling Consistency**  
+Map engine exceptions to CSC errors; validate all journaled effects.
+
+**C8 — Replay Parity (Engine-backed) + Tape Additions**  
+Replay identical to live runs; optional dice tapes.
+
+**C9 — Performance Pass & Memory Sniff**  
+Verify stable throughput and memory use.
+
+**C10 — Capability Expansion & Introspection Lock**  
+Advertise full verb/policy surface.
+
+**C11 — Deprecation Cleanup & Toggle Safety**  
+Remove legacy martingale alias; finalize flag controls.
+
+---
+
+## Future Proposed Phases (Archived from Phase 6)
+The sections below capture the previously planned work and remain on hold as future proposals.
+
+<details>
+<summary>View Future Proposed Phase Notes</summary>
+
 ## Phase 0 — Staging & Safeguards
 **Date:** 2025-10-16  
 **Objective:** Introduce flags, schema labels, and hygiene with zero behavioral change.  
@@ -392,3 +444,4 @@ Replay parity verified: identical snapshots for live vs replay given the same se
 - Added `/capabilities` endpoint to advertise verbs, policies, and effect schema ("1.0").
 - Adopted `tape_schema: "1.0"` for command tapes; replay parity verified against seeded runs.
 - Logged deprecation once for legacy `"martingale"` verb; use `apply_policy(martingale_v1)` going forward.
+</details>
