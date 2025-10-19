@@ -1,5 +1,5 @@
-current_phase: 7
+current_phase: 6.5
 current_checkpoint: 1
-checkpoint_title: Engine Contract Doc + Adapter ABC Scaffold
+checkpoint_title: Adapter Lockdown & Tag
 allow_behavior_change: false
 notes: CSC_BIBLE.md edits must always be additive; roadmap file reflects current truth.

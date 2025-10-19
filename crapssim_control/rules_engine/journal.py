@@ -8,6 +8,8 @@ import time
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
+from crapssim_control.engine_adapter import validate_effect_summary
+
 
 @dataclass
 class JournalWriter:
@@ -101,6 +103,7 @@ class DecisionJournal:
             adapter = getattr(controller, "adapter", None)
             effect = getattr(adapter, "last_effect", None)
             if effect and "effect_summary" not in normalized:
+                validate_effect_summary(effect, schema="1.0")
                 normalized["effect_summary"] = effect
         origin = normalized.get("origin")
         normalized["origin"] = str(origin) if origin is not None else "unknown"

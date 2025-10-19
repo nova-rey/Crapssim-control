@@ -1,3 +1,9 @@
+# Phase 6.5 — Adapter Lockdown
+
+| Checkpoint | Title | Status | Description |
+|-------------|--------|---------|-------------|
+| P6.5·C1 | Adapter Lockdown & Tag | ✅ Complete | Freeze API/grammar, add validators, lock schemas/baselines, bump and tag. |
+
 # Phase 7 — Engine Contract & Vanilla Adapter
 
 | Checkpoint | Title | Status | Description |

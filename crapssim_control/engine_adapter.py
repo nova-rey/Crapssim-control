@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from importlib import import_module
 import warnings
-from typing import Any, Callable, Dict, Optional, Tuple, Type
+from typing import Any, Callable, Dict, Mapping, Optional, Tuple, Type, TypedDict
 
 __all__ = [
     "EngineAdapter",
@@ -12,14 +12,52 @@ __all__ = [
     "VanillaAdapter",
     "VerbRegistry",
     "PolicyRegistry",
-    "CrapsSimAdapter",
-    "EngineAttachResult",
-    "check_engine_ready",
-    "attach_engine",
-    "resolve_engine_adapter",
+    "Effect",
+    "validate_effect_summary",
 ]
 
-Effect = Dict[str, Any]
+
+
+class Effect(TypedDict, total=False):
+    schema: str
+    verb: str
+    target: Dict[str, Any]
+    bets: Dict[str, str]
+    bankroll_delta: float
+    policy: Optional[str]
+    level_update: Dict[str, int]
+
+
+def _is_delta(s: str) -> bool:
+    if not isinstance(s, str) or len(s) < 2:
+        return False
+    if s[0] not in "+-":
+        return False
+    try:
+        float(s[1:])
+        return True
+    except Exception:
+        return False
+
+
+def validate_effect_summary(effect: Mapping[str, Any], schema: str = "1.0") -> None:
+    # Fail-closed validator used before journaling
+    if effect.get("schema") != schema:
+        raise ValueError(f"effect_schema_mismatch:{effect.get('schema')}")
+    if "verb" not in effect:
+        raise ValueError("effect_missing:verb")
+    if "bankroll_delta" not in effect or not isinstance(effect["bankroll_delta"], (int, float)):
+        raise ValueError("effect_missing:bankroll_delta")
+    bets = effect.get("bets", {})
+    if bets is None:
+        bets = {}
+    if not isinstance(bets, dict):
+        raise ValueError("effect_invalid:bets_type")
+    for k, v in bets.items():
+        if not _is_delta(v):
+            raise ValueError(f"effect_invalid:bet_delta:{k}={v}")
+
+
 VerbHandler = Callable[[Dict[str, Any], Dict[str, Any]], Effect]
 PolicyHandler = Callable[[Dict[str, Any], Dict[str, Any]], Effect]
 
@@ -186,7 +224,7 @@ class VanillaAdapter(EngineAdapter):
         self.seed: Optional[int] = None
         self.bankroll: float = 1000.0
         self.bets: Dict[str, float] = {"6": 0.0, "8": 0.0, "pass": 0.0, "dc": 0.0}
-        self.last_effect: Optional[Dict[str, Any]] = None
+        self.last_effect: Optional[Effect] = None
         self.martingale_levels: Dict[str, int] = {}
 
     def set_seed(self, seed: Optional[int]) -> None:
