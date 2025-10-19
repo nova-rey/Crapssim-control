@@ -286,6 +286,11 @@ class ControlStrategy:
             "by_event_type": {},
         }
 
+        # Track hand counts even when analytics scaffolding is disabled so that
+        # summary reports remain consistent regardless of embed_analytics flag.
+        self._hands_played_fallback: int = 0
+        self._hand_active_fallback: bool = False
+
         # P5C3: structured decision journal with safeties
         self.journal = DecisionJournal()
         self._journal_writer: JournalWriter = self.journal.writer()
@@ -897,7 +902,29 @@ class ControlStrategy:
         self._emit_webhook("run.finished", payload)
         self._outbound_run_finished = True
 
+    def _fallback_start_hand(self) -> None:
+        """Increment fallback counters when analytics tracker is disabled."""
+
+        self._hands_played_fallback += 1
+        self._hand_active_fallback = True
+
+    def _fallback_end_hand(self) -> None:
+        """Mark the fallback hand context as completed."""
+
+        self._hand_active_fallback = False
+
+    def _fallback_ensure_hand_started(self, event: Dict[str, Any]) -> None:
+        """Best-effort hand tracking when embed_analytics is disabled."""
+
+        if self._hand_active_fallback:
+            return
+
+        ev_type = (event.get("type") or "").lower()
+        if ev_type in {COMEOUT, POINT_ESTABLISHED, ROLL, SEVEN_OUT}:
+            self._fallback_start_hand()
+
     def _analytics_start_hand(self, point_value: Optional[int] = None) -> None:
+        self._fallback_start_hand()
         tracker = self._tracker
         if tracker is None:
             return
@@ -924,6 +951,7 @@ class ControlStrategy:
     def _analytics_record_roll(self, event: Dict[str, Any]) -> None:
         tracker = self._tracker
         if tracker is None:
+            self._fallback_ensure_hand_started(event)
             return
 
         if tracker.hand_id == 0:
@@ -1168,6 +1196,7 @@ class ControlStrategy:
         self._emit_webhook("roll.processed", roll_payload)
 
     def _analytics_end_hand(self, point_value: Optional[int]) -> None:
+        self._fallback_end_hand()
         tracker = self._tracker
         if tracker is None or tracker.hand_id == 0:
             return
@@ -2053,6 +2082,15 @@ class ControlStrategy:
                     hands_played = int(existing_total_hands)
                 except Exception:
                     hands_played = 0
+        if not hands_played:
+            fallback_hands = getattr(self, "_hands_played_fallback", 0)
+            if isinstance(fallback_hands, (int, float)):
+                try:
+                    fallback_total = int(fallback_hands)
+                except Exception:
+                    fallback_total = 0
+                if fallback_total > 0:
+                    hands_played = fallback_total
 
         summary_block["bankroll_final"] = bankroll_final
         summary_block["hands_played"] = hands_played
