@@ -189,6 +189,71 @@ def _normalize_snapshot(table_or_snapshot: Optional[Any], player: Optional[Any] 
         for num in _BOX_NUMBERS:
             bets_norm.setdefault(str(num), bets_norm.get(str(num), 0.0))
 
+        def _zero_point_map() -> Dict[str, float]:
+            return {str(n): 0.0 for n in _BOX_NUMBERS}
+
+        odds_norm = {
+            "pass": 0.0,
+            "dont_pass": 0.0,
+            "come": _zero_point_map(),
+            "dc": _zero_point_map(),
+        }
+
+        raw_odds = raw_snapshot.get("odds")
+        if isinstance(raw_odds, Mapping):
+            for key in ("pass", "dont_pass"):
+                try:
+                    odds_norm[key] = float(raw_odds.get(key, 0.0) or 0.0)  # type: ignore[index]
+                except (TypeError, ValueError):
+                    odds_norm[key] = 0.0
+            for family_key in ("come", "dc"):
+                branch = raw_odds.get(family_key)
+                if isinstance(branch, Mapping):
+                    for num, value in branch.items():
+                        if _is_box_number(num):
+                            try:
+                                odds_norm[family_key][str(int(num))] = float(value or 0.0)
+                            except (TypeError, ValueError):
+                                continue
+
+        for bet_key, amount in bets_norm.items():
+            if not isinstance(bet_key, str):
+                continue
+            key_lower = bet_key.lower()
+            try:
+                amt_val = float(amount or 0.0)
+            except (TypeError, ValueError):
+                continue
+            if key_lower == "odds_pass":
+                odds_norm["pass"] = amt_val
+            elif key_lower == "odds_dont_pass":
+                odds_norm["dont_pass"] = amt_val
+            elif key_lower.startswith("odds_come_"):
+                suffix = bet_key.split("_", 2)[-1]
+                if _is_box_number(suffix):
+                    odds_norm["come"][str(int(suffix))] = amt_val
+            elif key_lower.startswith("odds_dc_"):
+                suffix = bet_key.split("_", 2)[-1]
+                if _is_box_number(suffix):
+                    odds_norm["dc"][str(int(suffix))] = amt_val
+
+        come_flat_raw = raw_snapshot.get("come_flat")
+        dc_flat_raw = raw_snapshot.get("dc_flat")
+
+        def _coerce_point_map(obj: Any) -> Dict[str, float]:
+            data = _zero_point_map()
+            if isinstance(obj, Mapping):
+                for key, value in obj.items():
+                    if _is_box_number(key):
+                        try:
+                            data[str(int(key))] = float(value or 0.0)
+                        except (TypeError, ValueError):
+                            continue
+            return data
+
+        come_flat = _coerce_point_map(come_flat_raw)
+        dc_flat = _coerce_point_map(dc_flat_raw)
+
         normalized = {
             "bankroll": bankroll_val,
             "point_on": bool(raw_snapshot.get("point_on", False)) or bool(point_val_norm),
@@ -197,6 +262,12 @@ def _normalize_snapshot(table_or_snapshot: Optional[Any], player: Optional[Any] 
             "hand_id": hand_id_norm,
             "roll_in_hand": roll_norm,
             "rng_seed": rng_seed_norm,
+            "on_comeout": bool(raw_snapshot.get("on_comeout"))
+            if "on_comeout" in raw_snapshot
+            else point_val_norm in (None, 0),
+            "come_flat": come_flat,
+            "dc_flat": dc_flat,
+            "odds": odds_norm,
         }
 
         if bet_types:
@@ -237,11 +308,22 @@ def _normalize_snapshot(table_or_snapshot: Optional[Any], player: Optional[Any] 
 
     bets_map: Dict[str, float] = {}
     meta_types: Dict[str, str] = {}
+    odds_map = {
+        "pass": 0.0,
+        "dont_pass": 0.0,
+        "come": {str(n): 0.0 for n in _BOX_NUMBERS},
+        "dc": {str(n): 0.0 for n in _BOX_NUMBERS},
+    }
+    come_flat = {str(n): 0.0 for n in _BOX_NUMBERS}
+    dc_flat = {str(n): 0.0 for n in _BOX_NUMBERS}
     try:
         bets = getattr(player, "bets", []) or []
         for bet in bets:
             name_raw = getattr(bet, "name", getattr(bet, "type", "") or "")
             name = str(name_raw).lower()
+            cls_name = bet.__class__.__name__.lower()
+            if not name:
+                name = cls_name
             number = getattr(bet, "number", getattr(bet, "point", None))
             try:
                 amt = float(getattr(bet, "amount", 0.0) or 0.0)
@@ -258,7 +340,9 @@ def _normalize_snapshot(table_or_snapshot: Optional[Any], player: Optional[Any] 
                     bet_kind = "lay"
                 elif "place" in name:
                     bet_kind = "place"
-            elif "pass" in name:
+            elif "dont pass" in name or "dontpass" in cls_name:
+                key, bet_kind = "dont_pass", "line"
+            elif "pass" in name or "passline" in cls_name:
                 key, bet_kind = "pass", "line"
             elif "dont" in name and "come" in name and "line" not in name:
                 key, bet_kind = "dc", "dont_come"
@@ -274,11 +358,25 @@ def _normalize_snapshot(table_or_snapshot: Optional[Any], player: Optional[Any] 
                         meta_types[key] = "lay"
                     elif "place" in cls_name:
                         meta_types[key] = "place"
+            if "come" in name and "dont" not in name and "odds" not in name and _is_box_number(number):
+                come_flat[str(int(number))] += amt
+            elif "dont come" in name and "odds" not in name and _is_box_number(number):
+                dc_flat[str(int(number))] += amt
+            elif "odds" in name and "pass" in name and "dont" not in name:
+                odds_map["pass"] += amt
+            elif "odds" in name and "dont pass" in name:
+                odds_map["dont_pass"] += amt
+            elif "odds" in name and "come" in name and "dont" not in name and _is_box_number(number):
+                odds_map["come"][str(int(number))] += amt
+            elif "odds" in name and "dont" in name and _is_box_number(number):
+                odds_map["dc"][str(int(number))] += amt
     except Exception:
         pass
 
     for num in _BOX_NUMBERS:
         bets_map.setdefault(str(num), bets_map.get(str(num), 0.0))
+    bets_map.setdefault("pass", bets_map.get("pass", 0.0))
+    bets_map.setdefault("dont_pass", bets_map.get("dont_pass", 0.0))
 
     hand_id = getattr(table, "hand_id", 0)
     try:
@@ -315,6 +413,10 @@ def _normalize_snapshot(table_or_snapshot: Optional[Any], player: Optional[Any] 
         "hand_id": hand_id_norm,
         "roll_in_hand": roll_norm,
         "rng_seed": rng_seed_norm,
+        "on_comeout": not point_on,
+        "come_flat": come_flat,
+        "dc_flat": dc_flat,
+        "odds": odds_map,
     }
 
     return normalized
@@ -505,7 +607,19 @@ class VanillaAdapter(EngineAdapter):
     def _reset_stub_state(self) -> None:
         self.bankroll: float = 1000.0
         self.bets: Dict[str, float] = {str(n): 0.0 for n in _BOX_NUMBERS}
-        self.bets.update({"pass": 0.0, "dc": 0.0})
+        self.bets.update({"pass": 0.0, "dont_pass": 0.0, "come": 0.0, "dc": 0.0})
+        def _zero_point_map() -> Dict[str, float]:
+            return {str(n): 0.0 for n in _BOX_NUMBERS}
+
+        self.come_flat: Dict[str, float] = _zero_point_map()
+        self.dc_flat: Dict[str, float] = _zero_point_map()
+        self.odds_state: Dict[str, Any] = {
+            "pass": 0.0,
+            "dont_pass": 0.0,
+            "come": _zero_point_map(),
+            "dc": _zero_point_map(),
+        }
+        self.on_comeout: bool = True
         self.box_bet_types: Dict[str, str] = {}
         self.last_effect: Optional[Effect] = None
         self.martingale_levels: Dict[str, int] = {}
@@ -520,6 +634,15 @@ class VanillaAdapter(EngineAdapter):
             "rng_seed": self.seed or 0,
             "levels": dict(self.martingale_levels),
             "last_effect": self.last_effect,
+            "on_comeout": self.on_comeout,
+            "come_flat": dict(self.come_flat),
+            "dc_flat": dict(self.dc_flat),
+            "odds": {
+                "pass": self.odds_state["pass"],
+                "dont_pass": self.odds_state["dont_pass"],
+                "come": dict(self.odds_state["come"]),
+                "dc": dict(self.odds_state["dc"]),
+            },
         }
         self._snapshot_cache = _normalize_snapshot(base_snapshot)
 
@@ -639,6 +762,14 @@ class VanillaAdapter(EngineAdapter):
             "lay_bet",
             "take_down",
             "move_bet",
+            "line_bet",
+            "come_bet",
+            "dont_come_bet",
+            "set_odds",
+            "take_odds",
+            "remove_line",
+            "remove_come",
+            "remove_dont_come",
         }
         if self.live_engine and self._engine_adapter is not None and verb in engine_verbs:
             try:
@@ -872,6 +1003,222 @@ class VanillaAdapter(EngineAdapter):
                 if new_bet and _add_bet(new_bet):
                     bets_delta[dst] = f"+{int(amt)}"
 
+        elif verb == "line_bet":
+            side = str(args.get("side") or target.get("side") or "pass").lower()
+            val = float((args.get("amount") or {}).get("value", 0.0))
+            if val <= 0:
+                raise ValueError("line_bet_invalid_args")
+            pass_cls = getattr(cs_bet, "PassLine", None)
+            dont_pass_cls = getattr(cs_bet, "DontPass", None)
+            bet_obj = None
+            if side in ("pass", "pass_line") and callable(pass_cls):
+                for kwargs in ({"amount": val}, {},):
+                    try:
+                        bet_obj = pass_cls(**kwargs) if kwargs else pass_cls(val)
+                        break
+                    except Exception:
+                        continue
+            elif side in ("dont_pass", "dp", "don't_pass") and callable(dont_pass_cls):
+                for kwargs in ({"amount": val}, {},):
+                    try:
+                        bet_obj = dont_pass_cls(**kwargs) if kwargs else dont_pass_cls(val)
+                        break
+                    except Exception:
+                        continue
+            if bet_obj and _add_bet(bet_obj):
+                key = "pass" if side in ("pass", "pass_line") else "dont_pass"
+                bets_delta[key] = f"+{int(val)}"
+
+        elif verb in ("come_bet", "dont_come_bet"):
+            val = float((args.get("amount") or {}).get("value", 0.0))
+            if val <= 0:
+                raise ValueError(f"{verb}_invalid_args")
+            come_cls = getattr(cs_bet, "Come", None)
+            dont_come_cls = getattr(cs_bet, "DontCome", None)
+            bet_obj = None
+            if verb == "come_bet" and callable(come_cls):
+                for kwargs in ({"amount": val}, {},):
+                    try:
+                        bet_obj = come_cls(**kwargs) if kwargs else come_cls(val)
+                        break
+                    except Exception:
+                        continue
+            elif verb == "dont_come_bet" and callable(dont_come_cls):
+                for kwargs in ({"amount": val}, {},):
+                    try:
+                        bet_obj = dont_come_cls(**kwargs) if kwargs else dont_come_cls(val)
+                        break
+                    except Exception:
+                        continue
+            if bet_obj and _add_bet(bet_obj):
+                bets_delta["come" if verb == "come_bet" else "dc"] = f"+{int(val)}"
+
+        elif verb in ("set_odds", "take_odds"):
+            on = str(args.get("on") or target.get("on") or "pass").lower()
+            pt_raw = target.get("point") if isinstance(target, Mapping) else None
+            if pt_raw is None:
+                pt_raw = args.get("point")
+            point = None
+            if _is_box_number(pt_raw):
+                point = int(pt_raw)
+            val = float((args.get("amount") or {}).get("value", 0.0))
+            if val <= 0:
+                raise ValueError(f"{verb}_invalid_args")
+            direction = 1 if verb == "set_odds" else -1
+            odds_cls = getattr(cs_bet, "Odds", None)
+            pass_cls = getattr(cs_bet, "PassLine", None)
+            dont_pass_cls = getattr(cs_bet, "DontPass", None)
+            come_cls = getattr(cs_bet, "Come", None)
+            dont_come_cls = getattr(cs_bet, "DontCome", None)
+            table_point = getattr(table, "point", None)
+            if table_point is not None and not isinstance(table_point, (int, type(None))):
+                table_point = getattr(table_point, "value", getattr(table_point, "number", None))
+            base_type = None
+            odds_key = "pass"
+            if on in ("pass", "pass_line"):
+                base_type = pass_cls
+                if _is_box_number(table_point):
+                    point = int(table_point)
+            elif on in ("dp", "dont_pass", "don't_pass"):
+                base_type = dont_pass_cls
+                odds_key = "dont_pass"
+                if _is_box_number(table_point):
+                    point = int(table_point)
+            elif on in ("come",):
+                base_type = come_cls
+                odds_key = f"come_{point}" if point is not None else "come"
+            elif on in ("dc", "dont_come", "don't_come"):
+                base_type = dont_come_cls
+                odds_key = f"dc_{point}" if point is not None else "dc"
+
+            success = False
+            adjusted = 0.0
+            if direction > 0 and callable(odds_cls) and base_type and point is not None:
+                try:
+                    bet_obj = odds_cls(base_type, point, val)
+                except Exception:
+                    bet_obj = None
+                    try:
+                        bet_obj = odds_cls(base_type=base_type, number=point, amount=val)
+                    except Exception:
+                        bet_obj = None
+                if bet_obj and _add_bet(bet_obj):
+                    success = True
+                    adjusted = val
+            elif direction < 0 and base_type:
+                odds_instances = []
+                odds_type = getattr(cs_bet, "Odds", None)
+                for bet_obj, num_val, amt_val, _ in list(_iter_player_bets()):
+                    if odds_type is not None and isinstance(bet_obj, odds_type):
+                        base = getattr(bet_obj, "base_type", None)
+                        num = getattr(bet_obj, "number", None)
+                        if base is base_type and (point is None or num == point):
+                            odds_instances.append((bet_obj, num, float(amt_val)))
+                for bet_obj, num_val, amt_val in odds_instances:
+                    take = min(val, amt_val)
+                    if take <= 0:
+                        continue
+                    if take >= amt_val or not hasattr(bet_obj, "amount"):
+                        if _remove_bet_object(bet_obj, num_val):
+                            bankroll_delta += amt_val
+                            adjusted += amt_val
+                            val = max(0.0, val - amt_val)
+                            success = True
+                    else:
+                        try:
+                            setattr(bet_obj, "amount", max(0.0, amt_val - take))
+                            bankroll_delta += take
+                            adjusted += take
+                            val = max(0.0, val - take)
+                            success = True
+                        except Exception:
+                            continue
+                    if val <= 0:
+                        break
+            if success:
+                if odds_key in ("pass", "dont_pass"):
+                    sign = "+" if direction > 0 else "-"
+                    bets_delta[f"odds_{odds_key}"] = f"{sign}{int(adjusted)}"
+                elif point is not None:
+                    family = "come" if on == "come" else "dc"
+                    sign = "+" if direction > 0 else "-"
+                    bets_delta[f"odds_{family}_{point}"] = f"{sign}{int(adjusted)}"
+            elif direction > 0:
+                if on in ("pass", "pass_line"):
+                    bets_delta["odds_pass"] = f"+{int(val)}"
+                elif on in ("dp", "dont_pass", "don't_pass"):
+                    bets_delta["odds_dont_pass"] = f"+{int(val)}"
+                elif point is not None:
+                    family = "come" if on == "come" else "dc"
+                    bets_delta[f"odds_{family}_{point}"] = f"+{int(val)}"
+
+        elif verb in ("remove_line", "remove_come", "remove_dont_come"):
+            snap_now = self.snapshot_state()
+            odds_type = getattr(cs_bet, "Odds", None)
+            pass_cls = getattr(cs_bet, "PassLine", None)
+            dont_pass_cls = getattr(cs_bet, "DontPass", None)
+            come_cls = getattr(cs_bet, "Come", None)
+            dont_come_cls = getattr(cs_bet, "DontCome", None)
+            if verb == "remove_line":
+                for bet_obj, num_val, amt_val, _ in list(_iter_player_bets()):
+                    if pass_cls and isinstance(bet_obj, pass_cls):
+                        if _remove_bet_object(bet_obj, num_val):
+                            bankroll_delta += amt_val
+                    elif dont_pass_cls and isinstance(bet_obj, dont_pass_cls):
+                        if _remove_bet_object(bet_obj, num_val):
+                            bankroll_delta += amt_val
+                    elif odds_type and isinstance(bet_obj, odds_type):
+                        base = getattr(bet_obj, "base_type", None)
+                        amt_val = float(amt_val)
+                        if base is pass_cls and _remove_bet_object(bet_obj, num_val):
+                            bankroll_delta += amt_val
+                        elif base is dont_pass_cls and _remove_bet_object(bet_obj, num_val):
+                            bankroll_delta += amt_val
+            else:
+                families = {"remove_come": (come_cls, "come"), "remove_dont_come": (dont_come_cls, "dc")}
+                bet_cls, family_key = families[verb]
+                for bet_obj, num_val, amt_val, _ in list(_iter_player_bets()):
+                    if bet_cls and isinstance(bet_obj, bet_cls) and _is_box_number(num_val):
+                        if _remove_bet_object(bet_obj, num_val):
+                            bankroll_delta += amt_val
+                    elif odds_type and isinstance(bet_obj, odds_type):
+                        base = getattr(bet_obj, "base_type", None)
+                        if base is bet_cls and _is_box_number(getattr(bet_obj, "number", None)):
+                            num = int(getattr(bet_obj, "number"))
+                            amt_val = float(amt_val)
+                            if _remove_bet_object(bet_obj, num):
+                                bankroll_delta += amt_val
+
+            if verb == "remove_line":
+                odds_pass = float(snap_now.get("odds", {}).get("pass", 0.0))
+                odds_dp = float(snap_now.get("odds", {}).get("dont_pass", 0.0))
+                pass_amt = float(snap_now.get("bets", {}).get("pass", 0.0))
+                dp_amt = float(snap_now.get("bets", {}).get("dont_pass", 0.0))
+                if pass_amt > 0:
+                    bets_delta["pass"] = f"-{int(pass_amt)}"
+                if dp_amt > 0:
+                    bets_delta["dont_pass"] = f"-{int(dp_amt)}"
+                if odds_pass > 0:
+                    bets_delta["odds_pass"] = f"-{int(odds_pass)}"
+                if odds_dp > 0:
+                    bets_delta["odds_dont_pass"] = f"-{int(odds_dp)}"
+            elif verb == "remove_come":
+                for p in ("4", "5", "6", "8", "9", "10"):
+                    cur = float(snap_now.get("come_flat", {}).get(p, 0.0))
+                    if cur > 0:
+                        bets_delta[p] = f"-{int(cur)}"
+                    oamt = float(snap_now.get("odds", {}).get("come", {}).get(p, 0.0))
+                    if oamt > 0:
+                        bets_delta[f"odds_come_{p}"] = f"-{int(oamt)}"
+            elif verb == "remove_dont_come":
+                for p in ("4", "5", "6", "8", "9", "10"):
+                    cur = float(snap_now.get("dc_flat", {}).get(p, 0.0))
+                    if cur > 0:
+                        bets_delta[p] = f"-{int(cur)}"
+                    oamt = float(snap_now.get("odds", {}).get("dc", {}).get(p, 0.0))
+                    if oamt > 0:
+                        bets_delta[f"odds_dc_{p}"] = f"-{int(oamt)}"
+
         snap = _normalize_snapshot(table, player)
         if snap:
             self._apply_normalized_snapshot(snap)
@@ -892,6 +1239,15 @@ class VanillaAdapter(EngineAdapter):
             "bets": dict(self.bets),
             "seed": self.seed or 0,
             "levels": dict(self.martingale_levels),
+            "come_flat": dict(getattr(self, "come_flat", {})),
+            "dc_flat": dict(getattr(self, "dc_flat", {})),
+            "odds": {
+                "pass": getattr(self, "odds_state", {}).get("pass", 0.0),
+                "dont_pass": getattr(self, "odds_state", {}).get("dont_pass", 0.0),
+                "come": dict(getattr(self, "odds_state", {}).get("come", {})),
+                "dc": dict(getattr(self, "odds_state", {}).get("dc", {})),
+            },
+            "on_comeout": getattr(self, "on_comeout", True),
         }
 
     def _apply_effect(self, effect: Effect) -> None:
@@ -912,6 +1268,20 @@ class VanillaAdapter(EngineAdapter):
             except (TypeError, ValueError):
                 pass
 
+        if not hasattr(self, "odds_state"):
+            self.odds_state = {
+                "pass": 0.0,
+                "dont_pass": 0.0,
+                "come": {str(n): 0.0 for n in _BOX_NUMBERS},
+                "dc": {str(n): 0.0 for n in _BOX_NUMBERS},
+            }
+        if not hasattr(self, "come_flat"):
+            self.come_flat = {str(n): 0.0 for n in _BOX_NUMBERS}
+        if not hasattr(self, "dc_flat"):
+            self.dc_flat = {str(n): 0.0 for n in _BOX_NUMBERS}
+        if not hasattr(self, "on_comeout"):
+            self.on_comeout = True
+
         verb_name = effect.get("verb") if isinstance(effect.get("verb"), str) else None
         if verb_name in {"place_bet", "buy_bet", "lay_bet"}:
             kind = {"place_bet": "place", "buy_bet": "buy", "lay_bet": "lay"}[verb_name]
@@ -931,6 +1301,49 @@ class VanillaAdapter(EngineAdapter):
             for bet, delta in delta_map.items():
                 if delta < 0 and _is_box_number(bet):
                     self.box_bet_types.pop(str(int(bet)), None)
+
+        if verb_name in {"remove_line", "remove_come", "remove_dont_come"}:
+            if verb_name == "remove_line":
+                self.bets["pass"] = max(0.0, self.bets.get("pass", 0.0))
+                self.bets["dont_pass"] = max(0.0, self.bets.get("dont_pass", 0.0))
+                self.odds_state["pass"] = 0.0
+                self.odds_state["dont_pass"] = 0.0
+            elif verb_name == "remove_come":
+                for num in _BOX_NUMBERS:
+                    key = str(num)
+                    self.come_flat[key] = 0.0
+                    branch = self.odds_state.get("come", {})
+                    branch[key] = 0.0
+                    self.odds_state["come"] = branch
+            elif verb_name == "remove_dont_come":
+                for num in _BOX_NUMBERS:
+                    key = str(num)
+                    self.dc_flat[key] = 0.0
+                    branch = self.odds_state.get("dc", {})
+                    branch[key] = 0.0
+                    self.odds_state["dc"] = branch
+
+        for bet, delta in delta_map.items():
+            bet_key = str(bet)
+            if bet_key.startswith("odds_"):
+                if bet_key == "odds_pass":
+                    self.odds_state["pass"] = max(0.0, self.odds_state.get("pass", 0.0) + delta)
+                elif bet_key == "odds_dont_pass":
+                    self.odds_state["dont_pass"] = max(0.0, self.odds_state.get("dont_pass", 0.0) + delta)
+                elif bet_key.startswith("odds_come_"):
+                    point = bet_key.split("_", 2)[-1]
+                    if _is_box_number(point):
+                        key = str(int(point))
+                        branch = self.odds_state.get("come", {})
+                        branch[key] = max(0.0, float(branch.get(key, 0.0)) + delta)
+                        self.odds_state["come"] = branch
+                elif bet_key.startswith("odds_dc_"):
+                    point = bet_key.split("_", 2)[-1]
+                    if _is_box_number(point):
+                        key = str(int(point))
+                        branch = self.odds_state.get("dc", {})
+                        branch[key] = max(0.0, float(branch.get(key, 0.0)) + delta)
+                        self.odds_state["dc"] = branch
 
         for bet_key in list(self.box_bet_types.keys()):
             if self.bets.get(bet_key, 0.0) <= 0.0:
@@ -956,6 +1369,15 @@ class VanillaAdapter(EngineAdapter):
                 "bet_types": dict(self.box_bet_types),
                 "levels": dict(self.martingale_levels),
                 "last_effect": self.last_effect,
+                "on_comeout": self.on_comeout,
+                "come_flat": dict(self.come_flat),
+                "dc_flat": dict(self.dc_flat),
+                "odds": {
+                    "pass": self.odds_state.get("pass", 0.0),
+                    "dont_pass": self.odds_state.get("dont_pass", 0.0),
+                    "come": dict(self.odds_state.get("come", {})),
+                    "dc": dict(self.odds_state.get("dc", {})),
+                },
             }
         )
 
@@ -986,6 +1408,69 @@ class VanillaAdapter(EngineAdapter):
         last_effect = snapshot.get("last_effect")
         if isinstance(last_effect, Mapping):
             self.last_effect = last_effect  # type: ignore[assignment]
+        come_flat = snapshot.get("come_flat")
+        if isinstance(come_flat, Mapping):
+            coerced = {str(n): 0.0 for n in _BOX_NUMBERS}
+            for key, value in come_flat.items():
+                if _is_box_number(key):
+                    try:
+                        coerced[str(int(key))] = float(value or 0.0)
+                    except (TypeError, ValueError):
+                        continue
+            self.come_flat = coerced
+        elif self.live_engine:
+            self.come_flat = {str(n): 0.0 for n in _BOX_NUMBERS}
+
+        dc_flat = snapshot.get("dc_flat")
+        if isinstance(dc_flat, Mapping):
+            coerced_dc = {str(n): 0.0 for n in _BOX_NUMBERS}
+            for key, value in dc_flat.items():
+                if _is_box_number(key):
+                    try:
+                        coerced_dc[str(int(key))] = float(value or 0.0)
+                    except (TypeError, ValueError):
+                        continue
+            self.dc_flat = coerced_dc
+        elif self.live_engine:
+            self.dc_flat = {str(n): 0.0 for n in _BOX_NUMBERS}
+
+        odds = snapshot.get("odds")
+        if isinstance(odds, Mapping):
+            odds_state = {
+                "pass": 0.0,
+                "dont_pass": 0.0,
+                "come": {str(n): 0.0 for n in _BOX_NUMBERS},
+                "dc": {str(n): 0.0 for n in _BOX_NUMBERS},
+            }
+            for key in ("pass", "dont_pass"):
+                try:
+                    odds_state[key] = float(odds.get(key, 0.0) or 0.0)  # type: ignore[index]
+                except (TypeError, ValueError):
+                    odds_state[key] = 0.0
+            for family in ("come", "dc"):
+                branch = odds.get(family)
+                if isinstance(branch, Mapping):
+                    for point, value in branch.items():
+                        if _is_box_number(point):
+                            try:
+                                odds_state[family][str(int(point))] = float(value or 0.0)
+                            except (TypeError, ValueError):
+                                continue
+            self.odds_state = odds_state
+        elif self.live_engine:
+            self.odds_state = {
+                "pass": 0.0,
+                "dont_pass": 0.0,
+                "come": {str(n): 0.0 for n in _BOX_NUMBERS},
+                "dc": {str(n): 0.0 for n in _BOX_NUMBERS},
+            }
+
+        on_comeout = snapshot.get("on_comeout")
+        if isinstance(on_comeout, bool):
+            self.on_comeout = on_comeout
+        elif self.live_engine:
+            point_val = snapshot.get("point_value")
+            self.on_comeout = point_val in (None, 0)
         self._snapshot_cache = dict(snapshot)
 
     def _effect_from_snapshot_delta(
@@ -1063,6 +1548,66 @@ class VanillaAdapter(EngineAdapter):
                 for key in ("bankroll", "point_on", "point_value", "hand_id", "roll_in_hand", "rng_seed"):
                     if key in overlay and overlay[key] is not None:
                         merged[key] = overlay[key]
+                for flat_key in ("come_flat", "dc_flat"):
+                    branch_overlay = overlay.get(flat_key)
+                    if isinstance(branch_overlay, Mapping):
+                        combined = {str(n): 0.0 for n in _BOX_NUMBERS}
+                        branch_base = merged.get(flat_key)
+                        if isinstance(branch_base, Mapping):
+                            for pt, val in branch_base.items():
+                                if _is_box_number(pt):
+                                    try:
+                                        combined[str(int(pt))] = float(val or 0.0)
+                                    except (TypeError, ValueError):
+                                        continue
+                        for pt, val in branch_overlay.items():
+                            if _is_box_number(pt):
+                                try:
+                                    combined[str(int(pt))] = float(val or 0.0)
+                                except (TypeError, ValueError):
+                                    continue
+                        merged[flat_key] = combined
+                odds_overlay = overlay.get("odds")
+                if isinstance(odds_overlay, Mapping):
+                    combined_odds = {
+                        "pass": 0.0,
+                        "dont_pass": 0.0,
+                        "come": {str(n): 0.0 for n in _BOX_NUMBERS},
+                        "dc": {str(n): 0.0 for n in _BOX_NUMBERS},
+                    }
+                    odds_base = merged.get("odds")
+                    if isinstance(odds_base, Mapping):
+                        for key in ("pass", "dont_pass"):
+                            try:
+                                combined_odds[key] = float(odds_base.get(key, 0.0) or 0.0)  # type: ignore[index]
+                            except (TypeError, ValueError):
+                                combined_odds[key] = 0.0
+                        for family in ("come", "dc"):
+                            base_branch = odds_base.get(family)
+                            if isinstance(base_branch, Mapping):
+                                for pt, val in base_branch.items():
+                                    if _is_box_number(pt):
+                                        try:
+                                            combined_odds[family][str(int(pt))] = float(val or 0.0)
+                                        except (TypeError, ValueError):
+                                            continue
+                    for key in ("pass", "dont_pass"):
+                        try:
+                            combined_odds[key] = float(odds_overlay.get(key, combined_odds[key]) or 0.0)  # type: ignore[index]
+                        except (TypeError, ValueError):
+                            continue
+                    for family in ("come", "dc"):
+                        branch_overlay = odds_overlay.get(family)
+                        if isinstance(branch_overlay, Mapping):
+                            for pt, val in branch_overlay.items():
+                                if _is_box_number(pt):
+                                    try:
+                                        combined_odds[family][str(int(pt))] = float(val or 0.0)
+                                    except (TypeError, ValueError):
+                                        continue
+                    merged["odds"] = combined_odds
+                if "on_comeout" in overlay:
+                    merged["on_comeout"] = bool(overlay.get("on_comeout"))
                 snapshot = merged
             if self.last_effect is not None:
                 snapshot["last_effect"] = self.last_effect
@@ -1080,6 +1625,15 @@ class VanillaAdapter(EngineAdapter):
             "hand_id": 0,
             "roll_in_hand": 0,
             "rng_seed": self.seed or 0,
+            "on_comeout": self.on_comeout,
+            "come_flat": dict(self.come_flat),
+            "dc_flat": dict(self.dc_flat),
+            "odds": {
+                "pass": self.odds_state.get("pass", 0.0),
+                "dont_pass": self.odds_state.get("dont_pass", 0.0),
+                "come": dict(self.odds_state.get("come", {})),
+                "dc": dict(self.odds_state.get("dc", {})),
+            },
         }
         snapshot = _normalize_snapshot(base_snapshot)
         if self.martingale_levels:
@@ -1269,6 +1823,9 @@ VerbRegistry.register("move_bet", verb_move_bet)
 VerbRegistry.register("same_bet", verb_same_bet)
 VerbRegistry.register("switch_profile", verb_switch_profile)
 VerbRegistry.register("apply_policy", verb_apply_policy)
+
+# Ensure supplemental verb registrations are loaded.
+from . import verbs as _verbs_module  # noqa: F401
 
 
 # ----------------- Built-in Policy Handlers -----------------

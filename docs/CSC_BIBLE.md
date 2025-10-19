@@ -37,10 +37,16 @@ Stub math remains available when the engine is not installed; effect summaries r
 **C2 — Place/Buy/Lay: create, take down, move**
 Support box bet creation and movement; enforce table units.
 
-**C3 — Line & Come Family + Odds**  
+**C3 — Line & Come Family + Odds**
 Connect pass/don’t/come/dc lines and odds controls.
 
-**C4 — Work/Off & Table State Controls**  
+### Checkpoint 3 — Line & Come Family + Odds Wiring
+
+Wired Pass/Don’t Pass, Come/Dont Come, and Odds verbs under `run.adapter.live_engine: true`.  
+Extended snapshot normalization to include line exposure, come/DC flats per point, and odds amounts for line and per-point comes/DC.  
+Fallback stubs mirror shapes when the engine is absent; effect summaries remain schema 1.0.
+
+**C4 — Work/Off & Table State Controls**
 Implement work/off toggles and table clearing.
 
 **C5 — Roll Loop Integration + Dice Control**  
