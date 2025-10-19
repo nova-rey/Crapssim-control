@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
+
+from crapssim_control.external.command_tape import iter_commands
 
 
 class ReplayRunner:
-    def __init__(self, controller: Any, tape: List[Dict[str, Any]], seed: Optional[int] = None):
+    def __init__(self, controller: Any, tape: Dict[str, Any], seed: Optional[int] = None):
         self.controller = controller
         self.tape = tape
         self.seed = seed
@@ -15,11 +17,9 @@ class ReplayRunner:
         adapter = getattr(self.controller, "adapter", None)
         if self.seed is not None and adapter and hasattr(adapter, "set_seed"):
             adapter.set_seed(self.seed)
-        for cmd in self.tape:
-            verb = cmd.get("verb")
+        for verb, args in iter_commands(self.tape):
             if not verb:
                 continue
-            args = cmd.get("args", {})
             if adapter and hasattr(adapter, "apply_action"):
                 adapter.apply_action(str(verb), args)
         if adapter and hasattr(adapter, "snapshot_state"):

@@ -77,6 +77,35 @@ All handlers return:
 }
 ```
 
+## Capabilities & Tape Schema
+
+### Capabilities Endpoint
+`GET /capabilities` returns:
+
+```json
+{
+  "effect_schema": "1.0",
+  "verbs": ["press","regress","same_bet","switch_profile","apply_policy"],
+  "policies": ["martingale_v1"]
+}
+```
+
+### Command Tape v2 (schema 1.0)
+
+Tapes are versioned for replay parity:
+
+```json
+{
+  "tape_schema": "1.0",
+  "commands": [
+    {"verb":"press","args":{"target":{"bet":"6"},"amount":{"mode":"dollars","value":6}}},
+    {"verb":"apply_policy","args":{"policy":{"name":"martingale_v1","args":{"step_key":"6","delta":6,"max_level":3}}}}
+  ]
+}
+```
+
+Replay validates the schema and reproduces identical snapshots under the same seed.
+
 Back-compat: legacy verb "martingale" is an alias to apply_policy(policy="martingale_v1") during Phase 7.
 
 ## Adapter Selection & Seeding

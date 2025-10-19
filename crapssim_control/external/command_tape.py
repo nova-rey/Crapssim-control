@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import time
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Iterator
 
 
 class CommandTape:
@@ -49,3 +49,25 @@ class CommandTape:
         dest.parent.mkdir(parents=True, exist_ok=True)
         with dest.open("a", encoding="utf-8") as f:
             f.write(json.dumps(payload) + "\n")
+
+
+TAPE_SCHEMA_VERSION = "1.0"
+
+
+def record_command_tape(commands: list[dict]) -> dict:
+    """Wrap a list of verb/args dicts with schema metadata."""
+
+    return {
+        "tape_schema": TAPE_SCHEMA_VERSION,
+        "commands": list(commands),
+    }
+
+
+def iter_commands(tape: dict) -> Iterator[tuple[str, Dict[str, Any]]]:
+    """Yield normalized verb/args pairs from a recorded command tape."""
+
+    schema = tape.get("tape_schema")
+    if schema != TAPE_SCHEMA_VERSION:
+        raise ValueError(f"tape_schema_mismatch:{schema}")
+    for cmd in tape.get("commands", []):
+        yield cmd.get("verb"), (cmd.get("args") or {})

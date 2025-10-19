@@ -1,10 +1,11 @@
 from crapssim_control.engine_adapter import VanillaAdapter
+from crapssim_control.external.command_tape import record_command_tape
 from crapssim_control.replay import ReplayRunner
 
 
 def test_live_vs_replay_parity_simple_tape():
     seed = 777
-    tape = [
+    commands = [
         {"verb": "press", "args": {"target": {"bet": "6"}, "amount": {"mode": "dollars", "value": 6}}},
         {
             "verb": "apply_policy",
@@ -14,10 +15,11 @@ def test_live_vs_replay_parity_simple_tape():
         {"verb": "same_bet", "args": {"target": {"bet": "pass"}}},
         {"verb": "switch_profile", "args": {"details": {"profile": "baseline"}}},
     ]
+    tape = record_command_tape(commands)
 
     live = VanillaAdapter()
     live.set_seed(seed)
-    for cmd in tape:
+    for cmd in commands:
         live.apply_action(cmd["verb"], cmd["args"])
     snapshot_live = live.snapshot_state()
 
