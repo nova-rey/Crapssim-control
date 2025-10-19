@@ -1,21 +1,22 @@
 {
   "health": {
-    "status": 200,
     "body": {
       "status": "ok"
-    }
+    },
+    "status": 200
   },
   "run_id": {
-    "status": 200,
     "body": {
       "run_id": "phase6-external-live"
-    }
+    },
+    "status": 200
   },
   "version": {
-    "status": 200,
     "body": {
-      "version": "CrapsSim-Control",
-      "build_hash": "6785953"
-    }
+      "build_hash": "6785953",
+      "tag": "v0.35.0-phase6-external",
+      "version": "CrapsSim-Control"
+    },
+    "status": 200
   }
 }

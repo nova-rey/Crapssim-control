@@ -2011,6 +2011,68 @@ class ControlStrategy:
             except Exception:
                 pass
 
+        bankroll_final: float = 0.0
+        hands_played: int = 0
+        if tracker is not None:
+            try:
+                bankroll_final = float(getattr(tracker, "bankroll", 0.0))
+            except Exception:
+                bankroll_final = 0.0
+            try:
+                hands_played = int(getattr(tracker, "total_hands", 0))
+            except Exception:
+                hands_played = 0
+
+        journal_lines = 0
+        external_executed = 0
+        external_rejected = 0
+        journal_path = getattr(getattr(self, "journal", None), "path", None)
+        if isinstance(journal_path, (str, Path)) and str(journal_path):
+            try:
+                for line in Path(journal_path).read_text(encoding="utf-8").splitlines():
+                    if not line.strip():
+                        continue
+                    journal_lines += 1
+                    try:
+                        entry = json.loads(line)
+                    except Exception:
+                        continue
+                    origin = str(entry.get("origin") or "")
+                    if origin.startswith("external:"):
+                        if entry.get("executed"):
+                            external_executed += 1
+                        else:
+                            external_rejected += 1
+            except Exception:
+                pass
+
+        if not hands_played:
+            existing_total_hands = summary_block.get("total_hands")
+            if isinstance(existing_total_hands, (int, float)):
+                try:
+                    hands_played = int(existing_total_hands)
+                except Exception:
+                    hands_played = 0
+
+        summary_block["bankroll_final"] = bankroll_final
+        summary_block["hands_played"] = hands_played
+        summary_block["journal_lines"] = journal_lines
+        summary_block["external_executed"] = external_executed
+        summary_block["external_rejected"] = external_rejected
+
+        limits_stats = ((report.get("metadata") or {}).get("limits", {}) or {}).get("stats", {})
+        rejected_map = {}
+        if isinstance(limits_stats, dict):
+            rejected_map = limits_stats.get("rejected", {}) or {}
+        total_rejections = 0
+        if isinstance(rejected_map, dict):
+            for value in rejected_map.values():
+                try:
+                    total_rejections += int(value)
+                except Exception:
+                    continue
+        summary_block["rejections_total"] = total_rejections
+
         report["journal_schema_version"] = JOURNAL_SCHEMA_VERSION
         report["summary_schema_version"] = SUMMARY_SCHEMA_VERSION
 

@@ -82,3 +82,13 @@ Webhooks retry up to two additional times with exponential backoff (250 ms the
 ### Server behavior
 - If the uvicorn server cannot start (e.g., port in use), CSC logs the failure and falls back to the stdlib HTTP server automatically.
 - Diagnostics endpoints (`/health`, `/run_id`, `/version`) are served by whichever server is active.
+
+### Version & Tagging
+The diagnostics endpoint `/version` returns a JSON payload including the current release tag:
+`{"version":"CrapsSim-Control","build_hash":"<hash>","tag":"v0.35.0-phase6-external"}`.
+
+### Webhook Path Alignment
+CSC defaults to posting webhooks to `http://127.0.0.1:1880/webhook`. If you change this path in Node-RED or the simulator, update the CSC target to match.
+
+### Webhook Retry/Backoff
+Webhook delivery uses light retry with backoff (two retries by default). Failures never block a run; they are logged at `warning`.
