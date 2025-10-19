@@ -1,12 +1,9 @@
 # crapssim_control/actions.py
-from __future__ import annotations
+"""Action Envelope schema (v1.1 · P4C4).
 
-"""
-Action Envelope schema (v1.1 · P4C4)
-
-Every action emitted by CrapsSim-Control (from templates and rules)
-must conform to this shape so downstream consumers (CSV exporter, UIs, tests)
-can rely on a single contract.
+Every action emitted by CrapsSim-Control (from templates and rules) must conform
+to this shape so downstream consumers (CSV exporter, UIs, tests) can rely on a
+single contract.
 
 Envelope (per action):
     {
@@ -29,7 +26,9 @@ Conventions:
 - Additional optional fields may be added in future minor revisions (additive).
 """
 
-from typing import Any, Optional, Dict
+from __future__ import annotations
+
+from typing import Any, Dict, Optional
 
 # TypedDict compatibility
 try:

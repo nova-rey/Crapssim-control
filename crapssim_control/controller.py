@@ -1,33 +1,31 @@
 # crapssim_control/controller.py
 from __future__ import annotations
  
+from collections import deque
 from dataclasses import asdict, is_dataclass
-from typing import Any, Deque, Dict, List, Optional, Tuple
+from datetime import datetime
+import hashlib  # P5C5: for content fingerprints
 import json
 import logging
 from pathlib import Path
 import platform
 import shutil
-import zipfile
-from datetime import datetime
-from uuid import uuid4
-from types import SimpleNamespace
-import hashlib  # P5C5: for content fingerprints
-import time
-from collections import deque
 import subprocess
+import time
+from types import SimpleNamespace
+from typing import Any, Deque, Dict, List, Optional, Tuple
+from uuid import uuid4
+import zipfile
 
-from .templates import render_template as render_runtime_template, diff_bets
-from .engine_adapter import NullAdapter
-from .actions import make_action  # Action Envelope helper
-from .rules_engine import apply_rules  # Runtime rules engine
-from .rules_engine.evaluator import evaluate_rules
+from crapssim_control.external.command_channel import CommandQueue
+from crapssim_control.external.command_tape import CommandTape
+from crapssim_control.external.http_api import HTTPServerHandle, start_http_server
+from crapssim_control.integrations.webhooks import WebhookPublisher
 from crapssim_control.rules_engine.actions import ACTIONS, is_legal_timing
-from .rules_engine.journal import DecisionJournal, JournalWriter
-from .rules_engine.schema import validate_ruleset
-from .csv_journal import CSVJournal  # Per-event journaling
-from .events import canonicalize_event, COMEOUT, POINT_ESTABLISHED, ROLL, SEVEN_OUT
-from .eval import evaluate, EvalError
+
+from .actions import make_action  # Action Envelope helper
+from .analytics.tracker import Tracker
+from .analytics.types import HandCtx, RollCtx, SessionCtx
 from .config import (
     DEMO_FALLBACKS_DEFAULT,
     EMBED_ANALYTICS_DEFAULT,
@@ -35,19 +33,22 @@ from .config import (
     coerce_flag,
     normalize_demo_fallbacks,
 )
-from .spec_validation import VALIDATION_ENGINE_VERSION
-from .analytics.tracker import Tracker
-from .analytics.types import HandCtx, RollCtx, SessionCtx
+from .csv_journal import CSVJournal  # Per-event journaling
+from .engine_adapter import NullAdapter
+from .eval import evaluate, EvalError
+from .events import canonicalize_event, COMEOUT, POINT_ESTABLISHED, ROLL, SEVEN_OUT
+from .integrations.evo_hooks import EvoBridge
+from .integrations.hooks import Outbound
 from .manifest import generate_manifest
+from .rules_engine import apply_rules  # Runtime rules engine
+from .rules_engine.evaluator import evaluate_rules
+from .rules_engine.journal import DecisionJournal, JournalWriter
+from .rules_engine.schema import validate_ruleset
+from .schemas import JOURNAL_SCHEMA_VERSION, SUMMARY_SCHEMA_VERSION
+from .spec_validation import VALIDATION_ENGINE_VERSION
+from .templates import diff_bets, render_template as render_runtime_template
 
 logger = logging.getLogger("CSC.Controller")
-from .schemas import JOURNAL_SCHEMA_VERSION, SUMMARY_SCHEMA_VERSION
-from .integrations.hooks import Outbound
-from .integrations.evo_hooks import EvoBridge
-from crapssim_control.integrations.webhooks import WebhookPublisher
-from crapssim_control.external.command_channel import CommandQueue
-from crapssim_control.external.command_tape import CommandTape
-from crapssim_control.external.http_api import HTTPServerHandle, start_http_server
 
 
 class _ConfigAccessor:
@@ -613,11 +614,9 @@ class ControlStrategy:
         if self.external_mode != "replay":
             return
         current_hand = tracker.hand_id if tracker is not None else None
-        current_roll = tracker.roll_in_hand if tracker is not None else None
         while self._replay_commands:
             entry = self._replay_commands[0]
             hand_target = entry.get("hand_id")
-            roll_target = entry.get("roll_in_hand")
             if hand_target is not None and current_hand is not None and hand_target > current_hand:
                 break
             self._replay_commands.popleft()

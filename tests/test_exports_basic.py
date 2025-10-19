@@ -1,5 +1,4 @@
 # tests/test_exports_basic.py
-import os
 import json
 
 from crapssim_control.tracker import Tracker

@@ -1,5 +1,3 @@
-import pytest
-
 from crapssim_control.rules_engine import apply_rules
 from crapssim_control.actions import ACTION_SET, ACTION_CLEAR, ACTION_PRESS, ACTION_REDUCE, ACTION_SWITCH_MODE
 

@@ -5,7 +5,7 @@ from typing import Any, Dict, Optional
 try:
     # Vanilla crapssim
     from crapssim.table import Table, TableUpdate, Player  # type: ignore
-except Exception as e:  # pragma: no cover
+except Exception:  # pragma: no cover
     Table = object  # type: ignore
     TableUpdate = None  # type: ignore
     Player = object  # type: ignore

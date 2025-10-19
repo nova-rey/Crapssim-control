@@ -1,6 +1,9 @@
 # crapssim_control/telemetry.py
 from __future__ import annotations
-import csv, json, os
+
+import csv
+import json
+import os
 from typing import Any, Dict, List, Optional
 
 class Telemetry:

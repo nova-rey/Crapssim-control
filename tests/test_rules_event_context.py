@@ -1,5 +1,5 @@
 # tests/test_rules_event_context.py
-from typing import Dict, Any, List
+from typing import Any, Dict
 
 from crapssim_control.events import canonicalize_event, COMEOUT, POINT_ESTABLISHED, ROLL, SEVEN_OUT
 from crapssim_control.rules_engine import apply_rules

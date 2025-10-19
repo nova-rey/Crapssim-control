@@ -1,13 +1,13 @@
 import pytest
+
 from crapssim_control.bet_ledger import BetLedger
-from crapssim_control.bet_event import BetEvent
 
 def test_place_and_resolve_and_snapshot():
     led = BetLedger()
 
     # Place two bets: place-8 for 12, pass line for 10
     e1 = led.place("place 8", 12, number=8)
-    e2 = led.place("pass", 10)
+    led.place("pass", 10)
 
     snap = led.snapshot()
     assert snap["open_count"] == 2
@@ -50,7 +50,7 @@ def test_roll_linkage_metadata_roundtrip():
 
     # Link to roll index when opening
     led.touch_roll(roll_index=1)
-    e1 = led.place("place 6", 12, number=6)
+    led.place("place 6", 12, number=6)
 
     # Link to another roll index when closing
     led.touch_roll(roll_index=2)

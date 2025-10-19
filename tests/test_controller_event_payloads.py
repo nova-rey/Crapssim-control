@@ -1,5 +1,5 @@
 # tests/test_controller_event_payloads.py
-from typing import Dict, Any, List
+from typing import Any, Dict
 
 from crapssim_control.controller import ControlStrategy
 from crapssim_control.events import COMEOUT, POINT_ESTABLISHED, ROLL, SEVEN_OUT

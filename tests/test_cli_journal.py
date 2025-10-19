@@ -1,12 +1,9 @@
 # tests/test_cli_journal.py
 from __future__ import annotations
 
-import io
 import csv
 from pathlib import Path
 import tempfile
-
-import pytest
 
 from crapssim_control.cli import main as cli_main
 from tests import skip_csv_preamble
@@ -168,7 +165,6 @@ def test_cli_journal_summarize_prints_table(capsys):
         assert "7" in data
         # We know from fixture: sets=3, clears=2, presses=1, reduces=1, roll_events=3
         # Loosely assert by scanning the data row to avoid depending on exact order
-        row_str = "\t".join(data)
         for expect in ("sets", "presses", "reduces", "clears"):
             assert expect in header
         assert any(cell == "3" for cell in data)  # sets

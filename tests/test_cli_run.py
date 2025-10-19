@@ -1,9 +1,10 @@
+import importlib
 import json
-import sys
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
-import importlib
+
 import pytest
 
 
@@ -42,7 +43,7 @@ def _engine_available() -> bool:
         return False
 
     try:
-        from crapssim_control.engine_adapter import resolve_engine_adapter  # noqa: WPS433
+        from crapssim_control.engine_adapter import resolve_engine_adapter
     except Exception:
         return False
 
