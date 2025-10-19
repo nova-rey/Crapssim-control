@@ -21,7 +21,7 @@ from crapssim_control.external.command_channel import CommandQueue
 from crapssim_control.external.command_tape import CommandTape
 from crapssim_control.external.http_api import (
     HTTPServerHandle,
-    attach_effect_summary,
+    _validate_and_attach_effect,
     start_http_server,
 )
 from crapssim_control.integrations.webhooks import WebhookPublisher
@@ -1714,7 +1714,7 @@ class ControlStrategy:
                     result = ACTIONS[verb].execute(self.__dict__, {"args": args})
                     executed = True
                     record["result"] = result
-                    attach_effect_summary(record, self)
+                    _validate_and_attach_effect(self, record)
                 record["executed"] = executed
                 outcome = self.command_queue.record_outcome(
                     source_label,

@@ -26,14 +26,17 @@ from crapssim_control.engine_adapter import (
 logger = logging.getLogger("CSC.HTTP")
 
 
-def attach_effect_summary(entry: Dict[str, Any], controller: Any, schema: str = "1.0") -> None:
-    """Validate and attach the adapter's last effect to an entry if present."""
+def _validate_and_attach_effect(controller, entry: Dict[str, Any]) -> None:
+    """
+    Centralized schema validation for external command effects.
+    Ensures all external actions validate against effect_schema=1.0
+    before being written to the journal.
+    """
 
-    adapter = getattr(controller, "adapter", None)
-    effect = getattr(adapter, "last_effect", None) if adapter is not None else None
+    effect = getattr(getattr(controller, "adapter", None), "last_effect", None)
     if not effect:
         return
-    validate_effect_summary(effect, schema=schema)
+    validate_effect_summary(effect, schema="1.0")
     entry["effect_summary"] = effect
 
 

@@ -79,6 +79,9 @@ All actions (verbs/policies) must return a uniform effect summary:
 
 > **Note:** External commands are validated with the same `effect_summary` schema (1.0) as rules-driven actions. Invalid effects are rejected before journaling.
 
+> **Implementation note:**  
+> All external command routes call a shared helper (`_validate_and_attach_effect`) which enforces `effect_summary` schema validation before journaling.
+
 ### Deprecations
 - Legacy verb `"martingale"` → **deprecated**; prefer `{ "verb": "apply_policy", "policy": {"name": "martingale_v1", ...}}`.
 - NullAdapter compatibility shims (`attach`, `attach_cls`, `play`) are deprecated and will be removed in Phase 8·C0.
