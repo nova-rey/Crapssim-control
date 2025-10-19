@@ -6,7 +6,7 @@ Records all rule/action events with cooldown and scope protections.
 import json
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 
 @dataclass
@@ -54,6 +54,7 @@ class DecisionJournal:
         self.cooldowns: Dict[str, int] = {}
         self.scope_flags = set()
         self._seq = 0
+        self.entries: List[Dict[str, Any]] = []
 
     # --- SAFETIES ------------------------------------------------------------
 
@@ -112,6 +113,9 @@ class DecisionJournal:
             normalized["correlation_id"] = None
         with open(self.path, "a", encoding="utf-8") as f:
             f.write(json.dumps(normalized) + "\n")
+        if "effect_summary" not in normalized:
+            normalized["effect_summary"] = None
+        self.entries.append(normalized)
         return normalized
 
     def writer(self, base_fields: Optional[Dict[str, Any]] = None) -> JournalWriter:

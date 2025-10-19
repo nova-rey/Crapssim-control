@@ -37,6 +37,18 @@ state:
 Same seed → identical outcomes and state transitions.
 All random processes must derive from a reproducible seed recorded by CSC.
 
+## Action Mapping v1
+
+The following actions are now supported within VanillaAdapter:
+
+| Verb | Description | Effect Summary Example |
+|------|--------------|------------------------|
+| `switch_profile` | Changes the current betting profile. | `{"verb": "switch_profile", "details": {"profile": "aggressive"}}` |
+| `regress` | Halves each active bet, returning funds to bankroll. | `{"verb": "regress", "bets": {"6": "-6","8":"-6"}, "bankroll_delta": 12}` |
+| `press_and_collect` | Presses 6/8 by $6 each, deducting $12 total. | `{"verb": "press_and_collect", "bets": {"6":"+6","8":"+6"}, "bankroll_delta": -12}` |
+
+All action results are deterministic and recorded in `adapter.last_effect` for journaling.
+
 ## Adapter Selection & Seeding
 
 CSC supports multiple adapter implementations, configured via `run.adapter` settings.

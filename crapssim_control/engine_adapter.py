@@ -139,11 +139,14 @@ class NullAdapter(EngineAdapter):
 
 
 class VanillaAdapter(EngineAdapter):
-    """Stub adapter for CrapsSim-Vanilla integration; supports seeding and deterministic snapshot."""
+    """Stub adapter for CrapsSim-Vanilla integration with deterministic action effects."""
 
     def __init__(self) -> None:
         self.spec: Dict[str, Any] = {}
         self.seed: Optional[int] = None
+        self.bankroll: float = 1000.0
+        self.bets: Dict[str, float] = {"6": 0.0, "8": 0.0}
+        self.last_effect: Optional[Dict[str, Any]] = None
 
     def set_seed(self, seed: Optional[int]) -> None:
         self.seed = seed
@@ -158,16 +161,58 @@ class VanillaAdapter(EngineAdapter):
         return {"result": "stub", "dice": dice, "seed": self.seed}
 
     def apply_action(self, verb: str, args: Dict[str, Any]) -> Dict[str, Any]:
-        return {"verb": verb, "args": args, "result": "stub"}
+        payload = args if isinstance(args, dict) else {}
+
+        if verb == "switch_profile":
+            profile = (
+                payload.get("profile")
+                or payload.get("target")
+                or "default"
+            )
+            self.last_effect = {"verb": verb, "details": {"profile": profile}}
+            return self.last_effect
+
+        if verb == "regress":
+            deltas: Dict[str, str] = {}
+            for bet, amount in self.bets.items():
+                new_amount = amount / 2.0
+                delta = amount - new_amount
+                deltas[bet] = f"-{delta:.0f}"
+                self.bets[bet] = new_amount
+            delta_sum = -sum(float(val.strip("-")) for val in deltas.values()) if deltas else 0.0
+            bankroll_delta = abs(delta_sum)
+            self.bankroll += bankroll_delta
+            self.last_effect = {
+                "verb": verb,
+                "bets": deltas,
+                "bankroll_delta": bankroll_delta,
+            }
+            return self.last_effect
+
+        if verb == "press_and_collect":
+            deltas = {"6": "+6", "8": "+6"}
+            self.bets["6"] = self.bets.get("6", 0.0) + 6.0
+            self.bets["8"] = self.bets.get("8", 0.0) + 6.0
+            self.bankroll -= 12.0
+            self.last_effect = {
+                "verb": verb,
+                "bets": deltas,
+                "bankroll_delta": -12.0,
+            }
+            return self.last_effect
+
+        self.last_effect = {"verb": verb, "result": "unhandled"}
+        return self.last_effect
 
     def snapshot_state(self) -> Dict[str, Any]:
         return {
-            "bankroll": 1000.0,
+            "bankroll": self.bankroll,
             "point_on": False,
-            "bets": {},
+            "bets": dict(self.bets),
             "hand_id": 0,
             "roll_in_hand": 0,
             "rng_seed": self.seed or 0,
+            "last_effect": self.last_effect,
         }
 
 

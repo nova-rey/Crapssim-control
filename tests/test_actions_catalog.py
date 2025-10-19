@@ -3,8 +3,8 @@ from crapssim_control.rules_engine.actions import ACTIONS, is_legal_timing
 
 def test_switch_profile_executes_stub():
     res = ACTIONS["switch_profile"].execute({}, {"target": "Recovery"})
-    assert res["applied"] == "switch_profile"
-    assert res["target"] == "Recovery"
+    assert res["verb"] == "switch_profile"
+    assert res["details"]["profile"] == "Recovery"
 
 
 def test_illegal_timing_blocks_resolution():
@@ -21,4 +21,4 @@ def test_legal_timing_passes():
 def test_all_actions_return_trace():
     for verb, act in ACTIONS.items():
         result = act.execute({}, {"dummy": True})
-        assert result["applied"] == verb
+        assert result["verb"] == verb

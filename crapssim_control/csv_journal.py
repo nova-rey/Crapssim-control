@@ -288,6 +288,14 @@ class CSVJournal:
             self.ensure_header()
             return 0
 
+        snap = snapshot or {}
+        adapter_snapshot = snap.get("adapter_snapshot") if isinstance(snap.get("adapter_snapshot"), dict) else None
+        adapter_fields = ["bankroll_after", "bet_6", "bet_8"]
+        if adapter_snapshot is not None:
+            for field in adapter_fields:
+                if field not in self._columns:
+                    self._columns.append(field)
+
         self._ensure_parent()
         mode_flag = self._open_mode()
         write_header = self._needs_header()
@@ -297,8 +305,6 @@ class CSVJournal:
             if write_header:
                 _write_csv_header(f, self._columns)
 
-            snap = snapshot or {}
-
             event_type = _as_str(snap.get("event_type") or snap.get("type") or "")
             point = snap.get("point")
             rolls_since_point = snap.get("rolls_since_point")
@@ -306,6 +312,7 @@ class CSVJournal:
             mode_val = _as_str(snap.get("mode"))
             units = _coerce_num(snap.get("units"))
             bankroll = _coerce_num(snap.get("bankroll"))
+            adapter_snapshot = adapter_snapshot or {}
 
             rows_written = 0
             for a in acts:
@@ -338,6 +345,29 @@ class CSVJournal:
                     "notes": notes,
                     "extra": _as_str(extra_payload) if extra_payload is not None else "",
                 }
+
+                if "bankroll_after" in self._columns:
+                    bankroll_after = snap.get("bankroll_after")
+                    if bankroll_after is None and isinstance(adapter_snapshot, dict):
+                        bankroll_after = adapter_snapshot.get("bankroll")
+                    coerced = _coerce_num(bankroll_after)
+                    row["bankroll_after"] = coerced if coerced is not None else 0
+                if "bet_6" in self._columns:
+                    bet6 = snap.get("bet_6")
+                    if bet6 is None and isinstance(adapter_snapshot, dict):
+                        bets_map = adapter_snapshot.get("bets")
+                        if isinstance(bets_map, dict):
+                            bet6 = bets_map.get("6")
+                    bet6_num = _coerce_num(bet6)
+                    row["bet_6"] = bet6_num if bet6_num is not None else 0
+                if "bet_8" in self._columns:
+                    bet8 = snap.get("bet_8")
+                    if bet8 is None and isinstance(adapter_snapshot, dict):
+                        bets_map = adapter_snapshot.get("bets")
+                        if isinstance(bets_map, dict):
+                            bet8 = bets_map.get("8")
+                    bet8_num = _coerce_num(bet8)
+                    row["bet_8"] = bet8_num if bet8_num is not None else 0
 
                 if self._analytics_columns_normalized:
                     for col in self._analytics_columns_normalized:
