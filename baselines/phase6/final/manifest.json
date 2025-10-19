@@ -1,0 +1,53 @@
+{
+  "run_id": "phase6-external-live",
+  "timestamp": "2025-10-19T02:20:46Z",
+  "spec_file": "examples/internal_brain_demo/spec.yaml",
+  "cli_flags": {
+    "demo_fallbacks": false,
+    "strict": false,
+    "embed_analytics": true,
+    "export": false,
+    "webhook_enabled": true,
+    "webhook_timeout": 2.0,
+    "webhook_url_source": "spec",
+    "webhook_url": "http://127.0.0.1:1880/webhook",
+    "evo_enabled": false,
+    "trial_tag": null,
+    "external_mode": "live",
+    "demo_fallbacks_source": "default",
+    "strict_source": "default",
+    "embed_analytics_source": "default",
+    "export_source": "default",
+    "webhook_enabled_source": "spec",
+    "evo_enabled_source": "default",
+    "trial_tag_source": "default",
+    "external_mode_source": "spec"
+  },
+  "schema": {
+    "journal": "1.2",
+    "summary": "1.2"
+  },
+  "engine_version": "CrapsSim-Control",
+  "output_paths": {
+    "journal": "/workspace/Crapssim-control/baselines/phase6/final/decision_journal.jsonl",
+    "report": "/workspace/Crapssim-control/baselines/phase6/final/report.json",
+    "manifest": "/workspace/Crapssim-control/baselines/phase6/final/manifest.json",
+    "command_tape": "/workspace/Crapssim-control/baselines/phase6/final/command_tape.jsonl",
+    "journal_csv": "/workspace/Crapssim-control/export/journal.csv"
+  },
+  "integrations": {
+    "webhook": {
+      "enabled": true,
+      "url_present": true,
+      "timeout": 2.0
+    }
+  },
+  "evo": {
+    "enabled": false,
+    "trial_tag": null
+  },
+  "ui": {
+    "report_url": null,
+    "journal_url": null
+  }
+}

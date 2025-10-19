@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import asdict, is_dataclass
 from typing import Any, Deque, Dict, List, Optional, Tuple
 import json
+import logging
 from pathlib import Path
 import platform
 import shutil
@@ -38,6 +39,8 @@ from .spec_validation import VALIDATION_ENGINE_VERSION
 from .analytics.tracker import Tracker
 from .analytics.types import HandCtx, RollCtx, SessionCtx
 from .manifest import generate_manifest
+
+logger = logging.getLogger("CSC.Controller")
 from .schemas import JOURNAL_SCHEMA_VERSION, SUMMARY_SCHEMA_VERSION
 from .integrations.hooks import Outbound
 from .integrations.evo_hooks import EvoBridge
@@ -291,6 +294,7 @@ class ControlStrategy:
         # P6C1/P6C4: External command channel with backpressure limits
         limits_cfg = self.config.get("run.external.limits", None)
         self.command_queue = CommandQueue(limits_cfg)
+        self.command_queue.add_rejection_handler(self._on_command_rejection)
         self._api_thread: Optional[threading.Thread] = None
         self._httpd = None
         http_enabled_cfg = bool(self.config.get("run.http_commands.enabled", True))
@@ -310,13 +314,19 @@ class ControlStrategy:
                 try:
                     import uvicorn
 
+                    def _run_uvicorn() -> None:
+                        try:
+                            uvicorn.run(
+                                _app,
+                                host="127.0.0.1",
+                                port=8089,
+                                log_level="warning",
+                            )
+                        except BaseException:
+                            return
+
                     self._api_thread = threading.Thread(
-                        target=lambda: uvicorn.run(
-                            _app,
-                            host="127.0.0.1",
-                            port=8089,
-                            log_level="warning",
-                        ),
+                        target=_run_uvicorn,
                         name="csc-external-api",
                         daemon=True,
                     )
@@ -538,9 +548,9 @@ class ControlStrategy:
         path = self._command_tape_path
         if not path:
             return
+        records: List[Dict[str, Any]] = []
         try:
             with open(path, "r", encoding="utf-8") as f:
-                records = []
                 for line in f:
                     line = line.strip()
                     if not line:
@@ -556,7 +566,29 @@ class ControlStrategy:
                     records.append(data)
         except Exception:
             return
-        records.sort(key=lambda item: item.get("ts", 0.0))
+
+        def _num(val: Any) -> Optional[float]:
+            if isinstance(val, (int, float)):
+                return float(val)
+            if isinstance(val, str):
+                try:
+                    return float(val)
+                except Exception:
+                    return None
+            return None
+
+        records.sort(
+            key=lambda item: (
+                0 if _num(item.get("journal_seq")) is not None else 1,
+                _num(item.get("journal_seq")) or 0.0,
+                0 if _num(item.get("hand_id")) is not None else 1,
+                _num(item.get("hand_id")) or 0.0,
+                0 if _num(item.get("roll_in_hand")) is not None else 1,
+                _num(item.get("roll_in_hand")) or 0.0,
+                _num(item.get("ts")) or 0.0,
+            )
+        )
+
         for record in records:
             self._replay_commands.append(record)
         if records:
@@ -572,18 +604,39 @@ class ControlStrategy:
             correlation_id = str(corr)
         else:
             correlation_id = f"replay-{int(time.time()*1000)}-{len(self._replay_commands)}"
+        rejection_reason = payload.get("rejection_reason")
+        executed_flag = payload.get("executed")
+        if executed_flag is False and rejection_reason:
+            command = {
+                "run_id": self.run_id,
+                "action": str(payload.get("action", "")),
+                "args": payload.get("args", {}) or {},
+                "source": str(payload.get("source", "replay")),
+                "correlation_id": correlation_id,
+            }
+            try:
+                stats = getattr(self, "command_queue", None)
+                if stats is not None:
+                    stats.stats["rejected"][str(rejection_reason)] += 1
+            except Exception:
+                pass
+            self._on_command_rejection(
+                {
+                    "source": command["source"],
+                    "reason": str(rejection_reason),
+                    "command": command,
+                }
+            )
+            return
         command = {
             "run_id": self.run_id,
             "action": str(payload.get("action", "")),
             "args": payload.get("args", {}) or {},
             "source": str(payload.get("source", "replay")),
             "correlation_id": correlation_id,
+            "_csc_replay": True,
         }
-        ok, _reason = self.command_queue.enqueue(command)
-        if not ok:
-            unique_id = f"{correlation_id}-{int(time.time()*1000)}"
-            command["correlation_id"] = unique_id
-            self.command_queue.enqueue(command)
+        self.command_queue.enqueue(command)
 
     def _inject_replay_commands(self, tracker: Optional[Tracker]) -> None:
         if self.external_mode != "replay":
@@ -595,8 +648,6 @@ class ControlStrategy:
             hand_target = entry.get("hand_id")
             roll_target = entry.get("roll_in_hand")
             if hand_target is not None and current_hand is not None and hand_target > current_hand:
-                break
-            if roll_target is not None and current_roll is not None and roll_target > current_roll:
                 break
             self._replay_commands.popleft()
             self._enqueue_replay_command(entry)
@@ -631,6 +682,52 @@ class ControlStrategy:
             roll_in_hand=roll_in_hand,
             seq=seq,
         )
+
+    def _on_command_rejection(self, payload: Dict[str, Any]) -> None:
+        try:
+            if not isinstance(payload, dict):
+                return
+            command = payload.get("command") if isinstance(payload.get("command"), dict) else None
+            if not command:
+                return
+            run_id = command.get("run_id")
+            if not isinstance(run_id, str) or run_id != self.run_id:
+                return
+            source_label = str(payload.get("source") or command.get("source") or "external")
+            action = str(command.get("action") or "unknown")
+            raw_args = command.get("args")
+            args = raw_args if isinstance(raw_args, dict) else {}
+            corr = command.get("correlation_id")
+            reason = str(payload.get("reason") or "rejected")
+            tracker = getattr(self, "_tracker", None)
+            hand_id = getattr(tracker, "hand_id", None)
+            roll_in_hand = getattr(tracker, "roll_in_hand", None)
+            entry = self.journal.record(
+                {
+                    "run_id": self.run_id,
+                    "hand_id": hand_id,
+                    "roll_in_hand": roll_in_hand,
+                    "origin": f"external:{source_label}",
+                    "action": action,
+                    "args": args,
+                    "executed": False,
+                    "rejection_reason": reason,
+                    "correlation_id": corr,
+                }
+            )
+            self._append_command_tape(
+                source=source_label,
+                action=action,
+                args=args,
+                executed=False,
+                correlation_id=str(corr) if corr is not None else None,
+                rejection_reason=reason,
+                hand_id=entry.get("hand_id"),
+                roll_in_hand=entry.get("roll_in_hand"),
+                seq=entry.get("seq"),
+            )
+        except Exception:
+            logger.exception("Failed to record command rejection")
 
     def _webhook_base_payload(self) -> Dict[str, Any]:
         run_id = getattr(self, "_run_id", None)
@@ -1511,6 +1608,7 @@ class ControlStrategy:
             pending = list(self.command_queue.drain()) if hasattr(self, "command_queue") else []
             seen_this_roll = set()
             for cmd in pending:
+                cmd.pop("_csc_replay", None)
                 verb = cmd["action"]
                 raw_args = cmd.get("args")
                 args = raw_args if isinstance(raw_args, dict) else {}
