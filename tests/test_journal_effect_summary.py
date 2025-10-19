@@ -4,11 +4,11 @@ from crapssim_control.engine_adapter import VanillaAdapter
 
 def test_journal_includes_effect_summary(tmp_path):
     adapter = VanillaAdapter()
-    adapter.apply_action("press_and_collect", {})
+    adapter.apply_action("press", {"target": {"bet": "6"}, "amount": {"mode": "dollars", "value": 6}})
     journal = DecisionJournal(tmp_path / "journal.jsonl")
     record = {
         "rule_id": "r1",
-        "action": "press_and_collect",
+        "action": "press",
         "timestamp": 0,
         "effect_summary": adapter.last_effect,
     }

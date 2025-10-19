@@ -15,7 +15,7 @@ def is_legal_timing(state: Dict[str, Any], action: Dict[str, Any]) -> Tuple[bool
     """
     if state.get("resolving"):
         return False, "during_resolution"
-    if action["verb"] in {"switch_profile", "regress", "press_and_collect"}:
+    if action["verb"] in {"switch_profile", "regress", "press"}:
         # restrict some actions to come-out or post-resolution only
         if state.get("point_on") and state.get("roll_in_hand", 0) == 1:
             return False, "point_comeout_only"
@@ -78,16 +78,40 @@ class Regress(BaseAction):
         return {"verb": "regress", "pattern": pattern}
 
 
-class PressAndCollect(BaseAction):
-    """Press and collect pattern."""
+class Press(BaseAction):
+    """Increment a specific bet amount."""
 
     def execute(self, runtime, args):
         adapter = self._adapter(runtime)
         payload = self._args(args)
         if adapter and hasattr(adapter, "apply_action"):
-            return adapter.apply_action("press_and_collect", payload)
-        pattern = payload.get("pattern") or "default"
-        return {"verb": "press_and_collect", "pattern": pattern}
+            return adapter.apply_action("press", payload)
+        target = (payload.get("target") or {}).get("bet")
+        amount = (payload.get("amount") or {}).get("value")
+        return {"verb": "press", "target": {"bet": target}, "amount": amount}
+
+
+class SameBet(BaseAction):
+    """Hold the current bet amount."""
+
+    def execute(self, runtime, args):
+        adapter = self._adapter(runtime)
+        payload = self._args(args)
+        if adapter and hasattr(adapter, "apply_action"):
+            return adapter.apply_action("same_bet", payload)
+        target = (payload.get("target") or {}).get("bet")
+        return {"verb": "same_bet", "target": {"bet": target}}
+
+
+class ApplyPolicy(BaseAction):
+    """Apply a named policy through the adapter."""
+
+    def execute(self, runtime, args):
+        adapter = self._adapter(runtime)
+        payload = self._args(args)
+        if adapter and hasattr(adapter, "apply_action"):
+            return adapter.apply_action("apply_policy", payload)
+        return {"verb": "apply_policy", "policy": payload.get("policy")}
 
 
 class Martingale(BaseAction):
@@ -112,6 +136,8 @@ class Martingale(BaseAction):
 ACTIONS = {
     "switch_profile": SwitchProfile("switch_profile"),
     "regress": Regress("regress"),
-    "press_and_collect": PressAndCollect("press_and_collect"),
+    "press": Press("press"),
+    "same_bet": SameBet("same_bet"),
+    "apply_policy": ApplyPolicy("apply_policy"),
     "martingale": Martingale("martingale"),
 }

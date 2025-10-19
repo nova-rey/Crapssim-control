@@ -60,7 +60,14 @@ class CircuitBreaker:
         return time.time() >= self.tripped_until
 
 REQUIRED_KEYS = {"run_id", "action", "args", "source", "correlation_id"}
-ALLOWED_ACTIONS = {"switch_profile", "regress", "press_and_collect", "martingale"}
+ALLOWED_ACTIONS = {
+    "switch_profile",
+    "regress",
+    "press",
+    "same_bet",
+    "apply_policy",
+    "martingale",
+}
 
 
 class CommandQueue:

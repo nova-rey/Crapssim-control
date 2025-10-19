@@ -6,7 +6,8 @@ from crapssim_control.engine_adapter import VanillaAdapter
 
 def test_csv_includes_new_columns():
     v = VanillaAdapter()
-    v.apply_action("press_and_collect", {})
+    v.apply_action("press", {"target": {"bet": "6"}, "amount": {"mode": "dollars", "value": 6}})
+    v.apply_action("press", {"target": {"bet": "8"}, "amount": {"mode": "dollars", "value": 6}})
     snap = v.snapshot_state()
     fieldnames = ["roll_id", "bankroll_after", "bet_6", "bet_8"]
     data = {

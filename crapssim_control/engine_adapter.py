@@ -4,18 +4,52 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from importlib import import_module
 import warnings
-from typing import Any, Dict, Optional, Tuple, Type
+from typing import Any, Callable, Dict, Optional, Tuple, Type
 
 __all__ = [
     "EngineAdapter",
     "NullAdapter",
     "VanillaAdapter",
+    "VerbRegistry",
+    "PolicyRegistry",
     "CrapsSimAdapter",
     "EngineAttachResult",
     "check_engine_ready",
     "attach_engine",
     "resolve_engine_adapter",
 ]
+
+Effect = Dict[str, Any]
+VerbHandler = Callable[[Dict[str, Any], Dict[str, Any]], Effect]
+PolicyHandler = Callable[[Dict[str, Any], Dict[str, Any]], Effect]
+
+
+class VerbRegistry:
+    _handlers: Dict[str, VerbHandler] = {}
+
+    @classmethod
+    def register(cls, name: str, fn: VerbHandler) -> None:
+        cls._handlers[name] = fn
+
+    @classmethod
+    def get(cls, name: str) -> VerbHandler:
+        if name not in cls._handlers:
+            raise KeyError(f"unknown_verb:{name}")
+        return cls._handlers[name]
+
+
+class PolicyRegistry:
+    _handlers: Dict[str, PolicyHandler] = {}
+
+    @classmethod
+    def register(cls, name: str, fn: PolicyHandler) -> None:
+        cls._handlers[name] = fn
+
+    @classmethod
+    def get(cls, name: str) -> PolicyHandler:
+        if name not in cls._handlers:
+            raise KeyError(f"unknown_policy:{name}")
+        return cls._handlers[name]
 
 
 # --------------------------------------------------------------------------------------
@@ -139,14 +173,18 @@ class NullAdapter(EngineAdapter):
 
 
 class VanillaAdapter(EngineAdapter):
-    """Stub adapter for CrapsSim-Vanilla integration with deterministic action effects."""
+    """
+    Stub adapter for CrapsSim-Vanilla integration with seeding/snapshot support.
+    Now implements Verb + Policy framework, including apply_policy with martingale_v1.
+    """
 
-    def __init__(self) -> None:
+    def __init__(self):
         self.spec: Dict[str, Any] = {}
         self.seed: Optional[int] = None
         self.bankroll: float = 1000.0
-        self.bets: Dict[str, float] = {"6": 0.0, "8": 0.0}
+        self.bets: Dict[str, float] = {"6": 0.0, "8": 0.0, "pass": 0.0, "dc": 0.0}
         self.last_effect: Optional[Dict[str, Any]] = None
+        self.martingale_levels: Dict[str, int] = {}
 
     def set_seed(self, seed: Optional[int]) -> None:
         self.seed = seed
@@ -161,48 +199,57 @@ class VanillaAdapter(EngineAdapter):
         return {"result": "stub", "dice": dice, "seed": self.seed}
 
     def apply_action(self, verb: str, args: Dict[str, Any]) -> Dict[str, Any]:
-        payload = args if isinstance(args, dict) else {}
+        if verb == "martingale":
+            raw = dict(args or {})
+            policy = raw.get("policy")
+            alias_args = {k: raw.get(k) for k in ("step_key", "delta", "max_level") if k in raw}
+            if policy is None:
+                policy = {"name": "martingale_v1", "args": alias_args}
+            else:
+                policy = dict(policy)
+                policy.setdefault("name", "martingale_v1")
+                merged = dict(alias_args)
+                merged.update(policy.get("args") or {})
+                policy["args"] = merged
+            args = {"policy": policy}
+            verb = "apply_policy"
 
-        if verb == "switch_profile":
-            profile = (
-                payload.get("profile")
-                or payload.get("target")
-                or "default"
-            )
-            self.last_effect = {"verb": verb, "details": {"profile": profile}}
-            return self.last_effect
+        handler = VerbRegistry.get(verb)
+        effect = handler(self._effect_context(), args or {})
+        self._apply_effect(effect)
+        self.last_effect = effect
+        return effect
 
-        if verb == "regress":
-            deltas: Dict[str, str] = {}
-            for bet, amount in self.bets.items():
-                new_amount = amount / 2.0
-                delta = amount - new_amount
-                deltas[bet] = f"-{delta:.0f}"
-                self.bets[bet] = new_amount
-            delta_sum = -sum(float(val.strip("-")) for val in deltas.values()) if deltas else 0.0
-            bankroll_delta = abs(delta_sum)
-            self.bankroll += bankroll_delta
-            self.last_effect = {
-                "verb": verb,
-                "bets": deltas,
-                "bankroll_delta": bankroll_delta,
-            }
-            return self.last_effect
+    def _effect_context(self) -> Dict[str, Any]:
+        return {
+            "bankroll": self.bankroll,
+            "bets": dict(self.bets),
+            "seed": self.seed or 0,
+            "levels": dict(self.martingale_levels),
+        }
 
-        if verb == "press_and_collect":
-            deltas = {"6": "+6", "8": "+6"}
-            self.bets["6"] = self.bets.get("6", 0.0) + 6.0
-            self.bets["8"] = self.bets.get("8", 0.0) + 6.0
-            self.bankroll -= 12.0
-            self.last_effect = {
-                "verb": verb,
-                "bets": deltas,
-                "bankroll_delta": -12.0,
-            }
-            return self.last_effect
+    def _apply_effect(self, effect: Effect) -> None:
+        for bet, delta_str in (effect.get("bets") or {}).items():
+            try:
+                delta = float(delta_str)
+            except (TypeError, ValueError):
+                continue
+            self.bets[bet] = max(0.0, self.bets.get(bet, 0.0) + delta)
 
-        self.last_effect = {"verb": verb, "result": "unhandled"}
-        return self.last_effect
+        bankroll_delta = effect.get("bankroll_delta")
+        if bankroll_delta is not None:
+            try:
+                self.bankroll = float(self.bankroll + float(bankroll_delta))
+            except (TypeError, ValueError):
+                pass
+
+        if "level_update" in effect:
+            updates = effect.get("level_update") or {}
+            for key, level in updates.items():
+                try:
+                    self.martingale_levels[key] = int(level)
+                except (TypeError, ValueError):
+                    continue
 
     def snapshot_state(self) -> Dict[str, Any]:
         return {
@@ -212,9 +259,130 @@ class VanillaAdapter(EngineAdapter):
             "hand_id": 0,
             "roll_in_hand": 0,
             "rng_seed": self.seed or 0,
+            "levels": dict(self.martingale_levels),
             "last_effect": self.last_effect,
         }
 
+
+# ----------------- Built-in Verb Handlers -----------------
+
+
+def verb_press(snapshot: Dict[str, Any], args: Dict[str, Any]) -> Effect:
+    target = (args.get("target") or {}).get("bet")
+    amt = float((args.get("amount") or {}).get("value", 0))
+    if not target or amt <= 0:
+        raise ValueError("press_invalid_args")
+    return {
+        "schema": "1.0",
+        "verb": "press",
+        "target": {"bet": target},
+        "bets": {target: f"+{amt:.0f}"},
+        "bankroll_delta": -amt,
+        "policy": None,
+    }
+
+
+def verb_regress(snapshot: Dict[str, Any], args: Dict[str, Any]) -> Effect:
+    selector: list[str] = []
+    target = args.get("target") or {}
+    if "selector" in target:
+        selector = list(target.get("selector") or [])
+    elif "bet" in target:
+        selector = [target.get("bet")]  # type: ignore[list-item]
+    if not selector:
+        raise ValueError("regress_invalid_args")
+
+    bets: Dict[str, str] = {}
+    bankroll_delta = 0.0
+    for bet in selector:
+        current = float(snapshot.get("bets", {}).get(bet, 0.0))
+        take = current / 2.0
+        if take <= 0:
+            continue
+        bets[bet] = f"-{take:.0f}"
+        bankroll_delta += take
+
+    return {
+        "schema": "1.0",
+        "verb": "regress",
+        "target": {"selector": selector},
+        "bets": bets,
+        "bankroll_delta": bankroll_delta,
+        "policy": None,
+    }
+
+
+def verb_same_bet(snapshot: Dict[str, Any], args: Dict[str, Any]) -> Effect:
+    target = (args.get("target") or {}).get("bet")
+    return {
+        "schema": "1.0",
+        "verb": "same_bet",
+        "target": {"bet": target},
+        "bets": {},
+        "bankroll_delta": 0.0,
+        "policy": None,
+    }
+
+
+def verb_switch_profile(snapshot: Dict[str, Any], args: Dict[str, Any]) -> Effect:
+    name = (args.get("details") or {}).get("profile") or args.get("profile") or "default"
+    return {
+        "schema": "1.0",
+        "verb": "switch_profile",
+        "target": {"profile": name},
+        "bets": {},
+        "bankroll_delta": 0.0,
+        "policy": None,
+    }
+
+
+def verb_apply_policy(snapshot: Dict[str, Any], args: Dict[str, Any]) -> Effect:
+    policy = args.get("policy") or {}
+    name = policy.get("name")
+    handler = PolicyRegistry.get(name)
+    effect = handler(snapshot, policy.get("args") or {})
+    effect.update({"schema": "1.0", "verb": "apply_policy", "policy": name})
+    return effect
+
+
+VerbRegistry.register("press", verb_press)
+VerbRegistry.register("regress", verb_regress)
+VerbRegistry.register("same_bet", verb_same_bet)
+VerbRegistry.register("switch_profile", verb_switch_profile)
+VerbRegistry.register("apply_policy", verb_apply_policy)
+
+
+# ----------------- Built-in Policy Handlers -----------------
+
+
+def pol_martingale_v1(snapshot: Dict[str, Any], args: Dict[str, Any]) -> Effect:
+    key = str(args.get("step_key", ""))
+    delta = float(args.get("delta", 0.0))
+    max_level = int(args.get("max_level", 1))
+    if not key or delta <= 0 or max_level < 1:
+        raise ValueError("martingale_invalid_args")
+
+    levels = dict(snapshot.get("levels") or {})
+    level = int(levels.get(key, 0)) + 1
+    if level > max_level:
+        level = 0
+
+    increment = delta * (level if level > 0 else 0)
+    bets: Dict[str, str] = {}
+    bankroll_delta = 0.0
+    if increment > 0:
+        bets[key] = f"+{increment:.0f}"
+        bankroll_delta = -increment
+
+    return {
+        "target": {"bet": key},
+        "bets": bets,
+        "bankroll_delta": bankroll_delta,
+        "level_update": {key: level},
+    }
+
+
+PolicyRegistry.register("martingale_v1", pol_martingale_v1)
 
 # --------------------------------------------------------------------------------------
 # CrapsSim bridge (ported from legacy adapter, refit for EngineAdapter ABC)

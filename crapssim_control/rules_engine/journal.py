@@ -81,7 +81,13 @@ class DecisionJournal:
 
     # --- LOGGING -------------------------------------------------------------
 
-    def record(self, entry: Dict[str, Any], *, timestamp: Optional[float] = None) -> Dict[str, Any]:
+    def record(
+        self,
+        entry: Dict[str, Any],
+        *,
+        timestamp: Optional[float] = None,
+        controller: Optional[Any] = None,
+    ) -> Dict[str, Any]:
         """Append a decision record as JSON."""
         normalized = dict(entry or {})
         self._seq += 1
@@ -91,6 +97,11 @@ class DecisionJournal:
         if timestamp is None:
             timestamp = time.time()
         normalized["timestamp"] = float(timestamp)
+        if controller and hasattr(controller, "adapter"):
+            adapter = getattr(controller, "adapter", None)
+            effect = getattr(adapter, "last_effect", None)
+            if effect and "effect_summary" not in normalized:
+                normalized["effect_summary"] = effect
         origin = normalized.get("origin")
         normalized["origin"] = str(origin) if origin is not None else "unknown"
         action = normalized.get("action")

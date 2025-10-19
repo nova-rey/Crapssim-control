@@ -695,7 +695,8 @@ class ControlStrategy:
                     "executed": False,
                     "rejection_reason": reason,
                     "correlation_id": corr,
-                }
+                },
+                controller=self,
             )
             self._append_command_tape(
                 source=source_label,
@@ -1669,7 +1670,7 @@ class ControlStrategy:
                     )
                     if outcome.get("circuit_breaker_reset"):
                         record["circuit_breaker_reset"] = True
-                    entry = self.journal.record(record)
+                    entry = self.journal.record(record, controller=self)
                     self._append_command_tape(
                         source=source_label,
                         action=verb,
