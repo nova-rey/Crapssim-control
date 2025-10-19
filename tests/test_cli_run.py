@@ -4,7 +4,6 @@ import subprocess
 import tempfile
 from pathlib import Path
 import importlib
-import inspect
 import pytest
 
 
@@ -43,11 +42,12 @@ def _engine_available() -> bool:
         return False
 
     try:
-        from crapssim_control.engine_adapter import EngineAdapter  # noqa: WPS433
+        from crapssim_control.engine_adapter import resolve_engine_adapter  # noqa: WPS433
     except Exception:
         return False
 
-    if inspect.isabstract(EngineAdapter):
+    adapter_cls, reason = resolve_engine_adapter()
+    if adapter_cls is None:
         return False
 
     has_player = hasattr(tbl, "Player") or _has_attr("crapssim.player", "Player")

@@ -618,10 +618,19 @@ def run(args: argparse.Namespace) -> int:
 
     # Attach engine
     try:
-        from crapssim_control.engine_adapter import EngineAdapter  # lazy
-        if inspect.isabstract(EngineAdapter):
-            raise RuntimeError("engine adapter scaffolding not connected")
-        adapter = EngineAdapter()
+        from crapssim_control.engine_adapter import EngineAdapter, resolve_engine_adapter  # lazy
+
+        adapter_cls = None
+        reason = None
+        if "EngineAdapter" in locals() and not inspect.isabstract(EngineAdapter):
+            adapter_cls = EngineAdapter
+        else:
+            adapter_cls, reason = resolve_engine_adapter()
+
+        if adapter_cls is None:
+            raise RuntimeError(reason or "engine adapter scaffolding not connected")
+
+        adapter = adapter_cls()
         if not hasattr(adapter, "attach"):
             raise RuntimeError("engine adapter missing attach() implementation")
         attach_result = adapter.attach(spec)
