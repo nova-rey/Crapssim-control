@@ -19,7 +19,11 @@ import zipfile
 
 from crapssim_control.external.command_channel import CommandQueue
 from crapssim_control.external.command_tape import CommandTape
-from crapssim_control.external.http_api import HTTPServerHandle, start_http_server
+from crapssim_control.external.http_api import (
+    HTTPServerHandle,
+    attach_effect_summary,
+    start_http_server,
+)
 from crapssim_control.integrations.webhooks import WebhookPublisher
 from crapssim_control.rules_engine.actions import ACTIONS, is_legal_timing
 
@@ -1333,7 +1337,11 @@ class ControlStrategy:
         if j is None:
             return
         try:
-            j.write_actions(actions, snapshot=self._snapshot_for_event(event))
+            j.write_actions(
+                actions,
+                snapshot=self._snapshot_for_event(event),
+                controller=self,
+            )
         except Exception:
             self._journal_enabled = False
             self._journal = None
@@ -1706,9 +1714,7 @@ class ControlStrategy:
                     result = ACTIONS[verb].execute(self.__dict__, {"args": args})
                     executed = True
                     record["result"] = result
-                    adapter_effect = getattr(getattr(self, "adapter", None), "last_effect", None)
-                    if adapter_effect is not None:
-                        record["effect_summary"] = adapter_effect
+                    attach_effect_summary(record, self)
                 record["executed"] = executed
                 outcome = self.command_queue.record_outcome(
                     source_label,
@@ -2523,7 +2529,11 @@ class ControlStrategy:
                     id_="summary:run",
                     notes="end_of_run",
                 )
-                j.write_actions([summary_action], snapshot=summary_event)
+                j.write_actions(
+                    [summary_action],
+                    snapshot=summary_event,
+                    controller=self,
+                )
             except Exception:
                 pass
 

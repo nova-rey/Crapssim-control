@@ -77,6 +77,8 @@ All actions (verbs/policies) must return a uniform effect summary:
 
 **Validation:** CSC now validates `effect_summary` before journaling; invalid entries raise `ValueError`.
 
+> **Note:** External commands are validated with the same `effect_summary` schema (1.0) as rules-driven actions. Invalid effects are rejected before journaling.
+
 ### Deprecations
 - Legacy verb `"martingale"` → **deprecated**; prefer `{ "verb": "apply_policy", "policy": {"name": "martingale_v1", ...}}`.
 - NullAdapter compatibility shims (`attach`, `attach_cls`, `play`) are deprecated and will be removed in Phase 8·C0.

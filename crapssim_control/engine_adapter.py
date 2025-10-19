@@ -1,3 +1,7 @@
+"""Adapter contract & action grammar.
+See docs/engine_contract.md#effect-schema-10 for the uniform effect_summary schema.
+"""
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
