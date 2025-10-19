@@ -82,6 +82,20 @@ def _merge_extra(snapshot: Dict[str, Any], action: Dict[str, Any]) -> Any:
     return base if base else ""
 
 
+def write_roll_event(csv_writer, roll_summary: Dict[str, Any]):
+    row = {
+        "event_type": "roll_event",
+        "roll_total": roll_summary.get("total"),
+        "dice": roll_summary.get("dice"),
+        "bankroll_after": roll_summary.get("snapshot", {}).get("bankroll_after"),
+        "point_value": roll_summary.get("snapshot", {}).get("point_value"),
+        "pso": roll_summary.get("pso"),
+        "hand_id": roll_summary.get("snapshot", {}).get("hand_id"),
+        "roll_in_hand": roll_summary.get("snapshot", {}).get("roll_in_hand"),
+    }
+    csv_writer.writerow(row)
+
+
 def _write_csv_header(fh: TextIO, headers: List[str]) -> None:
     fh.write(f"# journal_schema_version: {JOURNAL_SCHEMA_VERSION}\n")
     fh.write(",".join(headers) + "\n")

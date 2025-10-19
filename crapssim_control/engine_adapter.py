@@ -7,6 +7,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from importlib import import_module
+import random
 import re
 import warnings
 from typing import Any, Callable, Dict, Mapping, Optional, Tuple, Type, TypedDict
@@ -270,6 +271,41 @@ def _normalize_snapshot(table_or_snapshot: Optional[Any], player: Optional[Any] 
             "odds": odds_norm,
         }
 
+        dice_raw = raw_snapshot.get("dice")
+        dice_norm: Optional[Tuple[int, int]] = None
+        if isinstance(dice_raw, (list, tuple)) and len(dice_raw) == 2:
+            try:
+                dice_norm = (int(dice_raw[0]), int(dice_raw[1]))
+            except Exception:
+                dice_norm = None
+        normalized["dice"] = dice_norm
+
+        total_raw = raw_snapshot.get("total")
+        try:
+            normalized["total"] = int(total_raw) if total_raw is not None else None
+        except Exception:
+            normalized["total"] = None
+
+        bankroll_after = raw_snapshot.get("bankroll_after")
+        try:
+            normalized["bankroll_after"] = (
+                float(bankroll_after)
+                if bankroll_after is not None
+                else bankroll_val
+            )
+        except (TypeError, ValueError):
+            normalized["bankroll_after"] = bankroll_val
+
+        travel_events = raw_snapshot.get("travel_events")
+        normalized["travel_events"] = (
+            {str(k): v for k, v in travel_events.items()}
+            if isinstance(travel_events, Mapping)
+            else {}
+        )
+
+        pso_flag = raw_snapshot.get("pso_flag")
+        normalized["pso_flag"] = bool(pso_flag) if pso_flag is not None else False
+
         if bet_types:
             normalized["bet_types"] = bet_types
 
@@ -418,6 +454,12 @@ def _normalize_snapshot(table_or_snapshot: Optional[Any], player: Optional[Any] 
         "dc_flat": dc_flat,
         "odds": odds_map,
     }
+
+    normalized["bankroll_after"] = normalized.get("bankroll", 0.0)
+    normalized["dice"] = None
+    normalized["total"] = None
+    normalized["travel_events"] = {}
+    normalized["pso_flag"] = False
 
     return normalized
 
@@ -589,6 +631,8 @@ class VanillaAdapter(EngineAdapter):
         self._player: Optional[Any] = None
         self._controller: Optional[Any] = None
         self._cs_bet_module: Optional[Any] = None
+        self._rng = random.Random()
+        self._last_snapshot: Dict[str, Any] = {}
 
         self._reset_stub_state()
 
@@ -645,10 +689,18 @@ class VanillaAdapter(EngineAdapter):
             },
         }
         self._snapshot_cache = _normalize_snapshot(base_snapshot)
+        self._last_snapshot = dict(self._snapshot_cache)
+        if self.seed is not None:
+            try:
+                self._rng.seed(int(self.seed))
+            except Exception:
+                pass
 
     def set_seed(self, seed: Optional[int]) -> None:
         coerced = self._coerce_seed(seed)
         self.seed = coerced
+        if coerced is not None:
+            self._rng.seed(int(coerced))
         engine = self._engine_adapter if self.live_engine else None
         if engine is None or coerced is None:
             return
@@ -717,14 +769,202 @@ class VanillaAdapter(EngineAdapter):
     def step_roll(
         self, dice: Optional[Tuple[int, int]] = None, seed: Optional[int] = None
     ) -> Dict[str, Any]:
+        coerced_seed = self._coerce_seed(seed) if seed is not None else None
         if seed is not None:
             self.set_seed(seed)
-        if self.live_engine and self._engine_adapter is not None:
-            raw = self._engine_adapter.step_roll(dice=dice, seed=seed)
-            snapshot = _normalize_snapshot(raw)
-            self._apply_normalized_snapshot(snapshot)
-            return snapshot
-        return {"result": "stub", "dice": dice, "seed": self.seed}
+
+        rng = self._rng if coerced_seed is None else random.Random(int(coerced_seed))
+        if dice is None:
+            d1 = rng.randint(1, 6)
+            d2 = rng.randint(1, 6)
+            if coerced_seed is None:
+                self._rng = rng
+        else:
+            d1, d2 = dice
+        total = int(d1) + int(d2)
+
+        if self.live_engine:
+            live_result = self._step_roll_live((int(d1), int(d2)), total)
+            if live_result is not None:
+                return live_result
+
+        return self._step_roll_stub((int(d1), int(d2)), total)
+
+    def _step_roll_live(
+        self, dice: Tuple[int, int], total: int
+    ) -> Optional[Dict[str, Any]]:
+        table = self._table or getattr(self._engine_adapter, "table", None)
+        if table is None:
+            return None
+
+        player = self._player
+        if player is None:
+            try:
+                players = getattr(table, "players", None)
+                if players:
+                    player = players[0]
+            except Exception:
+                player = None
+        if player is None:
+            controller = self._controller or getattr(self._engine_adapter, "controller_player", None)
+            candidate = getattr(controller, "player", None) if controller is not None else None
+            if candidate is not None:
+                player = candidate
+        if player is None:
+            return None
+        self._player = player
+
+        prev_snapshot = dict(self._last_snapshot or {})
+        if not prev_snapshot:
+            prev_snapshot = _normalize_snapshot(table, player)
+
+        try:
+            if hasattr(table, "roll"):
+                table.roll(dice[0], dice[1])
+            elif hasattr(table, "step_roll"):
+                table.step_roll(dice)
+            else:
+                return None
+        except Exception as exc:  # pragma: no cover - defensive guard
+            return {"status": "error", "code": "roll_failed", "reason": str(exc)}
+
+        post_snapshot = _normalize_snapshot(table, player)
+        if not post_snapshot:
+            post_snapshot = {}
+
+        post_snapshot["dice"] = dice
+        post_snapshot["total"] = total
+
+        travel_events: Dict[str, Any] = {}
+        prev_come = prev_snapshot.get("come_flat") or {}
+        prev_dc = prev_snapshot.get("dc_flat") or {}
+        now_come = post_snapshot.get("come_flat") or {}
+        now_dc = post_snapshot.get("dc_flat") or {}
+        for num in ("4", "5", "6", "8", "9", "10"):
+            try:
+                prev_c = float(prev_come.get(num, 0.0) or 0.0)
+                now_c = float(now_come.get(num, 0.0) or 0.0)
+            except (TypeError, ValueError):
+                prev_c, now_c = 0.0, 0.0
+            if prev_c <= 0 and now_c > 0:
+                travel_events[f"come_{num}"] = "moved"
+            try:
+                prev_d = float(prev_dc.get(num, 0.0) or 0.0)
+                now_d = float(now_dc.get(num, 0.0) or 0.0)
+            except (TypeError, ValueError):
+                prev_d, now_d = 0.0, 0.0
+            if prev_d <= 0 and now_d > 0:
+                travel_events[f"dc_{num}"] = "moved"
+        post_snapshot["travel_events"] = travel_events
+
+        pre_point = prev_snapshot.get("point_value")
+        pso = bool(pre_point and int(pre_point) in _BOX_NUMBERS and total == 7)
+        post_snapshot["pso_flag"] = pso
+
+        prev_hand = int(prev_snapshot.get("hand_id", 0) or 0)
+        prev_roll = int(prev_snapshot.get("roll_in_hand", 0) or 0)
+        post_hand = int(post_snapshot.get("hand_id", prev_hand) or prev_hand)
+        if post_hand == prev_hand and pso:
+            post_hand = prev_hand + 1
+        if post_hand != prev_hand:
+            roll_in_hand = 1
+        else:
+            roll_in_hand = prev_roll + 1
+        post_snapshot["hand_id"] = post_hand
+        post_snapshot["roll_in_hand"] = roll_in_hand
+
+        bankroll_val = None
+        for attr in ("bankroll", "chips", "total_player_cash", "_bankroll"):
+            if hasattr(player, attr):
+                try:
+                    bankroll_val = float(getattr(player, attr))
+                    break
+                except Exception:
+                    continue
+        post_snapshot["bankroll_after"] = bankroll_val if bankroll_val is not None else post_snapshot.get("bankroll", 0.0)
+
+        if pso:
+            post_snapshot["point_value"] = None
+            post_snapshot["point_on"] = False
+            post_snapshot["on_comeout"] = True
+
+        self._apply_normalized_snapshot(post_snapshot)
+        self._last_snapshot = dict(post_snapshot)
+
+        return {
+            "status": "ok",
+            "dice": dice,
+            "total": total,
+            "snapshot": post_snapshot,
+            "travel": travel_events,
+            "pso": pso,
+        }
+
+    def _step_roll_stub(
+        self, dice: Tuple[int, int], total: int
+    ) -> Dict[str, Any]:
+        prev_snapshot = dict(self._snapshot_cache or self._last_snapshot or {})
+        if not prev_snapshot:
+            prev_snapshot = dict(self._last_snapshot or {})
+        if not prev_snapshot:
+            prev_snapshot = {
+                "bankroll": self.bankroll,
+                "point_on": False,
+                "point_value": None,
+                "hand_id": 0,
+                "roll_in_hand": 0,
+                "come_flat": {str(n): 0.0 for n in _BOX_NUMBERS},
+                "dc_flat": {str(n): 0.0 for n in _BOX_NUMBERS},
+                "travel_events": {},
+            }
+
+        post_snapshot = dict(prev_snapshot)
+        post_snapshot["dice"] = dice
+        post_snapshot["total"] = total
+
+        pre_point = prev_snapshot.get("point_value")
+        point_val = int(pre_point) if pre_point not in (None, "", 0) else None
+        pso = bool(point_val and total == 7)
+        if point_val is None and total in _BOX_NUMBERS:
+            post_snapshot["point_value"] = total
+            post_snapshot["point_on"] = True
+            post_snapshot["on_comeout"] = False
+        elif point_val is not None:
+            if total == point_val:
+                post_snapshot["point_value"] = None
+                post_snapshot["point_on"] = False
+                post_snapshot["on_comeout"] = True
+            elif total == 7:
+                post_snapshot["point_value"] = None
+                post_snapshot["point_on"] = False
+                post_snapshot["on_comeout"] = True
+
+        prev_hand = int(prev_snapshot.get("hand_id", 0) or 0)
+        prev_roll = int(prev_snapshot.get("roll_in_hand", 0) or 0)
+        if pso or (point_val is not None and total in (point_val, 7)):
+            hand_id = prev_hand + 1
+            roll_in_hand = 1
+        else:
+            hand_id = prev_hand
+            roll_in_hand = prev_roll + 1 if prev_roll >= 0 else 1
+        post_snapshot["hand_id"] = hand_id
+        post_snapshot["roll_in_hand"] = roll_in_hand
+
+        post_snapshot["pso_flag"] = pso
+        post_snapshot["travel_events"] = {}
+        post_snapshot["bankroll_after"] = float(self.bankroll)
+        post_snapshot["bankroll"] = float(self.bankroll)
+
+        self._apply_normalized_snapshot(post_snapshot)
+
+        return {
+            "status": "ok",
+            "dice": dice,
+            "total": total,
+            "snapshot": post_snapshot,
+            "travel": {},
+            "pso": pso,
+        }
 
     def apply_action(self, verb: str, args: Dict[str, Any]) -> Dict[str, Any]:
         global _DEPRECATION_EMITTED
@@ -1472,6 +1712,7 @@ class VanillaAdapter(EngineAdapter):
             point_val = snapshot.get("point_value")
             self.on_comeout = point_val in (None, 0)
         self._snapshot_cache = dict(snapshot)
+        self._last_snapshot = dict(snapshot)
 
     def _effect_from_snapshot_delta(
         self,
