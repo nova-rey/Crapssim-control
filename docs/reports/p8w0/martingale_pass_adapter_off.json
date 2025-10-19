@@ -1,0 +1,64 @@
+{
+  "meta": {
+    "version": 0,
+    "name": "Martingale Pass (Golden Spec)"
+  },
+  "table": {
+    "bubble": false,
+    "level": 10,
+    "odds_policy": "3-4-5x"
+  },
+  "variables": {
+    "base_units": 10,
+    "units": 10,
+    "cap_mult": 4,
+    "mode": "Main"
+  },
+  "modes": {
+    "Main": {
+      "template": {
+        "pass": "units"
+      }
+    }
+  },
+  "rules": [
+    {
+      "on": {
+        "event": "comeout"
+      },
+      "do": [
+        "apply_template('Main')"
+      ]
+    },
+    {
+      "on": {
+        "event": "bet_resolved",
+        "bet": "pass",
+        "result": "lose"
+      },
+      "do": [
+        "units = min(units * 2, base_units * cap_mult)",
+        "apply_template('Main')"
+      ]
+    },
+    {
+      "on": {
+        "event": "bet_resolved",
+        "bet": "pass",
+        "result": "win"
+      },
+      "do": [
+        "units = base_units",
+        "apply_template('Main')"
+      ]
+    }
+  ],
+  "run": {
+    "rolls": 20,
+    "seed": 13579,
+    "adapter": {
+      "enabled": false,
+      "impl": "null"
+    }
+  }
+}
