@@ -159,6 +159,28 @@ run:
 When CrapsSim is not installed the adapter silently reverts to its stub behavior, ensuring
 replay parity and existing tests remain deterministic.
 
+## Full System Integration & Baseline (Phase 8 · C5)
+
+### simulate_rounds()
+End-to-end run that calls betting verbs, step_roll, and produces:
+- `baselines/baseline_run_journal.csv`
+- `baselines/baseline_run_summary.json`
+- `baselines/baseline_run_manifest.json`
+
+### replay_run()
+Reads a prior journal and replays dice sequence through the adapter, producing deterministic outcomes.
+
+### Schemas
+- `snapshot_schema: "2.0"`
+- `roll_event_schema: "1.0"`
+- `engine_contract_version: "1.0"`
+
+### Outputs
+- `summary.json`: hands, PSOs, bankroll stats, peak/drawdown.
+- `manifest.json`: metadata and file references.
+
+**Tag:** `v0.40.0-phase8-baseline`
+
 ## Line, Come/DC & Odds (Phase 8 · C3)
 
 ### Verbs

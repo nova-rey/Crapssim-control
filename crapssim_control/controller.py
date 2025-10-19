@@ -16,6 +16,8 @@ from types import SimpleNamespace
 from typing import Any, Deque, Dict, List, Optional, Tuple
 from uuid import uuid4
 import zipfile
+import csv
+import os
 
 from crapssim_control.external.command_channel import CommandQueue
 from crapssim_control.external.command_tape import CommandTape
@@ -2612,3 +2614,145 @@ class ControlStrategy:
             self.rolls_since_point = 0
             self.on_comeout = True
         return None
+
+
+def simulate_rounds(
+    adapter: Any,
+    rolls: int = 20,
+    seed: Optional[int] = 42,
+    outfile_prefix: str = "baseline_run",
+) -> Dict[str, Any]:
+    """Perform a full seeded run and produce journal, summary, and manifest artifacts."""
+
+    if seed is not None:
+        set_seed = getattr(adapter, "set_seed", None)
+        if callable(set_seed):
+            set_seed(seed)
+
+    os.makedirs("baselines", exist_ok=True)
+
+    csv_path = os.path.join("baselines", f"{outfile_prefix}_journal.csv")
+    summary_path = os.path.join("baselines", f"{outfile_prefix}_summary.json")
+    manifest_path = os.path.join("baselines", f"{outfile_prefix}_manifest.json")
+
+    results: List[Dict[str, Any]] = []
+    bankroll_track: List[float] = []
+
+    with open(csv_path, "w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=[
+                "roll",
+                "dice",
+                "total",
+                "bankroll_after",
+                "point_value",
+                "pso",
+            ],
+        )
+        writer.writeheader()
+
+        for idx in range(rolls):
+            roll_summary = adapter.step_roll()
+            snapshot = roll_summary.get("snapshot", {}) if isinstance(roll_summary, dict) else {}
+
+            dice_val = roll_summary.get("dice") if isinstance(roll_summary, dict) else None
+            dice_repr = "" if dice_val is None else str(dice_val)
+
+            bankroll_after = snapshot.get("bankroll_after", 0.0)
+            point_value = snapshot.get("point_value")
+
+            writer.writerow(
+                {
+                    "roll": idx + 1,
+                    "dice": dice_repr,
+                    "total": roll_summary.get("total") if isinstance(roll_summary, dict) else None,
+                    "bankroll_after": bankroll_after,
+                    "point_value": point_value,
+                    "pso": roll_summary.get("pso") if isinstance(roll_summary, dict) else None,
+                }
+            )
+
+            bankroll_track.append(float(bankroll_after))
+            if isinstance(roll_summary, dict):
+                results.append(roll_summary)
+
+    bankroll_start = bankroll_track[0] if bankroll_track else 0.0
+    bankroll_end = bankroll_track[-1] if bankroll_track else 0.0
+    bankroll_peak = max(bankroll_track) if bankroll_track else 0.0
+    bankroll_trough = min(bankroll_track) if bankroll_track else 0.0
+
+    hands = sum(1 for entry in results if entry.get("pso"))
+    psos = sum(1 for entry in results if entry.get("pso"))
+
+    summary: Dict[str, Any] = {
+        "rolls": rolls,
+        "hands": hands,
+        "psos": psos,
+        "bankroll_start": bankroll_start,
+        "bankroll_end": bankroll_end,
+        "bankroll_peak": bankroll_peak,
+        "bankroll_drawdown": bankroll_peak - bankroll_trough if bankroll_track else 0.0,
+        "snapshot_schema": "2.0",
+        "roll_event_schema": "1.0",
+        "engine_contract_version": "1.0",
+    }
+
+    with open(summary_path, "w", encoding="utf-8") as handle:
+        json.dump(summary, handle, indent=2)
+
+    manifest: Dict[str, Any] = {
+        "tag": "v0.40.0-phase8-baseline",
+        "rolls": rolls,
+        "seed": seed,
+        "files": {
+            "journal": csv_path,
+            "summary": os.path.basename(summary_path),
+        },
+    }
+
+    with open(manifest_path, "w", encoding="utf-8") as handle:
+        json.dump(manifest, handle, indent=2)
+
+    return {"summary": summary, "manifest": manifest}
+
+
+def replay_run(adapter: Any, journal_path: str) -> Dict[str, Any]:
+    """Replay dice sequence from a prior journal and return summary digest."""
+
+    if not os.path.exists(journal_path):
+        raise FileNotFoundError(journal_path)
+
+    dice_sequence: List[Tuple[int, int]] = []
+
+    with open(journal_path, newline="", encoding="utf-8") as handle:
+        reader = csv.DictReader(handle)
+        for row in reader:
+            dice_raw = (row.get("dice") or "").strip()
+            if not dice_raw:
+                continue
+            cleaned = dice_raw.strip("() ")
+            if not cleaned:
+                continue
+            parts = [part.strip() for part in cleaned.split(",") if part.strip()]
+            if len(parts) != 2:
+                raise ValueError(f"Invalid dice format in journal: {dice_raw}")
+            dice_pair = (int(parts[0]), int(parts[1]))
+            dice_sequence.append(dice_pair)
+
+    bankroll_track: List[float] = []
+
+    for dice in dice_sequence:
+        roll_summary = adapter.step_roll(dice=dice)
+        snapshot = roll_summary.get("snapshot", {}) if isinstance(roll_summary, dict) else {}
+        bankroll_after = snapshot.get("bankroll_after", 0.0)
+        bankroll_track.append(float(bankroll_after))
+
+    bankroll_start = bankroll_track[0] if bankroll_track else 0.0
+    bankroll_end = bankroll_track[-1] if bankroll_track else 0.0
+
+    return {
+        "bankroll_start": bankroll_start,
+        "bankroll_end": bankroll_end,
+        "rolls": len(dice_sequence),
+    }

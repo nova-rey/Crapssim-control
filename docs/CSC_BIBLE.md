@@ -467,4 +467,11 @@ Replay parity verified: identical snapshots for live vs replay given the same se
 - Added `/capabilities` endpoint to advertise verbs, policies, and effect schema ("1.0").
 - Adopted `tape_schema: "1.0"` for command tapes; replay parity verified against seeded runs.
 - Logged deprecation once for legacy `"martingale"` verb; use `apply_policy(martingale_v1)` going forward.
+
+### Checkpoint 5 — Full System Integration & Baseline
+
+Introduced simulate_rounds() for complete seeded engine runs and replay_run() for deterministic replays.  
+Baseline artifacts (journal, summary, manifest) confirm full end-to-end integrity across live and fallback engines.  
+Snapshot schema v2.0 and roll_event schema v1.0 frozen for downstream tools.  
+Release tag: v0.40.0-phase8-baseline.
 </details>
