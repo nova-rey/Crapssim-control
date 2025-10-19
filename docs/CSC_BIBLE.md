@@ -46,10 +46,16 @@ Wired Pass/Don’t Pass, Come/Dont Come, and Odds verbs under `run.adapter.live_
 Extended snapshot normalization to include line exposure, come/DC flats per point, and odds amounts for line and per-point comes/DC.  
 Fallback stubs mirror shapes when the engine is absent; effect summaries remain schema 1.0.
 
-**C4 — Work/Off & Table State Controls**
-Implement work/off toggles and table clearing.
+### Checkpoint 4 — Roll & Travel Synchronization
 
-**C5 — Roll Loop Integration + Dice Control**  
+Connected step_roll() to CrapsSim’s dice engine.  
+Roll outcomes now update bankroll, hand_id, roll counters, and PSO flags in real time.  
+Travel of Come/DC bets and point transitions are recorded in snapshot fields and roll_event logs for replay determinism.
+
+**C4 — Roll & Travel Synchronization**
+Wire CrapsSim roll execution, capture travel events, and align journaling.
+
+**C5 — Roll Loop Integration + Dice Control**
 Drive roll cycles and RNG seeding.
 
 **C6 — Snapshot Normalizer v2 (Comprehensive)**  

@@ -184,6 +184,34 @@ Snapshot Fields (additions)
 
 Notes: Engine enforces legality windows and increments; failures are surfaced via the adapter error surface (see Phase 8 · C7).
 
+## Roll & Travel Synchronization (Phase 8 · C4)
+
+### Method
+`step_roll(dice: Optional[Tuple[int,int]]=None, seed: Optional[int]=None) -> roll_summary`
+
+### Behavior
+- Rolls dice using CrapsSim engine if available, else RNG fallback.
+- Returns:
+  ```json
+  {
+    "status":"ok",
+    "dice":[3,4],
+    "total":7,
+    "snapshot":{...},
+    "travel":{"come_8":"moved"},
+    "pso":false
+  }
+  ```
+- Snapshot updates include:
+  - dice, total
+  - hand_id, roll_in_hand
+  - bankroll_after
+  - pso_flag
+  - travel_events: moved come/DC bets
+- CSV journaling appends one roll_event per call.
+
+Notes:  Deterministic replay is possible by passing fixed dice tuples.
+
 ## Box Bets — Place / Buy / Lay (Phase 8 · C2)
 
 New verbs (engine-backed when `live_engine: true`, with stub fallback otherwise):
