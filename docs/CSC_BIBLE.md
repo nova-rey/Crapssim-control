@@ -373,3 +373,9 @@ Introduced run.adapter.enabled and run.adapter.impl flags, updated controller wi
 
 VanillaAdapter now maps press_and_collect, regress, and switch_profile actions deterministically.  
 Decision journal records effect_summary, and CSV output includes bankroll and core bet fields for adapter-enabled runs.
+
+### Checkpoint 4 — Verb + Policy Framework & Replay Parity
+
+Added VerbRegistry and PolicyRegistry with a unified effect_summary schema.
+Implemented martingale_v1 as the first policy via apply_policy, with a temporary legacy alias "martingale".
+Replay parity verified: identical snapshots for live vs replay given the same seed and command tape.

@@ -30,14 +30,27 @@ def test_command_tape_replay_matches_live(tmp_path):
     live_ctrl = ControlStrategy(live_spec)
     live_ctrl.journal.path = str(tmp_path / "live_decision_journal.jsonl")
 
-    for idx, action in enumerate(("regress", "press_and_collect"), start=1):
+    commands = [
+        (
+            "regress",
+            {"target": {"selector": ["6", "8"]}},
+            "cid-1",
+        ),
+        (
+            "press",
+            {"target": {"bet": "6"}, "amount": {"mode": "dollars", "value": 6}},
+            "cid-2",
+        ),
+    ]
+
+    for action, args, corr in commands:
         ok, reason = live_ctrl.command_queue.enqueue(
             {
                 "run_id": live_ctrl.run_id,
                 "action": action,
-                "args": {"pattern": f"p{idx}"},
+                "args": args,
                 "source": "test",
-                "correlation_id": f"cid-{idx}",
+                "correlation_id": corr,
             }
         )
         assert ok, reason

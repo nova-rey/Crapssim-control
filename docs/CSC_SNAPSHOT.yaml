@@ -1,5 +1,5 @@
 phase: 7
-checkpoint: 3
-title: Action Mapping v1 (Press / Regress / Switch Profile)
-description: Implemented deterministic adapter actions and extended journaling/CSV for bankroll and bets.
+checkpoint: 4
+title: Verb + Policy Framework & Replay Parity
+description: Introduced Verb/Policy registries, implemented martingale_v1 via apply_policy, and validated deterministic live vs replay parity.
 status: active

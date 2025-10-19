@@ -11,8 +11,8 @@ def test_unified_journal_fields(tmp_path):
     writer.write(
         run_id="run-1",
         origin="rule:R1",
-        action="press_and_collect",
-        args={"pattern": "mid-stairs"},
+        action="apply_policy",
+        args={"policy": {"name": "martingale_v1"}},
         executed=True,
         extra={"hand_id": 1, "roll_in_hand": 1},
     )
