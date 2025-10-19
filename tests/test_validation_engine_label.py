@@ -61,6 +61,7 @@ def stub_engine_adapter(monkeypatch):
             return _StubAttachResult()
 
     module.EngineAdapter = EngineAdapter
+    module.resolve_engine_adapter = lambda: (EngineAdapter, None)
     monkeypatch.setitem(sys.modules, "crapssim_control.engine_adapter", module)
     return module
 

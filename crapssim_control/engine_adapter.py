@@ -1,9 +1,53 @@
 from __future__ import annotations
+
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
+from importlib import import_module
 import warnings
-from typing import Any, Dict, Tuple, Optional
+from typing import Any, Dict, Optional, Tuple, Type
+
+__all__ = [
+    "EngineAdapter",
+    "NullAdapter",
+    "CrapsSimAdapter",
+    "EngineAttachResult",
+    "check_engine_ready",
+    "attach_engine",
+    "resolve_engine_adapter",
+]
 
 
+# --------------------------------------------------------------------------------------
+# CrapsSim discovery (best-effort; tolerate missing engine at import time)
+# --------------------------------------------------------------------------------------
+_HAS_LEGACY_PLAYERS = False
+try:  # pragma: no cover - exercised in engine-present workflows
+    import crapssim.strategy as cs_strategy  # type: ignore
+except ModuleNotFoundError:  # pragma: no cover - engine not installed
+    cs_strategy = None  # type: ignore
+
+try:  # pragma: no cover - exercised in engine-present workflows
+    import crapssim.players as cs_players  # type: ignore
+    _HAS_LEGACY_PLAYERS = True
+except ModuleNotFoundError:  # pragma: no cover - engine not installed
+    cs_players = None  # type: ignore
+
+try:  # pragma: no cover - exercised in engine-present workflows
+    from crapssim.table import Table as _CsTable  # type: ignore
+except Exception:  # pragma: no cover - tolerate missing engine shapes
+    _CsTable = None  # type: ignore
+
+
+@dataclass
+class EngineAttachResult:
+    table: Any
+    controller_player: Any
+    meta: Dict[str, Any]
+
+
+# --------------------------------------------------------------------------------------
+# Engine contract
+# --------------------------------------------------------------------------------------
 class EngineAdapter(ABC):
     """Abstract base adapter defining the CrapsSim engine interface."""
 
@@ -13,7 +57,9 @@ class EngineAdapter(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def step_roll(self, dice: Optional[Tuple[int, int]] = None, seed: Optional[int] = None) -> Dict[str, Any]:
+    def step_roll(
+        self, dice: Optional[Tuple[int, int]] = None, seed: Optional[int] = None
+    ) -> Dict[str, Any]:
         """Advance one roll using fixed dice or RNG seed."""
         raise NotImplementedError
 
@@ -28,13 +74,25 @@ class EngineAdapter(ABC):
         raise NotImplementedError
 
 
+# --------------------------------------------------------------------------------------
+# Null (no-engine) implementation used for controller smoke paths
+# --------------------------------------------------------------------------------------
 class NullAdapter(EngineAdapter):
     """No-op adapter used when no engine is available."""
 
-    def start_session(self, spec: Dict[str, Any]) -> None:
-        return None
+    def __init__(self) -> None:
+        self._attach_result: Optional[EngineAttachResult] = None
 
-    def step_roll(self, dice: Optional[Tuple[int, int]] = None, seed: Optional[int] = None) -> Dict[str, Any]:
+    def start_session(self, spec: Dict[str, Any]) -> None:  # pragma: no cover - trivial
+        self._attach_result = EngineAttachResult(
+            table=None,
+            controller_player=None,
+            meta={"mode": "noop"},
+        )
+
+    def step_roll(
+        self, dice: Optional[Tuple[int, int]] = None, seed: Optional[int] = None
+    ) -> Dict[str, Any]:
         return {"result": "noop", "dice": dice, "seed": seed}
 
     def apply_action(self, verb: str, args: Dict[str, Any]) -> Dict[str, Any]:
@@ -52,10 +110,7 @@ class NullAdapter(EngineAdapter):
         }
 
     # --- Back-compat shims (TEMP: remove by P7·C3) ---
-    import warnings
-
-    def attach(self, spec: Dict[str, Any]):
-        """Legacy shim: alias to start_session(spec)."""
+    def attach(self, spec: Dict[str, Any]):  # pragma: no cover - compatibility shim
         warnings.warn(
             "NullAdapter.attach() is deprecated; use start_session(). Will be removed in P7·C3.",
             DeprecationWarning,
@@ -64,8 +119,7 @@ class NullAdapter(EngineAdapter):
         return {"attached": True, "mode": "noop"}
 
     @classmethod
-    def attach_cls(cls, spec: Dict[str, Any]):
-        """Legacy shim: mirrors prior classmethod attach API."""
+    def attach_cls(cls, spec: Dict[str, Any]):  # pragma: no cover - compatibility shim
         warnings.warn(
             "NullAdapter.attach_cls() is deprecated; use start_session() on an instance. Will be removed in P7·C3.",
             DeprecationWarning,
@@ -73,10 +127,598 @@ class NullAdapter(EngineAdapter):
         inst = cls()
         return inst.attach(spec)
 
-    def play(self, shooters: int = 1, rolls: int = 3) -> Dict[str, Any]:
-        """Legacy smoke-runner shim; does not require an engine."""
+    def play(self, shooters: int = 1, rolls: int = 3) -> Dict[str, Any]:  # pragma: no cover - shim
         warnings.warn(
             "NullAdapter.play() is deprecated; use controller-run paths. Will be removed in P7·C3.",
             DeprecationWarning,
         )
         return {"shooters": int(shooters), "rolls": int(rolls), "status": "noop"}
+
+
+# --------------------------------------------------------------------------------------
+# CrapsSim bridge (ported from legacy adapter, refit for EngineAdapter ABC)
+# --------------------------------------------------------------------------------------
+
+def check_engine_ready() -> Tuple[bool, Optional[str]]:
+    """Return (ok, reason) indicating whether the CrapsSim engine is usable."""
+
+    if _CsTable is None and cs_strategy is None and not _HAS_LEGACY_PLAYERS:
+        return False, "Could not import crapsim.table.Table or strategy/players modules"
+
+    tbl_mod = None
+    if _CsTable is not None:
+        try:
+            tbl_mod = import_module(_CsTable.__module__)
+        except Exception:
+            tbl_mod = None
+    if tbl_mod is None:
+        try:
+            tbl_mod = import_module("crapssim.table")
+        except Exception as exc:
+            return False, f"crapssim.table.Table unavailable: {exc}"
+
+    if not hasattr(tbl_mod, "Table"):
+        return False, "crapssim.table.Table unavailable"
+
+    has_player = hasattr(tbl_mod, "Player")
+    if not has_player:
+        try:
+            player_mod = import_module("crapssim.player")
+            has_player = hasattr(player_mod, "Player")
+        except Exception:
+            has_player = False
+    if not has_player:
+        return False, "crapssim Player class unavailable"
+
+    has_dice = hasattr(tbl_mod, "Dice")
+    if not has_dice:
+        try:
+            dice_mod = import_module("crapssim.dice")
+            has_dice = hasattr(dice_mod, "Dice")
+        except Exception:
+            has_dice = False
+    if not has_dice:
+        return False, "crapssim Dice class unavailable"
+
+    return True, None
+
+
+def _resolve_modern_strategy_base() -> Tuple[Optional[type], Optional[type]]:
+    if cs_strategy is None:
+        return None, None
+    StrategyBase = getattr(cs_strategy, "Strategy", None) or getattr(cs_strategy, "BaseStrategy", None)
+    SimplePass = getattr(cs_strategy, "PassLineStrategy", None)
+    return StrategyBase, SimplePass
+
+
+def _build_controller_strategy(spec: Dict[str, Any], strategy_base: type) -> Any:
+    import crapssim.bet as B  # type: ignore
+
+    PassLine = getattr(B, "PassLine", None)
+    Place = getattr(B, "Place", None)
+    Field = getattr(B, "Field", None)
+
+    def _point_value(table):
+        pt = getattr(table, "point", None)
+        if pt is not None and not isinstance(pt, (int, type(None))):
+            pt = getattr(pt, "value", getattr(pt, "number", None))
+        return pt
+
+    def _mk_pass(amount: int):
+        if not PassLine:
+            return None
+        try:
+            return PassLine(amount=amount)
+        except TypeError:
+            try:
+                return PassLine(amount)
+            except Exception:
+                return None
+
+    def _mk_field(amount: int):
+        if not Field:
+            return None
+        try:
+            return Field(amount=amount)
+        except TypeError:
+            try:
+                return Field(amount)
+            except Exception:
+                return None
+
+    def _mk_place(number: int, amount: int):
+        if not Place:
+            return None
+        for kw in ({"number": number, "amount": amount}, {"amount": amount, "number": number}):
+            try:
+                return Place(**kw)
+            except TypeError:
+                continue
+        for args in ((number, amount),):
+            try:
+                return Place(*args)
+            except Exception:
+                continue
+        return None
+
+    class ControlStrategy(strategy_base):  # type: ignore[misc]
+        def __init__(self, spec_dict: Dict[str, Any]):
+            try:
+                super().__init__()
+            except TypeError:
+                try:
+                    super().__init__(name="CSC-Control")
+                except TypeError:
+                    pass
+            self.name = "CSC-Control"
+            self._spec = spec_dict
+            self._armed = False
+            self._last_point = None
+
+        def _player_add_many(self, player, bets):
+            bets = [b for b in bets if b is not None]
+            if not bets:
+                return False
+            fn = getattr(player, "add_strategy_bets", None)
+            if callable(fn):
+                try:
+                    fn(bets)
+                    return True
+                except Exception:
+                    pass
+            ok = False
+            add1 = getattr(player, "add_bet", None)
+            if callable(add1):
+                for b in bets:
+                    try:
+                        add1(b)
+                        ok = True
+                    except Exception:
+                        pass
+                if ok:
+                    return True
+            try:
+                lst = getattr(player, "bets", None)
+                if isinstance(lst, list):
+                    lst.extend(b for b in bets if b is not None)
+                    return True
+            except Exception:
+                pass
+            return False
+
+        def _player_clear_bets(self, player) -> bool:
+            for name in ("clear_bets", "clear", "reset_bets"):
+                fn = getattr(player, name, None)
+                if callable(fn):
+                    try:
+                        fn()
+                        return True
+                    except Exception:
+                        continue
+            try:
+                bets = getattr(player, "bets", None)
+                if isinstance(bets, list):
+                    bets[:] = []
+                    return True
+            except Exception:
+                pass
+            return False
+
+        def update_bets(self, player) -> None:
+            table = getattr(player, "table", None)
+            point = _point_value(table) if table is not None else None
+            comeout = point in (None, 0)
+
+            if comeout or point != self._last_point:
+                self._armed = False
+                self._last_point = point
+                self._player_clear_bets(player)
+
+            if comeout:
+                self._player_add_many(player, [_mk_pass(10)])
+                return
+
+            if not self._armed:
+                self._player_add_many(
+                    player,
+                    [
+                        _mk_place(6, 12),
+                        _mk_place(8, 12),
+                        _mk_field(5),
+                    ],
+                )
+                self._armed = True
+
+        def completed(self, player) -> bool:  # pragma: no cover - interface shim
+            return False
+
+        def reset(self, *a, **k):  # pragma: no cover - compatibility
+            self._armed, self._last_point = False, None
+
+        def on_shooter_change(self, *a, **k):  # pragma: no cover - compatibility
+            self.reset()
+
+        def on_seven_out(self, *a, **k):  # pragma: no cover - compatibility
+            self.reset()
+
+        def on_comeout(self, *a, **k):  # pragma: no cover - compatibility
+            return
+
+        def on_point_established(self, *a, **k):  # pragma: no cover - compatibility
+            return
+
+        def on_point(self, *a, **k):  # pragma: no cover - compatibility
+            return
+
+        def on_roll(self, *a, **k):  # pragma: no cover - compatibility
+            return
+
+        def apply_template(self, *a, **k):  # pragma: no cover - compatibility
+            return
+
+        def clear_bets(self, *a, **k):  # pragma: no cover - compatibility
+            return
+
+    abstract = getattr(strategy_base, "__abstractmethods__", set()) or set()
+    for name in abstract:
+        if not hasattr(ControlStrategy, name):
+            setattr(
+                ControlStrategy,
+                name,
+                (lambda *a, **k: False) if name == "completed" else (lambda *a, **k: None),
+            )
+
+    return ControlStrategy(spec)
+
+
+def _attach_modern(table: Any, spec: Dict[str, Any]) -> EngineAttachResult:
+    StrategyBase, _ = _resolve_modern_strategy_base()
+    if StrategyBase is None:
+        raise RuntimeError(
+            "CrapsSim ≥0.3.x detected but no Strategy base found. Expected crapssim.strategy.Strategy or .BaseStrategy."
+        )
+
+    controller_strategy = _build_controller_strategy(spec, StrategyBase)
+
+    bankroll = int(
+        spec.get("bankroll")
+        or spec.get("run", {}).get("bankroll")
+        or spec.get("table", {}).get("bankroll", 1000)
+    )
+
+    add_player = getattr(table, "add_player", None)
+    add_strategy = getattr(table, "add_strategy", None)
+
+    if callable(add_player):
+        attached = False
+        for kw_name in ("strategy", "bet_strategy"):
+            try:
+                add_player(bankroll=bankroll, **{kw_name: controller_strategy}, name="CSC-Control")
+                attached = True
+                break
+            except TypeError:
+                continue
+            except Exception:
+                pass
+        if not attached:
+            try:
+                add_player(bankroll=bankroll, strategy=controller_strategy)
+                attached = True
+            except Exception:
+                try:
+                    add_player(bankroll=bankroll, bet_strategy=controller_strategy)
+                    attached = True
+                except Exception:
+                    add_player(bankroll, controller_strategy, "CSC-Control")
+                    attached = True
+    elif callable(add_strategy):
+        try:
+            add_strategy(strategy=controller_strategy, name="CSC-Control")
+        except TypeError:
+            add_strategy(strategy=controller_strategy)
+    else:
+        raise RuntimeError("Table has neither add_player nor add_strategy.")
+
+    try:
+        players = getattr(table, "players", None)
+        p0 = players[0] if players else None
+        if p0 is None:
+            raise RuntimeError("No player attached after add_* call.")
+        set_br = getattr(p0, "set_bankroll", None)
+        if callable(set_br):
+            set_br(float(bankroll))
+        else:
+            for attr in ("bankroll", "total_player_cash", "chips", "_bankroll"):
+                if hasattr(p0, attr):
+                    try:
+                        setattr(p0, attr, float(bankroll))
+                    except Exception:
+                        pass
+    except Exception:
+        pass
+
+    return EngineAttachResult(
+        table=table,
+        controller_player=controller_strategy,
+        meta={"mode": "modern", "bankroll": bankroll},
+    )
+
+
+def _attach_legacy(table: Any, spec: Dict[str, Any]) -> EngineAttachResult:
+    if cs_players is None:
+        raise RuntimeError("Legacy players API requested but 'crapssim.players' is unavailable.")
+
+    BasePlayer = getattr(cs_players, "BasePlayer", None) or getattr(cs_players, "Player", None)
+    if BasePlayer is None:
+        raise RuntimeError("Could not find BasePlayer/Player in crapssim.players.")
+
+    class ControlPlayer(BasePlayer):  # type: ignore[misc]
+        def __init__(self, spec_dict: Dict[str, Any]):
+            super().__init__()
+            self._spec = spec_dict
+            self._state: Dict[str, Any] = {"mode": spec_dict.get("start_mode", "default")}
+
+        def on_comeout(self, table):
+            return
+
+        def on_point(self, table, point):
+            return
+
+        def on_roll(self, table, roll):
+            return
+
+        def on_seven_out(self, table):
+            return
+
+        def apply_template(self, table, template: Dict[str, Any]):
+            return
+
+        def clear_bets(self, table):
+            return
+
+    p = ControlPlayer(spec)
+    add_player = getattr(table, "add_player", None)
+    if callable(add_player):
+        try:
+            add_player(p)
+        except TypeError:
+            add_player(player=p)
+    else:
+        raise RuntimeError("Legacy attach failed: table has no add_player()")
+    return EngineAttachResult(table=table, controller_player=p, meta={"mode": "legacy"})
+
+
+def attach_engine(spec: Dict[str, Any]) -> EngineAttachResult:
+    ok, reason = check_engine_ready()
+    if not ok:
+        raise RuntimeError(reason or "Could not attach to CrapsSim: engine not installed.")
+
+    if _CsTable is not None:
+        try:
+            table = _CsTable()
+        except TypeError:
+            table = _CsTable()  # type: ignore[call-arg]
+    else:  # pragma: no cover - defensive fallback
+        class _ShimTable:
+            def __init__(self):
+                self.players = []
+
+            def add_player(self, *a, **k):
+                self.players.append(object())
+
+            def add_strategy(self, *a, **k):
+                return None
+
+        table = _ShimTable()
+
+    if cs_strategy is not None:
+        return _attach_modern(table, spec)
+    if _HAS_LEGACY_PLAYERS:
+        return _attach_legacy(table, spec)
+    raise RuntimeError(
+        "Could not attach to CrapsSim. Neither 'crapssim.strategy' (modern) nor 'crapssim.players' (legacy) is available."
+    )
+
+
+class CrapsSimAdapter(EngineAdapter):
+    """Concrete adapter that bridges CSC to a CrapsSim installation."""
+
+    def __init__(self) -> None:
+        self.table = None
+        self.controller_player = None
+        self.meta: Dict[str, Any] = {}
+        self._attach_result: Optional[EngineAttachResult] = None
+
+    # ----- EngineAdapter interface --------------------------------------------------
+    def start_session(self, spec: Dict[str, Any]) -> None:
+        result = attach_engine(spec)
+        self.table = result.table
+        self.controller_player = result.controller_player
+        self.meta = dict(result.meta or {})
+        self._attach_result = result
+
+    def step_roll(
+        self, dice: Optional[Tuple[int, int]] = None, seed: Optional[int] = None
+    ) -> Dict[str, Any]:
+        if self.table is None:
+            raise RuntimeError("start_session() must be called before step_roll().")
+        if seed is not None:
+            self.set_seed(seed)
+        self._drive_one_roll(self.table, dice)
+        return self.snapshot_state()
+
+    def apply_action(self, verb: str, args: Dict[str, Any]) -> Dict[str, Any]:
+        table = self.table
+        if table is None:
+            raise RuntimeError("start_session() must be called before apply_action().")
+
+        controller = getattr(table, "controller", None)
+        if controller is None:
+            players = getattr(table, "players", None)
+            controller = players[0] if players else None
+
+        fn = getattr(controller, "apply_action", None)
+        if callable(fn):
+            try:
+                return fn(verb, args)
+            except TypeError:
+                return fn(verb, **(args or {}))  # type: ignore[misc]
+            except Exception as exc:  # pragma: no cover - defensive
+                return {"result": "error", "error": str(exc)}
+
+        return {"result": "noop", "applied": verb, "args": dict(args)}
+
+    def snapshot_state(self) -> Dict[str, Any]:
+        table = self.table
+        if table is None:
+            return {
+                "bankroll": 0.0,
+                "point_on": False,
+                "point_value": None,
+                "bets": {},
+                "hand_id": 0,
+                "roll_in_hand": 0,
+                "rng_seed": None,
+            }
+
+        bankroll = None
+        players = getattr(table, "players", None)
+        primary = players[0] if players else None
+        if primary is not None:
+            for attr in ("bankroll", "total_player_cash", "chips", "_bankroll"):
+                if hasattr(primary, attr):
+                    bankroll = getattr(primary, attr)
+                    break
+
+        point = getattr(table, "point", None)
+        point_value = None
+        if point is not None:
+            point_value = point if isinstance(point, int) else getattr(point, "value", getattr(point, "number", None))
+        point_on = bool(point_value)
+
+        bets: Dict[str, Any] = {}
+        bet_list = getattr(primary, "bets", None)
+        if isinstance(bet_list, list):
+            for idx, bet in enumerate(bet_list):
+                amount = getattr(bet, "amount", None)
+                name = getattr(bet, "name", None) or getattr(bet, "__class__", type(bet)).__name__
+                bets[str(idx)] = {"name": str(name), "amount": float(amount) if amount is not None else None}
+
+        hand_id = getattr(table, "hand_id", 0)
+        roll_in_hand = getattr(table, "roll_in_hand", 0)
+
+        rng_seed = None
+        for attr in ("seed", "rng_seed", "_seed"):
+            if hasattr(table, attr):
+                rng_seed = getattr(table, attr)
+                break
+        if rng_seed is None:
+            dice = getattr(table, "dice", None) or getattr(table, "_dice", None)
+            rng_seed = getattr(dice, "seed", None) if dice is not None else None
+
+        return {
+            "bankroll": float(bankroll) if bankroll is not None else None,
+            "point_on": bool(point_on),
+            "point_value": int(point_value) if point_value is not None else None,
+            "bets": bets,
+            "hand_id": int(hand_id) if hand_id is not None else 0,
+            "roll_in_hand": int(roll_in_hand) if roll_in_hand is not None else 0,
+            "rng_seed": rng_seed,
+        }
+
+    # ----- Back-compat helpers ------------------------------------------------------
+    def attach(self, spec: Dict[str, Any]) -> EngineAttachResult:
+        self.start_session(spec)
+        assert self._attach_result is not None
+        return self._attach_result
+
+    @classmethod
+    def attach_cls(cls, spec: Dict[str, Any]) -> EngineAttachResult:
+        inst = cls()
+        return inst.attach(spec)
+
+    def set_seed(self, seed: int | None) -> None:
+        if seed is None:
+            return
+        table = self.table
+        if table is None:
+            return
+        try:
+            for meth in ("set_seed", "seed"):
+                fn = getattr(table, meth, None)
+                if callable(fn):
+                    fn(int(seed))
+                    return
+            for attr_name in ("rng", "random", "prng", "dice", "shooter"):
+                obj = getattr(table, attr_name, None)
+                if obj is None:
+                    continue
+                seed_fn = getattr(obj, "seed", None)
+                if callable(seed_fn):
+                    seed_fn(int(seed))
+                    return
+            meta = getattr(self, "meta", {}) or {}
+            reseed = meta.get("set_seed") if isinstance(meta, dict) else None
+            if callable(reseed):
+                reseed(int(seed))
+        except Exception:  # pragma: no cover - fail open
+            return
+
+    def play(self, shooters: int = 1, rolls: int = 3) -> Dict[str, Any]:
+        table = self.table
+        if table is None:
+            return {"shooters": shooters, "rolls": rolls, "status": "noop"}
+        for _ in range(max(1, int(rolls))):
+            self._drive_one_roll(table, None)
+        return {"shooters": int(shooters), "rolls": int(rolls), "status": "ok"}
+
+    # ----- Internal helpers --------------------------------------------------------
+    @staticmethod
+    def _drive_one_roll(table: Any, dice: Optional[Tuple[int, int]]) -> None:
+        if dice is not None:
+            process = getattr(table, "process_roll", None) or getattr(table, "on_roll", None)
+            if callable(process):
+                process(tuple(int(x) for x in dice))
+                return
+
+        roll_fn = getattr(table, "roll", None)
+        if callable(roll_fn):
+            roll_fn()
+            return
+
+        play_fn = getattr(table, "play", None)
+        if callable(play_fn):
+            play_fn(rolls=1)
+            return
+
+        run_fn = getattr(table, "run", None)
+        if callable(run_fn):
+            try:
+                run_fn(1)
+            except TypeError:
+                run_fn(rolls=1)
+            return
+
+        try:  # pragma: no cover - last-resort path
+            from crapssim.dice import Dice  # type: ignore
+
+            dice_obj = Dice()
+            process = getattr(table, "process_roll", None) or getattr(table, "on_roll", None)
+            if callable(process):
+                outcome = dice if dice is not None else dice_obj.roll()
+                process(outcome)
+                return
+        except Exception:
+            pass
+
+        raise RuntimeError("Could not advance roll: no compatible engine hooks found.")
+
+
+def resolve_engine_adapter() -> Tuple[Optional[Type[EngineAdapter]], Optional[str]]:
+    """Return (adapter_cls, reason) for the current environment."""
+
+    ok, reason = check_engine_ready()
+    if ok:
+        return CrapsSimAdapter, None
+    return None, reason
+
