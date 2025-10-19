@@ -24,6 +24,9 @@ VerbHandler = Callable[[Dict[str, Any], Dict[str, Any]], Effect]
 PolicyHandler = Callable[[Dict[str, Any], Dict[str, Any]], Effect]
 
 
+_DEPRECATION_EMITTED = False
+
+
 class VerbRegistry:
     _handlers: Dict[str, VerbHandler] = {}
 
@@ -199,18 +202,30 @@ class VanillaAdapter(EngineAdapter):
         return {"result": "stub", "dice": dice, "seed": self.seed}
 
     def apply_action(self, verb: str, args: Dict[str, Any]) -> Dict[str, Any]:
+        global _DEPRECATION_EMITTED
         if verb == "martingale":
-            raw = dict(args or {})
-            policy = raw.get("policy")
-            alias_args = {k: raw.get(k) for k in ("step_key", "delta", "max_level") if k in raw}
-            if policy is None:
-                policy = {"name": "martingale_v1", "args": alias_args}
-            else:
-                policy = dict(policy)
-                policy.setdefault("name", "martingale_v1")
-                merged = dict(alias_args)
-                merged.update(policy.get("args") or {})
-                policy["args"] = merged
+            if not _DEPRECATION_EMITTED:
+                warnings.warn(
+                    "verb 'martingale' is deprecated; use apply_policy(policy='martingale_v1')",
+                    DeprecationWarning,
+                )
+                _DEPRECATION_EMITTED = True
+            raw_args = dict(args or {})
+            policy = raw_args.get("policy")
+            if not isinstance(policy, dict):
+                policy = {"name": "martingale_v1"}
+            policy.setdefault("name", "martingale_v1")
+            alias_args = {
+                key: raw_args.get(key)
+                for key in ("step_key", "delta", "max_level")
+                if raw_args.get(key) is not None
+            }
+            existing_policy_args = dict(policy.get("args") or {})
+            for key, value in alias_args.items():
+                existing_policy_args.setdefault(key, value)
+            if alias_args or existing_policy_args:
+                policy["args"] = existing_policy_args
+            raw_args["policy"] = policy
             args = {"policy": policy}
             verb = "apply_policy"
 

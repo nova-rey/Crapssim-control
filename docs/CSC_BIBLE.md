@@ -379,3 +379,9 @@ Decision journal records effect_summary, and CSV output includes bankroll and co
 Added VerbRegistry and PolicyRegistry with a unified effect_summary schema.
 Implemented martingale_v1 as the first policy via apply_policy, with a temporary legacy alias "martingale".
 Replay parity verified: identical snapshots for live vs replay given the same seed and command tape.
+
+### Checkpoint 5 — Capabilities + Tape v2 + Replay Baselines
+
+- Added `/capabilities` endpoint to advertise verbs, policies, and effect schema ("1.0").
+- Adopted `tape_schema: "1.0"` for command tapes; replay parity verified against seeded runs.
+- Logged deprecation once for legacy `"martingale"` verb; use `apply_policy(martingale_v1)` going forward.

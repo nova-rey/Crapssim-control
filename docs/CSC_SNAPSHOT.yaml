@@ -1,5 +1,5 @@
 phase: 7
-checkpoint: 4
-title: Verb + Policy Framework & Replay Parity
-description: Introduced Verb/Policy registries, implemented martingale_v1 via apply_policy, and validated deterministic live vs replay parity.
+checkpoint: 5
+title: Capabilities + Tape v2 + Replay-Parity Baselines
+description: Expose verbs/policies/effect schema, adopt tape_schema v1.0, verify live–replay parity, and log deprecation for legacy martingale alias.
 status: active

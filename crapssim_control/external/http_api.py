@@ -16,9 +16,20 @@ from urllib import request as urllib_request
 from pathlib import Path
 
 from .command_channel import CommandQueue, ALLOWED_ACTIONS
+from crapssim_control.engine_adapter import VerbRegistry, PolicyRegistry
 
 
 logger = logging.getLogger("CSC.HTTP")
+
+
+def get_capabilities() -> Dict[str, Any]:
+    verbs = sorted(list(VerbRegistry._handlers.keys()))
+    policies = sorted(list(PolicyRegistry._handlers.keys()))
+    return {
+        "effect_schema": "1.0",
+        "verbs": verbs,
+        "policies": policies,
+    }
 
 
 def _load_snapshot_tag(snapshot_path: Optional[str | Path] = None) -> Optional[str]:
@@ -145,6 +156,10 @@ def create_app(
         tag_supplier=tag_supplier,
     )
 
+    @app.get("/capabilities")
+    def capabilities():
+        return get_capabilities()
+
     @app.post("/commands")
     async def post_commands(req: Request):
         body = await req.json()
@@ -215,6 +230,9 @@ def serve_commands(
                     200,
                     {"version": version_value, "build_hash": build_hash_value, "tag": tag_value},
                 )
+                return
+            if self.path == "/capabilities":
+                self._write_json(200, get_capabilities())
                 return
             self._write_json(404, {"status": "not_found"})
 
