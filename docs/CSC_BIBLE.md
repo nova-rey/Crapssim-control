@@ -363,3 +363,8 @@ Former Phases 7–9 have been renumbered to 8–10 (Web Dashboard MVP, Run Launc
 Introduced a documented engine contract and abstract adapter interface.
 NullAdapter created and wired into controller with no behavior changes.
 Verified through conformance tests that confirm method presence and expected types.
+
+### Checkpoint 2 — Vanilla Adapter Skeleton + Determinism Hook
+
+Added VanillaAdapter stub for CrapsSim-Vanilla integration with seeding and deterministic snapshot support.  
+Introduced run.adapter.enabled and run.adapter.impl flags, updated controller wiring, and folded in P7·C1 polish fixes.

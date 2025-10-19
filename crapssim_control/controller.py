@@ -34,7 +34,7 @@ from .config import (
     normalize_demo_fallbacks,
 )
 from .csv_journal import CSVJournal  # Per-event journaling
-from .engine_adapter import NullAdapter
+from .engine_adapter import NullAdapter, VanillaAdapter
 from .eval import evaluate, EvalError
 from .events import canonicalize_event, COMEOUT, POINT_ESTABLISHED, ROLL, SEVEN_OUT
 from .integrations.evo_hooks import EvoBridge
@@ -132,7 +132,19 @@ class ControlStrategy:
         self._command_tape: Optional[CommandTape] = None
         self._command_tape_path: Optional[str] = None
         self._replay_commands: Deque[Dict[str, Any]] = deque()
-        self.adapter = NullAdapter()  # P7C1: inert engine adapter placeholder
+        adapter_cfg: Dict[str, Any] = {}
+        if isinstance(spec, dict):
+            run_block = spec.get("run")
+            if isinstance(run_block, dict):
+                raw_adapter = run_block.get("adapter")
+                if isinstance(raw_adapter, dict):
+                    adapter_cfg = raw_adapter
+        adapter_enabled = bool(adapter_cfg.get("enabled", False))
+        adapter_impl = str(adapter_cfg.get("impl", "null") or "null")
+        if adapter_enabled and adapter_impl == "vanilla":
+            self.adapter = VanillaAdapter()
+        else:
+            self.adapter = NullAdapter()
         self.external_mode, self._external_mode_source = self._resolve_external_mode()
         self._command_tape_path = self._resolve_command_tape_path()
         if self.external_mode == "replay":
