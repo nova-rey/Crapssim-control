@@ -1,13 +1,6 @@
-phase: 6
-checkpoint: 5
-title: Baseline & Tag
-description: Self-contained live + replay baselines proving external control stability and determinism; diagnostics hardened; summary metrics added.
-status: complete
-tag: v0.35.0-phase6-external
-evidence:
-  baselines:
-    - baselines/phase6/C1
-    - baselines/phase6/C2
-    - baselines/phase6/C3
-    - baselines/phase6/C4
-    - baselines/phase6/final
+phase: 7
+checkpoint: 0
+title: Engine Contract & Vanilla Adapter
+description: Bridge CSC to a real craps engine through a stable contract; isolate engine internals for future flexibility.
+status: in_progress
+success_criteria: Deterministic adapter interface, modular swap capability, verified replay parity.
