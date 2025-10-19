@@ -66,6 +66,91 @@ VerbHandler = Callable[[Dict[str, Any], Dict[str, Any]], Effect]
 PolicyHandler = Callable[[Dict[str, Any], Dict[str, Any]], Effect]
 
 
+def _try_import_crapssim() -> Tuple[Optional[EngineAdapter], Optional[str]]:
+    """Instantiate the CrapsSim adapter when available."""
+
+    try:
+        adapter_cls, reason = resolve_engine_adapter()
+    except Exception as exc:  # pragma: no cover - defensive guard
+        return None, f"resolve_failed:{exc}"
+
+    if adapter_cls is None:
+        return None, reason
+
+    try:
+        return adapter_cls(), None
+    except Exception as exc:  # pragma: no cover - adapter construction errors
+        return None, f"instantiate_failed:{exc}"
+
+
+def _normalize_snapshot(raw_snapshot: Optional[Mapping[str, Any]]) -> Dict[str, Any]:
+    """Normalize arbitrary engine snapshots into CSC's canonical shape."""
+
+    raw_snapshot = raw_snapshot or {}
+    bankroll = raw_snapshot.get("bankroll")
+    try:
+        bankroll_val = float(bankroll) if bankroll is not None else 0.0
+    except (TypeError, ValueError):
+        bankroll_val = 0.0
+
+    point_value = raw_snapshot.get("point_value")
+    try:
+        point_val_norm = int(point_value) if point_value is not None else None
+    except (TypeError, ValueError):
+        point_val_norm = None
+
+    hand_id = raw_snapshot.get("hand_id")
+    try:
+        hand_id_norm = int(hand_id) if hand_id is not None else 0
+    except (TypeError, ValueError):
+        hand_id_norm = 0
+
+    roll_in_hand = raw_snapshot.get("roll_in_hand")
+    try:
+        roll_norm = int(roll_in_hand) if roll_in_hand is not None else 0
+    except (TypeError, ValueError):
+        roll_norm = 0
+
+    rng_seed = raw_snapshot.get("rng_seed")
+    try:
+        rng_seed_norm = int(rng_seed) if rng_seed is not None else 0
+    except (TypeError, ValueError):
+        rng_seed_norm = 0
+
+    bets_norm: Dict[str, float] = {}
+    bets_obj = raw_snapshot.get("bets")
+    if isinstance(bets_obj, Mapping):
+        for key, value in bets_obj.items():
+            amount = value
+            name = key
+            if isinstance(value, Mapping):
+                amount = value.get("amount")
+                name = value.get("name") or key
+            try:
+                bets_norm[str(name)] = float(amount) if amount is not None else 0.0
+            except (TypeError, ValueError):
+                continue
+
+    normalized = {
+        "bankroll": bankroll_val,
+        "point_on": bool(raw_snapshot.get("point_on", False)) or bool(point_val_norm),
+        "point_value": point_val_norm,
+        "bets": bets_norm,
+        "hand_id": hand_id_norm,
+        "roll_in_hand": roll_norm,
+        "rng_seed": rng_seed_norm,
+    }
+
+    if "levels" in raw_snapshot:
+        levels = raw_snapshot.get("levels")
+        if isinstance(levels, Mapping):
+            normalized["levels"] = {str(k): int(v) for k, v in levels.items() if isinstance(v, (int, float))}
+    if "last_effect" in raw_snapshot:
+        normalized["last_effect"] = raw_snapshot.get("last_effect")
+
+    return normalized
+
+
 _DEPRECATION_EMITTED = False
 
 
@@ -219,28 +304,100 @@ class NullAdapter(EngineAdapter):
 
 class VanillaAdapter(EngineAdapter):
     """
-    Stub adapter for CrapsSim-Vanilla integration with seeding/snapshot support.
-    Now implements Verb + Policy framework, including apply_policy with martingale_v1.
+    Adapter that defaults to deterministic stubs but can bridge to CrapsSim live engines.
     """
 
     def __init__(self):
         self.spec: Dict[str, Any] = {}
         self.seed: Optional[int] = None
+        self.live_engine: bool = False
+        self._engine_adapter: Optional[EngineAdapter] = None
+        self._engine_reason: Optional[str] = None
+        self._snapshot_cache: Dict[str, Any] = {}
+
+        self._reset_stub_state()
+
+    @staticmethod
+    def _coerce_seed(seed_raw: Any) -> Optional[int]:
+        if seed_raw is None or isinstance(seed_raw, bool):
+            return None
+        try:
+            return int(seed_raw)
+        except (TypeError, ValueError):
+            try:
+                return int(str(seed_raw).strip())
+            except Exception:
+                return None
+
+    def _reset_stub_state(self) -> None:
         self.bankroll: float = 1000.0
         self.bets: Dict[str, float] = {"6": 0.0, "8": 0.0, "pass": 0.0, "dc": 0.0}
         self.last_effect: Optional[Effect] = None
         self.martingale_levels: Dict[str, int] = {}
+        base_snapshot = {
+            "bankroll": self.bankroll,
+            "point_on": False,
+            "point_value": None,
+            "bets": dict(self.bets),
+            "hand_id": 0,
+            "roll_in_hand": 0,
+            "rng_seed": self.seed or 0,
+            "levels": dict(self.martingale_levels),
+            "last_effect": self.last_effect,
+        }
+        self._snapshot_cache = _normalize_snapshot(base_snapshot)
 
     def set_seed(self, seed: Optional[int]) -> None:
-        self.seed = seed
+        coerced = self._coerce_seed(seed)
+        self.seed = coerced
+        engine = self._engine_adapter if self.live_engine else None
+        if engine is None or coerced is None:
+            return
+        set_seed_fn = getattr(engine, "set_seed", None)
+        if callable(set_seed_fn):
+            try:
+                set_seed_fn(int(coerced))
+            except Exception:  # pragma: no cover - engine reseed best-effort
+                return
 
     def start_session(self, spec: Dict[str, Any]) -> None:
         self.spec = spec or {}
+        run_cfg = self.spec.get("run") if isinstance(self.spec, dict) else {}
+        if isinstance(run_cfg, dict):
+            run_seed = self._coerce_seed(run_cfg.get("seed"))
+            if run_seed is not None:
+                self.seed = run_seed
+        adapter_cfg = run_cfg.get("adapter") if isinstance(run_cfg, dict) else {}
+        live_requested = bool(adapter_cfg.get("live_engine")) if isinstance(adapter_cfg, dict) else False
+
+        self.live_engine = False
+        self._engine_adapter = None
+        self._engine_reason = None
+
+        if live_requested:
+            engine, reason = _try_import_crapssim()
+            if engine is not None:
+                self._engine_adapter = engine
+                self.live_engine = True
+                engine.start_session(self.spec)
+                self.set_seed(self.seed)
+                snapshot = _normalize_snapshot(engine.snapshot_state())
+                self._apply_normalized_snapshot(snapshot)
+                return
+            self._engine_reason = reason
+
+        self._reset_stub_state()
 
     def step_roll(
         self, dice: Optional[Tuple[int, int]] = None, seed: Optional[int] = None
     ) -> Dict[str, Any]:
-        self.seed = seed or self.seed
+        if seed is not None:
+            self.set_seed(seed)
+        if self.live_engine and self._engine_adapter is not None:
+            raw = self._engine_adapter.step_roll(dice=dice, seed=seed)
+            snapshot = _normalize_snapshot(raw)
+            self._apply_normalized_snapshot(snapshot)
+            return snapshot
         return {"result": "stub", "dice": dice, "seed": self.seed}
 
     def apply_action(self, verb: str, args: Dict[str, Any]) -> Dict[str, Any]:
@@ -270,6 +427,24 @@ class VanillaAdapter(EngineAdapter):
             raw_args["policy"] = policy
             args = {"policy": policy}
             verb = "apply_policy"
+
+        if self.live_engine and self._engine_adapter is not None and verb in {"press", "regress"}:
+            try:
+                action_args = args or {}
+                before = _normalize_snapshot(self._engine_adapter.snapshot_state())
+                result = self._engine_adapter.apply_action(verb, action_args)
+                after = _normalize_snapshot(self._engine_adapter.snapshot_state())
+                if isinstance(result, Mapping) and result.get("schema") == "1.0":
+                    effect = result  # type: ignore[assignment]
+                else:
+                    effect = self._effect_from_snapshot_delta(verb, action_args, before, after)
+                self._apply_normalized_snapshot(after)
+                self.last_effect = effect
+                return effect
+            except Exception:  # pragma: no cover - fail open to stub
+                warnings.warn(
+                    "live_engine_press_regress_failed:fallback_to_stub", RuntimeWarning
+                )
 
         handler = VerbRegistry.get(verb)
         effect = handler(self._effect_context(), args or {})
@@ -308,17 +483,113 @@ class VanillaAdapter(EngineAdapter):
                 except (TypeError, ValueError):
                     continue
 
+        self._snapshot_cache = _normalize_snapshot(
+            {
+                "bankroll": self.bankroll,
+                "bets": dict(self.bets),
+                "point_on": False,
+                "point_value": None,
+                "hand_id": 0,
+                "roll_in_hand": 0,
+                "rng_seed": self.seed or 0,
+                "levels": dict(self.martingale_levels),
+                "last_effect": self.last_effect,
+            }
+        )
+
+    def _apply_normalized_snapshot(self, snapshot: Dict[str, Any]) -> None:
+        self.bankroll = float(snapshot.get("bankroll", self.bankroll))
+        bets = snapshot.get("bets") or {}
+        if isinstance(bets, Mapping):
+            self.bets = {str(k): float(v) for k, v in bets.items()}
+        rng_seed = snapshot.get("rng_seed")
+        if isinstance(rng_seed, (int, float)):
+            self.seed = int(rng_seed)
+        levels = snapshot.get("levels")
+        if isinstance(levels, Mapping):
+            self.martingale_levels = {
+                str(k): int(v) for k, v in levels.items() if isinstance(v, (int, float))
+            }
+        elif self.live_engine:
+            self.martingale_levels = {}
+        last_effect = snapshot.get("last_effect")
+        if isinstance(last_effect, Mapping):
+            self.last_effect = last_effect  # type: ignore[assignment]
+        self._snapshot_cache = dict(snapshot)
+
+    def _effect_from_snapshot_delta(
+        self,
+        verb: str,
+        args: Dict[str, Any],
+        before: Dict[str, Any],
+        after: Dict[str, Any],
+    ) -> Effect:
+        bets_before = before.get("bets") or {}
+        bets_after = after.get("bets") or {}
+        deltas: Dict[str, str] = {}
+        if isinstance(bets_before, Mapping) and isinstance(bets_after, Mapping):
+            keys = set(str(k) for k in bets_before.keys()) | set(str(k) for k in bets_after.keys())
+            for bet in keys:
+                try:
+                    before_amt = float(bets_before.get(bet, 0.0) or 0.0)
+                except (TypeError, ValueError):
+                    before_amt = 0.0
+                try:
+                    after_amt = float(bets_after.get(bet, 0.0) or 0.0)
+                except (TypeError, ValueError):
+                    after_amt = before_amt
+                delta = after_amt - before_amt
+                if abs(delta) < 1e-6:
+                    continue
+                sign = "+" if delta >= 0 else ""
+                deltas[bet] = f"{sign}{delta:.0f}"
+
+        bankroll_before = before.get("bankroll") or 0.0
+        bankroll_after = after.get("bankroll") or 0.0
+        try:
+            bankroll_delta = float(bankroll_after) - float(bankroll_before)
+        except (TypeError, ValueError):
+            bankroll_delta = 0.0
+
+        target = args.get("target") if isinstance(args, Mapping) else {}
+
+        effect: Effect = {
+            "schema": "1.0",
+            "verb": verb,
+            "target": dict(target) if isinstance(target, Mapping) else {},
+            "bets": deltas,
+            "bankroll_delta": bankroll_delta,
+            "policy": None,
+        }
+        return effect
+
     def snapshot_state(self) -> Dict[str, Any]:
-        return {
+        if self.live_engine and self._engine_adapter is not None:
+            raw = self._engine_adapter.snapshot_state()
+            snapshot = _normalize_snapshot(raw)
+            if self.last_effect is not None:
+                snapshot["last_effect"] = self.last_effect
+            if self.martingale_levels:
+                snapshot["levels"] = dict(self.martingale_levels)
+            self._apply_normalized_snapshot(snapshot)
+            return snapshot
+
+        base_snapshot = {
             "bankroll": self.bankroll,
             "point_on": False,
+            "point_value": None,
             "bets": dict(self.bets),
             "hand_id": 0,
             "roll_in_hand": 0,
             "rng_seed": self.seed or 0,
-            "levels": dict(self.martingale_levels),
-            "last_effect": self.last_effect,
         }
+        snapshot = _normalize_snapshot(base_snapshot)
+        if self.martingale_levels:
+            snapshot["levels"] = dict(self.martingale_levels)
+        if self.last_effect is not None:
+            snapshot["last_effect"] = self.last_effect
+        self._snapshot_cache = dict(snapshot)
+        return snapshot
 
 
 # ----------------- Built-in Verb Handlers -----------------

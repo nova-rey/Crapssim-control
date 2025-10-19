@@ -1,5 +1,5 @@
 phase: 8
-checkpoint: 0
-title: Docs Kickoff & Roadmap Update
-description: Phase 8 focuses on engine plumbing and full control wiring. Prior planned phases are paused and marked as future proposed.
+checkpoint: 1
+title: CrapsSim Wiring (press/regress) + Snapshot Normalizer + Seed Handoff
+description: Press and regress verbs call CrapsSim when live_engine is true; snapshot normalized; seed handed off; stub fallback remains.
 status: active

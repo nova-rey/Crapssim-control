@@ -132,6 +132,33 @@ run:
 - When enabled=true and impl="vanilla", CSC uses VanillaAdapter for CrapsSim-Vanilla integration.
 - Seeds are recorded and passed to adapter instances for deterministic replay.
 
+## Live Engine Wiring (Phase 8)
+
+Phase 8 introduces an opt-in bridge between VanillaAdapter and a live CrapsSim engine. When
+`run.adapter.live_engine` is enabled and the CrapsSim package is importable, VanillaAdapter:
+
+- Instantiates the CrapsSim adapter discovered via `resolve_engine_adapter()`.
+- Forwards `run.seed` (or any explicit adapter seed) to CrapsSim’s RNG.
+- Normalizes the table/player snapshot emitted by the engine so controller analytics receive
+  consistent bankroll/bet fields.
+- Executes `press` and `regress` verbs through CrapsSim, computing effect deltas from the
+  engine’s before/after state.
+- Falls back to deterministic stub math when CrapsSim is unavailable or raises during wiring.
+
+Example configuration:
+
+```yaml
+run:
+  seed: 42
+  adapter:
+    enabled: true
+    impl: vanilla
+    live_engine: true
+```
+
+When CrapsSim is not installed the adapter silently reverts to its stub behavior, ensuring
+replay parity and existing tests remain deterministic.
+
 ## Legality Boundary
 
 CSC enforces timing, legality, and bet limits before calling the adapter.
