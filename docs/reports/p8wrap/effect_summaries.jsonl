@@ -1,7 +1,7 @@
-{"bankroll_delta": 0.0, "bets": {}, "policy": null, "schema": "1.0", "target": {"bet": "6"}, "verb": "press"}
-{"bankroll_delta": -12.0, "bets": {"8": "+12"}, "policy": null, "schema": "1.0", "target": {"bet": "8"}, "verb": "place_bet"}
-{"bankroll_delta": -10.0, "bets": {"pass": "+10"}, "policy": null, "schema": "1.0", "target": {}, "verb": "line_bet"}
-{"bankroll_delta": 0.0, "bets": {"odds_pass": "+20"}, "policy": null, "schema": "1.0", "target": {}, "verb": "set_odds"}
-{"bankroll_delta": -10.0, "bets": {"come": "+10"}, "policy": null, "schema": "1.0", "target": {}, "verb": "come_bet"}
-{"bankroll_delta": 0.0, "bets": {}, "policy": null, "schema": "1.0", "target": {}, "verb": "take_odds"}
-{"bankroll_delta": 10.0, "bets": {"pass": "-10"}, "policy": null, "schema": "1.0", "target": {}, "verb": "remove_line"}
+{"effect_summary": {"bankroll_delta": 0.0, "bets": {}, "policy": null, "schema": "1.0", "target": {"bet": "6"}, "verb": "press"}, "step": "press 6 $6"}
+{"effect_summary": {"bankroll_delta": -12.0, "bets": {"8": "+12"}, "policy": null, "schema": "1.0", "target": {"bet": "8"}, "verb": "place_bet"}, "step": "place_bet 8 $12"}
+{"effect_summary": {"bankroll_delta": -10.0, "bets": {"pass": "+10"}, "policy": null, "schema": "1.0", "target": {}, "verb": "line_bet"}, "step": "line_bet pass $10"}
+{"effect_summary": null, "engine_state": {"dice_total": 6, "point_value": 6}, "roll_summary": {"dice": [3, 3], "pso": false, "snapshot": {"bankroll": 978.0, "bankroll_after": 978.0, "bet_types": {"8": "place"}, "bets": {"10": 0.0, "4": 0.0, "5": 0.0, "6": 0.0, "8": 12.0, "9": 0.0, "dont_pass": 0.0, "pass": 10.0}, "come_flat": {"10": 0.0, "4": 0.0, "5": 0.0, "6": 0.0, "8": 0.0, "9": 0.0}, "dc_flat": {"10": 0.0, "4": 0.0, "5": 0.0, "6": 0.0, "8": 0.0, "9": 0.0}, "dice": [3, 3], "hand_id": 0, "odds": {"come": {"10": 0.0, "4": 0.0, "5": 0.0, "6": 0.0, "8": 0.0, "9": 0.0}, "dc": {"10": 0.0, "4": 0.0, "5": 0.0, "6": 0.0, "8": 0.0, "9": 0.0}, "dont_pass": 0.0, "pass": 0.0}, "on_comeout": false, "point_on": true, "point_value": 6, "pso_flag": false, "rng_seed": 0, "roll_in_hand": 1, "total": 6, "travel_events": {}}, "status": "ok", "total": 6, "travel": {}}, "step": "fixed_roll (3,3)"}
+{"effect_summary": {"bankroll_delta": -20.0, "bets": {"odds_pass": "+20"}, "policy": null, "schema": "1.0", "target": {}, "verb": "set_odds"}, "step": "set_odds pass $20"}
+{"effect_summary": {"bankroll_delta": 10.0, "bets": {"odds_pass": "-10"}, "policy": null, "schema": "1.0", "target": {}, "verb": "take_odds"}, "step": "take_odds pass $10"}
+{"effect_summary": {"bankroll_delta": 10.0, "bets": {"pass": "-10"}, "policy": null, "schema": "1.0", "target": {}, "verb": "remove_line"}, "step": "remove_line {}"}
