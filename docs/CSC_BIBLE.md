@@ -488,3 +488,9 @@ Initialized Phase 9, closed out Phase 8 baseline, and synchronized documentation
 - **C3:** ATS + Capability Truthfulness
 - **C4:** Error Surface Polish + Replay/Perf Sanity
 - **C5:** Docs & Examples Pack
+
+### Checkpoint 2 — One-Roll Props Integration
+
+Added verbs for classic single-roll propositions: Any7, AnyCraps, Yo, 2/3/12, C&E, and Hop.  
+They are placed before a roll, resolved on the next roll, and removed from the snapshot.  
+Journaling marks `one_roll: true` and includes `prop_family` for audit and replay clarity.

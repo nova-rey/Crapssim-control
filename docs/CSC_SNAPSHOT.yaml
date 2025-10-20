@@ -1,5 +1,5 @@
 phase: 9
-checkpoint: 1
-title: Come/DC Odds + Field + Hardways
-description: Integrated Come/DC odds, Field, and Hardways into verb and snapshot system with legality enforcement.
+checkpoint: 2
+title: One-Roll Props Integration
+description: Engine-backed Any7/AnyCraps/Yo/2/3/12/C&E/Hop verbs; one-roll lifecycle and snapshot 'props' bucket.
 status: active
