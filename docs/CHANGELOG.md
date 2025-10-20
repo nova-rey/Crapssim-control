@@ -1,10 +1,11 @@
-⸻
-
-CHANGELOG.md
-
 # Changelog
 
-All notable changes to this project will be documented here.
+## v0.40.0-phase8-baseline
+- Engine plumbing complete: live CrapsSim wiring for box/line/come/DC/odds under feature flag.
+- Roll loop integrated: `step_roll()` drives engine dice; travel/PSO captured.
+- Determinism: replay parity verified with fixed dice; seeded runs reproducible.
+- Schemas frozen: `snapshot_schema: "2.0"`, `roll_event_schema: "1.0"`, `engine_contract_version: "1.0"`.
+- Baseline artifacts produced via `simulate_rounds()` (generated locally; not committed).
 
 ## v0.35.0-phase6.5
 - Adapter contract and Verb+Policy grammar frozen
