@@ -468,3 +468,17 @@ Baseline artifacts (journal, summary, manifest) confirm full end-to-end integrit
 Snapshot schema v2.0 and roll_event schema v1.0 frozen for downstream tools.  
 Release tag: v0.40.0-phase8-baseline.
 </details>
+
+### Phase 9 — Vanilla Bet Surface Completion & Capability Truthfulness
+
+This phase expands the live-engine adapter to cover all remaining vanilla bet types, ensure legality windows match true craps rules, and make `/capabilities` reflect exactly what the engine supports.
+
+#### Checkpoint 0 — Repo Sync (Kickoff)
+Initialized Phase 9, closed out Phase 8 baseline, and synchronized documentation. No runtime changes were introduced.
+
+#### Upcoming Highlights
+- **C1:** Come/DC Odds + Field + Hardways
+- **C2:** One-Roll Props Integration
+- **C3:** ATS + Capability Truthfulness
+- **C4:** Error Surface Polish + Replay/Perf Sanity
+- **C5:** Docs & Examples Pack
