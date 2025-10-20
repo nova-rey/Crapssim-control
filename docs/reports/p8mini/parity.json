@@ -1,0 +1,6 @@
+{
+  "rolls": 8,
+  "bankroll_end_live": 1000.0,
+  "bankroll_end_replay": 1000.0,
+  "equal": true
+}

@@ -1,0 +1,9 @@
+{
+  "tag": "v0.40.0-phase8-baseline",
+  "rolls": 8,
+  "seed": 4242,
+  "files": {
+    "journal": "baselines/baseline_run_journal.csv",
+    "summary": "baseline_run_summary.json"
+  }
+}

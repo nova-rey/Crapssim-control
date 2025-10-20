@@ -1,0 +1,2 @@
+{"schema":"1.0","verb":"unknown","target":{"bet":"pass"},"bets":{},"bankroll_delta":0,"policy":"test-policy"}
+{"schema":"1.0","verb":"set_odds","target":{"bet":"pass"},"bets":{"pass":10},"bankroll_delta":-10,"policy":"test-policy"}

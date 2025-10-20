@@ -1,0 +1,12 @@
+{
+  "rolls": 8,
+  "hands": 2,
+  "psos": 2,
+  "bankroll_start": 1000.0,
+  "bankroll_end": 1000.0,
+  "bankroll_peak": 1000.0,
+  "bankroll_drawdown": 0.0,
+  "snapshot_schema": "2.0",
+  "roll_event_schema": "1.0",
+  "engine_contract_version": "1.0"
+}
