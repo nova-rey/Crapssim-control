@@ -1,0 +1,8 @@
+{
+  "rolls": 20,
+  "bankroll_end_live": 1000.0,
+  "bankroll_end_replay": 1000.0,
+  "digests_equal": true,
+  "digest_live": "9c93046948525a82e8bf0efb08e67afbc77940ee760d40fa969040e0946d0878",
+  "digest_replay": "9c93046948525a82e8bf0efb08e67afbc77940ee760d40fa969040e0946d0878"
+}

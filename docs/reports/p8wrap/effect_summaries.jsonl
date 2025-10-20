@@ -1,0 +1,7 @@
+{"bankroll_delta": 0.0, "bets": {}, "policy": null, "schema": "1.0", "target": {"bet": "6"}, "verb": "press"}
+{"bankroll_delta": -12.0, "bets": {"8": "+12"}, "policy": null, "schema": "1.0", "target": {"bet": "8"}, "verb": "place_bet"}
+{"bankroll_delta": -10.0, "bets": {"pass": "+10"}, "policy": null, "schema": "1.0", "target": {}, "verb": "line_bet"}
+{"bankroll_delta": 0.0, "bets": {"odds_pass": "+20"}, "policy": null, "schema": "1.0", "target": {}, "verb": "set_odds"}
+{"bankroll_delta": -10.0, "bets": {"come": "+10"}, "policy": null, "schema": "1.0", "target": {}, "verb": "come_bet"}
+{"bankroll_delta": 0.0, "bets": {}, "policy": null, "schema": "1.0", "target": {}, "verb": "take_odds"}
+{"bankroll_delta": 10.0, "bets": {"pass": "-10"}, "policy": null, "schema": "1.0", "target": {}, "verb": "remove_line"}

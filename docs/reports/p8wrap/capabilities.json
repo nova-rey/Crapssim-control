@@ -1,0 +1,29 @@
+{
+  "policies": [
+    "martingale_v1"
+  ],
+  "schema_versions": {
+    "effect": "1.0",
+    "tape": "1.0"
+  },
+  "verbs": [
+    "apply_policy",
+    "buy_bet",
+    "come_bet",
+    "dont_come_bet",
+    "lay_bet",
+    "line_bet",
+    "move_bet",
+    "place_bet",
+    "press",
+    "regress",
+    "remove_come",
+    "remove_dont_come",
+    "remove_line",
+    "same_bet",
+    "set_odds",
+    "switch_profile",
+    "take_down",
+    "take_odds"
+  ]
+}
