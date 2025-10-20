@@ -79,8 +79,15 @@ All actions (verbs/policies) must return a uniform effect summary:
 
 > **Note:** External commands are validated with the same `effect_summary` schema (1.0) as rules-driven actions. Invalid effects are rejected before journaling.
 
-> **Implementation note:**  
+> **Implementation note:**
 > All external command routes call a shared helper (`_validate_and_attach_effect`) which enforces `effect_summary` schema validation before journaling.
+
+### Release Note — v0.40.1-phase8.5-hotfix
+
+Effect summaries written to `docs/reports/p8wrap/effect_summaries.jsonl` now **always include `"verb"`** and use a stable key order:
+`["schema","verb","target","bets","bankroll_delta","policy","error","meta", ...extras]`.
+
+This improves log parsing, diff readability, and downstream tooling stability. No runtime behavior changes to engine plumbing.
 
 ### Deprecations
 - Legacy verb `"martingale"` → **deprecated**; prefer `{ "verb": "apply_policy", "policy": {"name": "martingale_v1", ...}}`.

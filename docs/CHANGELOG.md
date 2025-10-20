@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.40.1-phase8.5-hotfix
+- Stabilize effect summary logging: guarantee `"verb"` field present in every JSONL line.
+- Standardize key order for `effect_summaries.jsonl` to reduce noisy diffs and simplify parsing.
+- Doc note added under “Release Note — v0.40.1-phase8.5-hotfix”. No functional engine changes.
+
 ## v0.40.0-phase8-baseline
 - Engine plumbing complete: live CrapsSim wiring for box/line/come/DC/odds under feature flag.
 - Roll loop integrated: `step_roll()` drives engine dice; travel/PSO captured.

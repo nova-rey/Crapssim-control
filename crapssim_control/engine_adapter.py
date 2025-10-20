@@ -1347,6 +1347,12 @@ class VanillaAdapter(EngineAdapter):
             OddsDontCome = getattr(cs_bet, "OddsDontCome", None)
             OddsGeneric = getattr(cs_bet, "Odds", None)
 
+            if not any(
+                callable(cls)
+                for cls in (OddsPass, OddsDontPass, OddsCome, OddsDontCome, OddsGeneric)
+            ):
+                raise RuntimeError("engine_odds_unavailable")
+
             table_point = getattr(table, "point", None)
             if table_point is not None and not isinstance(table_point, (int, type(None))):
                 table_point = getattr(table_point, "value", getattr(table_point, "number", None))
@@ -1487,6 +1493,9 @@ class VanillaAdapter(EngineAdapter):
 
             bankroll_after = self._snap_bankroll()
             bankroll_delta += (bankroll_after - bankroll_before)
+
+            if amt_value > 0 and not bets_delta:
+                raise RuntimeError("engine_odds_unavailable")
 
         elif verb in ("remove_line", "remove_come", "remove_dont_come"):
             snap_now = self.snapshot_state()
