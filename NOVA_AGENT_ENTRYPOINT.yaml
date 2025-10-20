@@ -1,5 +1,5 @@
-current_phase: 8
-current_checkpoint: 5
-checkpoint_title: Full System Integration & Baseline
+current_phase: 9
+current_checkpoint: 0
+checkpoint_title: Phase 9 Kickoff (Repo Sync)
 allow_behavior_change: false
 notes: CSC_BIBLE.md edits must always be additive; roadmap file reflects current truth.

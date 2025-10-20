@@ -1,5 +1,5 @@
-phase: 8
-checkpoint: 5a
-title: Live Engine Wiring — Line/Come/Odds Hotfix
-description: Line/Come/odds verbs routed through engine; bankroll_delta from engine before/after; snapshot updated accordingly.
+phase: 9
+checkpoint: 0
+title: Phase 9 Kickoff (Repo Sync)
+description: Added Phase 9 skeleton, marked Phase 8 as complete. No code changes.
 status: active
