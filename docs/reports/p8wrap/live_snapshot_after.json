@@ -1,0 +1,73 @@
+{
+  "bankroll": 988.0,
+  "bankroll_after": 988.0,
+  "bet_types": {
+    "8": "place"
+  },
+  "bets": {
+    "10": 0.0,
+    "4": 0.0,
+    "5": 0.0,
+    "6": 0.0,
+    "8": 12.0,
+    "9": 0.0,
+    "dont_pass": 0.0,
+    "pass": 0.0
+  },
+  "come_flat": {
+    "10": 0.0,
+    "4": 0.0,
+    "5": 0.0,
+    "6": 0.0,
+    "8": 0.0,
+    "9": 0.0
+  },
+  "dc_flat": {
+    "10": 0.0,
+    "4": 0.0,
+    "5": 0.0,
+    "6": 0.0,
+    "8": 0.0,
+    "9": 0.0
+  },
+  "dice": null,
+  "hand_id": 0,
+  "last_effect": {
+    "bankroll_delta": 10.0,
+    "bets": {
+      "pass": "-10"
+    },
+    "policy": null,
+    "schema": "1.0",
+    "target": {},
+    "verb": "remove_line"
+  },
+  "odds": {
+    "come": {
+      "10": 0.0,
+      "4": 0.0,
+      "5": 0.0,
+      "6": 0.0,
+      "8": 0.0,
+      "9": 0.0
+    },
+    "dc": {
+      "10": 0.0,
+      "4": 0.0,
+      "5": 0.0,
+      "6": 0.0,
+      "8": 0.0,
+      "9": 0.0
+    },
+    "dont_pass": 0.0,
+    "pass": 0.0
+  },
+  "on_comeout": true,
+  "point_on": false,
+  "point_value": null,
+  "pso_flag": false,
+  "rng_seed": 0,
+  "roll_in_hand": 0,
+  "total": null,
+  "travel_events": {}
+}
