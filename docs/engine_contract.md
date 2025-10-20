@@ -270,3 +270,21 @@ The engine assumes received actions are valid.
 Optional future methods may include:
 	•	audit_state() for validation snapshots
 	•	metrics() for run telemetry
+
+## Baselines & Artifacts
+
+Baseline artifacts are **generated locally** by `simulate_rounds()` and are not committed:
+- `baselines/baseline_run_journal.csv`
+- `baselines/baseline_run_summary.json`
+- `baselines/baseline_run_manifest.json`
+
+> To regenerate:
+> ```
+> from crapssim_control.controller import simulate_rounds
+> simulate_rounds(adapter, rolls=20, seed=42)
+> ```
+
+Schemas (frozen at this release):
+- `snapshot_schema: "2.0"`
+- `roll_event_schema: "1.0"`
+- `engine_contract_version: "1.0"`

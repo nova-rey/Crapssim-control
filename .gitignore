@@ -15,16 +15,15 @@ build/
 *.egg-info/
 *.egg
 
-# Baselines & temp data
-baselines/_tmp/
+# Generated baseline artifacts (created by simulate_rounds)
+baselines/*
+!baselines/.keep
 
 # Default ignore CSV/JSON…
 *.csv
 *.json
-# …but keep example specs and baseline artifacts
+# …but keep example specs and docs reports
 !examples/*.json
-!baselines/**/*.csv
-!baselines/**/*.json
 !docs/reports/**/*.json
 
 # Editor / OS junk

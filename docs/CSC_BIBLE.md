@@ -58,23 +58,16 @@ Wire CrapsSim roll execution, capture travel events, and align journaling.
 **C5 — Roll Loop Integration + Dice Control**
 Drive roll cycles and RNG seeding.
 
-**C6 — Snapshot Normalizer v2 (Comprehensive)**  
-Unify state translation across bankroll, bets, odds, and rolls.
+### Phase 8 Review — Engine Plumbing & Baseline
 
-**C7 — Error Surface & Journaling Consistency**  
-Map engine exceptions to CSC errors; validate all journaled effects.
+Phase 8 consolidated the engine integration into five checkpoints:
+- C1–C3: wired core verbs (press/regress; place/buy/lay; line/come/DC/odds) under `run.adapter.live_engine: true`.
+- C4: connected `step_roll()` to CrapsSim; synchronized travel and PSO.
+- C5: established seeded baselines and replay parity; froze snapshot/roll_event schemas.
 
-**C8 — Replay Parity (Engine-backed) + Tape Additions**  
-Replay identical to live runs; optional dice tapes.
+Scope previously listed as P8·C6–C11 (work/off toggles, capability expansion, perf, deprecations) has been reclassified under **Future Proposed Phases** (Phase 9+).
 
-**C9 — Performance Pass & Memory Sniff**  
-Verify stable throughput and memory use.
 
-**C10 — Capability Expansion & Introspection Lock**  
-Advertise full verb/policy surface.
-
-**C11 — Deprecation Cleanup & Toggle Safety**  
-Remove legacy martingale alias; finalize flag controls.
 
 ---
 
