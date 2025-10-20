@@ -7,7 +7,16 @@ import json
 import os
 
 EFFECT_KEYS_ORDER = (
-    "schema", "verb", "target", "bets", "bankroll_delta", "policy", "error", "meta"
+    "schema",
+    "verb",
+    "target",
+    "bets",
+    "bets_delta",
+    "bankroll_delta",
+    "policy",
+    "one_roll",
+    "error",
+    "meta",
 )
 
 

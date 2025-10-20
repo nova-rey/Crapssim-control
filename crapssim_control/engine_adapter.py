@@ -10,7 +10,7 @@ from importlib import import_module
 import random
 import re
 import warnings
-from typing import Any, Callable, Dict, Mapping, Optional, Tuple, Type, TypedDict
+from typing import Any, Callable, Dict, Mapping, Optional, Tuple, Type, TypedDict, List
 
 __all__ = [
     "EngineAdapter",
@@ -24,6 +24,27 @@ __all__ = [
 
 
 _BOX_NUMBERS = (4, 5, 6, 8, 9, 10)
+
+try:  # pragma: no cover - optional engine dependency
+    import crapssim.bet as cs_bet  # type: ignore
+except Exception:  # pragma: no cover - tolerate missing engine
+    cs_bet = None  # type: ignore
+
+
+def _mk(cs_cls, *a, **k):
+    if not cs_cls:
+        return None
+    try:
+        return cs_cls(*a, **k)
+    except TypeError:
+        try:
+            return cs_cls(*a)
+        except Exception:
+            return None
+
+
+def _is_die(n):
+    return isinstance(n, int) and 1 <= n <= 6
 
 
 def _is_box_number(x) -> bool:
@@ -96,6 +117,48 @@ def _try_import_crapssim() -> Tuple[Optional[EngineAdapter], Optional[str]]:
 
 def _normalize_snapshot(table_or_snapshot: Optional[Any], player: Optional[Any] = None) -> Dict[str, Any]:
     """Normalize arbitrary engine snapshots into CSC's canonical shape."""
+
+    def _get_prop_intents(source_player: Optional[Any]) -> List[Mapping[str, Any]]:
+        if source_player is None:
+            return []
+        candidates: List[Any] = []
+        try:
+            strategy = getattr(source_player, "_strategy", None)
+        except Exception:
+            strategy = None
+        if strategy is not None:
+            candidates.append(strategy)
+        candidates.append(source_player)
+        for candidate in candidates:
+            if candidate is None:
+                continue
+            try:
+                intents = getattr(candidate, "_props_intent", None)
+            except Exception:
+                intents = None
+            if intents:
+                try:
+                    return list(intents)
+                except Exception:
+                    continue
+        try:
+            pending = getattr(source_player, "_csc_props_pending", None)
+        except Exception:
+            pending = None
+        if pending:
+            try:
+                return list(pending)
+            except Exception:
+                pass
+        adapter_ref = getattr(source_player, "_csc_adapter_ref", None)
+        if adapter_ref is not None:
+            try:
+                pending = getattr(adapter_ref, "_props_pending", None)
+                if pending:
+                    return list(pending)
+            except Exception:
+                return []
+        return []
 
     if isinstance(table_or_snapshot, Mapping) or table_or_snapshot is None:
         raw_snapshot: Mapping[str, Any] = table_or_snapshot or {}
@@ -330,6 +393,37 @@ def _normalize_snapshot(table_or_snapshot: Optional[Any], player: Optional[Any] 
         if "last_effect" in raw_snapshot:
             normalized["last_effect"] = raw_snapshot.get("last_effect")
 
+        props_bucket: Dict[str, float] = {}
+        for intent in _get_prop_intents(player)[-8:]:
+            if not isinstance(intent, Mapping):
+                continue
+            fam = str(intent.get("prop_family", intent.get("family", "prop")))
+            key = fam
+            if fam == "hop":
+                combo = intent.get("combo", "")
+                key = f"hop_{combo}" if combo else "hop"
+            try:
+                amt = float(intent.get("amount", 0.0) or 0.0)
+            except (TypeError, ValueError):
+                amt = 0.0
+            props_bucket[key] = amt
+        normalized["props"] = props_bucket
+
+        dice_pair = normalized.get("dice")
+        total_val = normalized.get("total")
+        last_roll: Dict[str, Any] = {}
+        if isinstance(dice_pair, (list, tuple)) and len(dice_pair) == 2:
+            try:
+                last_roll["dice"] = (int(dice_pair[0]), int(dice_pair[1]))
+            except Exception:
+                pass
+        if isinstance(total_val, (int, float)):
+            try:
+                last_roll["total"] = int(total_val)
+            except Exception:
+                pass
+        normalized["last_roll"] = last_roll if last_roll else {}
+
         return normalized
 
     table = table_or_snapshot
@@ -476,6 +570,25 @@ def _normalize_snapshot(table_or_snapshot: Optional[Any], player: Optional[Any] 
     normalized["total"] = None
     normalized["travel_events"] = {}
     normalized["pso_flag"] = False
+
+    props_bucket: Dict[str, float] = {}
+    for intent in _get_prop_intents(player)[-8:]:
+        if not isinstance(intent, Mapping):
+            continue
+        fam = str(intent.get("prop_family", intent.get("family", "prop")))
+        key = fam
+        if fam == "hop":
+            combo = intent.get("combo", "")
+            key = f"hop_{combo}" if combo else "hop"
+        try:
+            amt = float(intent.get("amount", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            amt = 0.0
+        props_bucket[key] = amt
+    normalized["props"] = props_bucket
+
+    last_roll: Dict[str, Any] = {}
+    normalized["last_roll"] = last_roll
 
     return normalized
 
@@ -649,6 +762,8 @@ class VanillaAdapter(EngineAdapter):
         self._cs_bet_module: Optional[Any] = None
         self._rng = random.Random()
         self._last_snapshot: Dict[str, Any] = {}
+        self._props_intent: List[Dict[str, Any]] = []
+        self._props_pending: List[Dict[str, Any]] = []
 
         self._reset_stub_state()
 
@@ -689,6 +804,8 @@ class VanillaAdapter(EngineAdapter):
         self.box_bet_types: Dict[str, str] = {}
         self.last_effect: Optional[Effect] = None
         self.martingale_levels: Dict[str, int] = {}
+        self._props_intent = []
+        self._props_pending = []
         base_snapshot = {
             "bankroll": self.bankroll,
             "point_on": False,
@@ -773,6 +890,7 @@ class VanillaAdapter(EngineAdapter):
                             self._player = candidate
                     except Exception:
                         pass
+                self._clear_prop_intents()
                 if self._cs_bet_module is None:
                     try:
                         import crapssim.bet as _cs_bet  # type: ignore
@@ -810,6 +928,70 @@ class VanillaAdapter(EngineAdapter):
                 return False
         return False
 
+    def _add_prop_bet(self, bet_obj) -> bool:
+        return self._cs_add_bet(bet_obj)
+
+    def _set_props_intent(self, intents: List[Dict[str, Any]]) -> None:
+        normalized: List[Dict[str, Any]] = []
+        for item in intents:
+            if isinstance(item, Mapping):
+                normalized.append({str(k): item[k] for k in item.keys()})
+            else:
+                try:
+                    normalized.append(dict(item))  # type: ignore[arg-type]
+                except Exception:
+                    continue
+        self._props_intent = normalized
+        self._props_pending = list(normalized)
+        player = self._cs_get_player()
+        targets: List[Any] = []
+        if player is not None:
+            strategy = getattr(player, "_strategy", None)
+            if strategy is not None:
+                targets.append(strategy)
+            targets.append(player)
+            try:
+                setattr(player, "_csc_adapter_ref", self)
+            except Exception:
+                pass
+        targets.append(self)
+        for target in targets:
+            if target is None:
+                continue
+            try:
+                setattr(target, "_props_intent", list(normalized))
+                setattr(target, "_csc_props_pending", list(normalized))
+            except Exception:
+                continue
+
+    def _clear_prop_intents(self) -> None:
+        self._set_props_intent([])
+
+    def _finalize_prop_cleanup(self, roll_result: Mapping[str, Any]) -> Mapping[str, Any]:
+        self._props_intent = []
+        self._props_pending = []
+        player = self._cs_get_player()
+        if player is not None:
+            for attr in ("_props_intent", "_csc_props_pending"):
+                try:
+                    setattr(player, attr, [])
+                except Exception:
+                    continue
+            try:
+                setattr(player, "_csc_adapter_ref", self)
+            except Exception:
+                pass
+        snapshot_payload = None
+        if isinstance(roll_result, Mapping):
+            snapshot_payload = roll_result.get("snapshot")
+        if isinstance(snapshot_payload, Mapping):
+            if not isinstance(snapshot_payload, dict):
+                snapshot_payload = dict(snapshot_payload)
+                if isinstance(roll_result, dict):
+                    roll_result["snapshot"] = snapshot_payload
+            snapshot_payload["props"] = {}
+        return roll_result
+
     def _snap_bankroll(self) -> float:
         snap = _normalize_snapshot(self._table, self._cs_get_player())
         return float(snap.get("bankroll", 0.0))
@@ -834,9 +1016,10 @@ class VanillaAdapter(EngineAdapter):
         if self.live_engine:
             live_result = self._step_roll_live((int(d1), int(d2)), total)
             if live_result is not None:
-                return live_result
+                return self._finalize_prop_cleanup(live_result)
 
-        return self._step_roll_stub((int(d1), int(d2)), total)
+        stub_result = self._step_roll_stub((int(d1), int(d2)), total)
+        return self._finalize_prop_cleanup(stub_result)
 
     def _step_roll_live(
         self, dice: Tuple[int, int], total: int
@@ -875,6 +1058,8 @@ class VanillaAdapter(EngineAdapter):
                 return None
         except Exception as exc:  # pragma: no cover - defensive guard
             return {"status": "error", "code": "roll_failed", "reason": str(exc)}
+
+        self._clear_prop_intents()
 
         post_snapshot = _normalize_snapshot(table, player)
         if not post_snapshot:
@@ -1060,6 +1245,14 @@ class VanillaAdapter(EngineAdapter):
             "remove_dont_come",
             "field_bet",
             "hardway_bet",
+            "any7_bet",
+            "anycraps_bet",
+            "yo_bet",
+            "craps2_bet",
+            "craps3_bet",
+            "craps12_bet",
+            "ce_bet",
+            "hop_bet",
         }
         if self.live_engine and self._engine_adapter is not None and verb in engine_verbs:
             try:
@@ -1142,6 +1335,7 @@ class VanillaAdapter(EngineAdapter):
 
         bankroll_delta = 0.0
         bets_delta: Dict[str, str] = {}
+        extra_effect: Dict[str, Any] = {}
 
         Place = getattr(cs_bet, "Place", None)
         Buy = getattr(cs_bet, "Buy", None)
@@ -1607,6 +1801,90 @@ class VanillaAdapter(EngineAdapter):
             if amount_val > 0 and number_val in (4, 6, 8, 10) and not placed:
                 raise RuntimeError("engine_hardway_unavailable")
 
+        elif verb in (
+            "any7_bet",
+            "anycraps_bet",
+            "yo_bet",
+            "craps2_bet",
+            "craps3_bet",
+            "craps12_bet",
+            "ce_bet",
+            "hop_bet",
+        ):
+            amt_arg = args.get("amount") if isinstance(args, Mapping) else {}
+            if isinstance(amt_arg, Mapping):
+                amt_val = amt_arg.get("value", amt_arg.get("amount", 0.0))
+            else:
+                amt_val = amt_arg
+            try:
+                amount = float(amt_val or 0.0)
+            except (TypeError, ValueError):
+                amount = 0.0
+            if amount <= 0:
+                raise ValueError("prop_bet_invalid_amount")
+
+            bankroll_before = self._snap_bankroll()
+            placed = False
+            meta_note: Dict[str, Any] = {}
+            bet_obj = None
+
+            if verb == "any7_bet":
+                bet_obj = _mk(getattr(cs_bet, "Any7", None), amount=amount) or _mk(getattr(cs_bet, "Any7", None), amount)
+                meta_note = {"prop_family": "any7"}
+            elif verb == "anycraps_bet":
+                bet_obj = _mk(getattr(cs_bet, "AnyCraps", None), amount=amount) or _mk(getattr(cs_bet, "AnyCraps", None), amount)
+                meta_note = {"prop_family": "any_craps"}
+            elif verb == "yo_bet":
+                bet_obj = _mk(getattr(cs_bet, "Yo", None), amount=amount) or _mk(getattr(cs_bet, "Yo", None), amount)
+                meta_note = {"prop_family": "yo"}
+            elif verb == "craps2_bet":
+                bet_obj = _mk(getattr(cs_bet, "Two", None), amount=amount) or _mk(getattr(cs_bet, "Two", None), amount)
+                meta_note = {"prop_family": "two"}
+            elif verb == "craps3_bet":
+                bet_obj = _mk(getattr(cs_bet, "Three", None), amount=amount) or _mk(getattr(cs_bet, "Three", None), amount)
+                meta_note = {"prop_family": "three"}
+            elif verb == "craps12_bet":
+                bet_obj = _mk(getattr(cs_bet, "Boxcars", None), amount=amount) or _mk(getattr(cs_bet, "Boxcars", None), amount)
+                meta_note = {"prop_family": "twelve"}
+            elif verb == "ce_bet":
+                bet_obj = _mk(getattr(cs_bet, "CAndE", None), amount=amount) or _mk(getattr(cs_bet, "CAndE", None), amount)
+                meta_note = {"prop_family": "c_and_e"}
+            elif verb == "hop_bet":
+                d1_raw = args.get("d1", args.get("die1", 0))
+                d2_raw = args.get("d2", args.get("die2", 0))
+                try:
+                    d1 = int(d1_raw)
+                    d2 = int(d2_raw)
+                except (TypeError, ValueError):
+                    d1, d2 = 0, 0
+                if not (_is_die(d1) and _is_die(d2)):
+                    raise ValueError("prop_bet_invalid_dice")
+                hop_cls = getattr(cs_bet, "Hop", None)
+                bet_obj = _mk(hop_cls, result=(d1, d2), amount=amount) or _mk(hop_cls, (d1, d2), amount)
+                meta_note = {"prop_family": "hop", "combo": f"{d1}-{d2}"}
+
+            if bet_obj and self._add_prop_bet(bet_obj):
+                placed = True
+
+            bankroll_after = self._snap_bankroll()
+            bankroll_delta += float(bankroll_after - bankroll_before)
+
+            if not placed:
+                raise RuntimeError(f"engine_prop_unavailable:{verb}")
+
+            intent_entry: Dict[str, Any] = {"verb": verb, "amount": float(amount), **meta_note}
+            intents_list = list(getattr(self, "_props_intent", []))
+            intents_list.append(intent_entry)
+            self._set_props_intent(intents_list)
+
+            prop_key = meta_note.get("prop_family", "prop")
+            if prop_key == "hop":
+                combo = meta_note.get("combo", "")
+                prop_key = f"hop_{combo}" if combo else "hop"
+            bets_delta[prop_key] = f"+{int(amount)}"
+
+            extra_effect = {"one_roll": True, "meta": meta_note, "bets_delta": dict(bets_delta)}
+
         elif verb in ("remove_line", "remove_come", "remove_dont_come"):
             snap_now = self.snapshot_state()
             odds_type = getattr(cs_bet, "Odds", None)
@@ -1674,6 +1952,8 @@ class VanillaAdapter(EngineAdapter):
             "bankroll_delta": bankroll_delta,
             "policy": None,
         }
+        if extra_effect:
+            effect.update(extra_effect)
         return effect
 
     def _effect_context(self) -> Dict[str, Any]:
@@ -1914,6 +2194,11 @@ class VanillaAdapter(EngineAdapter):
         elif self.live_engine:
             point_val = snapshot.get("point_value")
             self.on_comeout = point_val in (None, 0)
+        props_branch = snapshot.get("props")
+        if not (isinstance(props_branch, Mapping) and props_branch):
+            if self.live_engine:
+                self._props_intent = []
+                self._props_pending = []
         self._snapshot_cache = dict(snapshot)
         self._last_snapshot = dict(snapshot)
 
@@ -1992,6 +2277,15 @@ class VanillaAdapter(EngineAdapter):
                 for key in ("bankroll", "point_on", "point_value", "hand_id", "roll_in_hand", "rng_seed"):
                     if key in overlay and overlay[key] is not None:
                         merged[key] = overlay[key]
+                overlay_props = overlay.get("props")
+                if isinstance(overlay_props, Mapping):
+                    merged["props"] = {
+                        str(k): float(v)
+                        for k, v in overlay_props.items()
+                        if isinstance(v, (int, float))
+                    }
+                elif "props" not in merged:
+                    merged["props"] = {}
                 for flat_key in ("come_flat", "dc_flat"):
                     branch_overlay = overlay.get(flat_key)
                     if isinstance(branch_overlay, Mapping):

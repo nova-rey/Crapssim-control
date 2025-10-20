@@ -1,5 +1,5 @@
 current_phase: 9
-current_checkpoint: 1
-checkpoint_title: Come/DC Odds + Field + Hardways
+current_checkpoint: 2
+checkpoint_title: One-Roll Props Integration
 allow_behavior_change: true
 notes: CSC_BIBLE.md edits must always be additive; roadmap file reflects current truth.
