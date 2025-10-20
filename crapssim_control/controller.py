@@ -27,7 +27,6 @@ from crapssim_control.external.http_api import (
     start_http_server,
 )
 from crapssim_control.integrations.webhooks import WebhookPublisher
-from crapssim_control.journal import dumps_effect_summary_line
 from crapssim_control.rules_engine.actions import ACTIONS, is_legal_timing
 
 from .actions import make_action  # Action Envelope helper
@@ -56,18 +55,6 @@ from .spec_validation import VALIDATION_ENGINE_VERSION
 from .templates import diff_bets, render_template as render_runtime_template
 
 logger = logging.getLogger("CSC.Controller")
-
-
-def append_effect_summary_line(path: str, eff: dict) -> None:
-    import os
-
-    directory = os.path.dirname(path) or "."
-    os.makedirs(directory, exist_ok=True)
-    line = dumps_effect_summary_line(eff)
-    with open(path, "a", encoding="utf-8") as f:
-        f.write(line + "\n")
-
-
 class _ConfigAccessor:
     def __init__(self, data: dict | None):
         if isinstance(data, dict):
