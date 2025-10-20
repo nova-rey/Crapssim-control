@@ -1,5 +1,5 @@
 phase: 8
-checkpoint: 5
-title: Full System Integration & Baseline
-description: Complete engine integration with simulate_rounds() and replay harness; produce seeded baseline artifacts; validate deterministic replay parity.
+checkpoint: 5a
+title: Live Engine Wiring — Line/Come/Odds Hotfix
+description: Line/Come/odds verbs routed through engine; bankroll_delta from engine before/after; snapshot updated accordingly.
 status: active

@@ -284,6 +284,14 @@ Baseline artifacts are **generated locally** by `simulate_rounds()` and are not 
 > simulate_rounds(adapter, rolls=20, seed=42)
 > ```
 
+### Hotfix P8·C5a — Live Odds & Line/Come Wiring
+
+- `line_bet`, `come_bet`, `dont_come_bet`, `set_odds`, `take_odds`, `remove_line` now route to CrapsSim in **live_engine** mode.
+- `bankroll_delta` for these verbs is computed from **engine bankroll before/after** (no stub math).
+- Snapshot normalization reflects line/come flats and pass/DC odds after each action.
+
+**Note:** Odds removal APIs vary across engine builds; when direct removal isn’t exposed, refunds occur when resolved by rolls. The adapter reports deltas based on engine bankroll movement.
+
 Schemas (frozen at this release):
 - `snapshot_schema: "2.0"`
 - `roll_event_schema: "1.0"`
