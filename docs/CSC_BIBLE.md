@@ -9,6 +9,12 @@ Where the snapshot tracks *state*, the Bible records *story*—why decisions wer
 
 ---
 
+### Checkpoint 1 — Come/DC Odds + Field + Hardways
+CSC now recognizes and actuates come/don’t come odds, field, and hardways bets via live-engine verbs.
+Snapshot normalization and legality enforcement are complete, bringing full mid-table support online.
+
+---
+
 ### Checkpoint 0 — Docs Kickoff & Roadmap Update
 
 Phase 8 begins the full engine plumbing effort. Previous Phase 6 content has been archived and retitled “Future Proposed Phases.”  

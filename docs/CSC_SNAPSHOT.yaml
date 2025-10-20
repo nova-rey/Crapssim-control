@@ -1,5 +1,5 @@
 phase: 9
-checkpoint: 0
-title: Phase 9 Kickoff (Repo Sync)
-description: Added Phase 9 skeleton, marked Phase 8 as complete. No code changes.
+checkpoint: 1
+title: Come/DC Odds + Field + Hardways
+description: Integrated Come/DC odds, Field, and Hardways into verb and snapshot system with legality enforcement.
 status: active
