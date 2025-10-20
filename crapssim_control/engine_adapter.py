@@ -766,6 +766,32 @@ class VanillaAdapter(EngineAdapter):
 
         self._reset_stub_state()
 
+    def _cs_get_player(self):
+        try:
+            if self._player is not None:
+                return self._player
+            tbl_players = getattr(self._table, "players", None)
+            if tbl_players:
+                return tbl_players[0]
+        except Exception:
+            pass
+        return None
+
+    def _cs_add_bet(self, bet_obj) -> bool:
+        p = self._cs_get_player()
+        fn = getattr(p, "add_bet", None) if p else None
+        if callable(fn) and bet_obj is not None:
+            try:
+                fn(bet_obj)
+                return True
+            except Exception:
+                return False
+        return False
+
+    def _snap_bankroll(self) -> float:
+        snap = _normalize_snapshot(self._table, self._cs_get_player())
+        return float(snap.get("bankroll", 0.0))
+
     def step_roll(
         self, dice: Optional[Tuple[int, int]] = None, seed: Optional[int] = None
     ) -> Dict[str, Any]:
@@ -1066,6 +1092,9 @@ class VanillaAdapter(EngineAdapter):
         self._player = player
         self._controller = controller
 
+        player = self._cs_get_player()
+        self._player = player
+
         cs_bet = self._cs_bet_module
         if cs_bet is None:
             try:
@@ -1244,153 +1273,220 @@ class VanillaAdapter(EngineAdapter):
                     bets_delta[dst] = f"+{int(amt)}"
 
         elif verb == "line_bet":
-            side = str(args.get("side") or target.get("side") or "pass").lower()
-            val = float((args.get("amount") or {}).get("value", 0.0))
-            if val <= 0:
-                raise ValueError("line_bet_invalid_args")
-            pass_cls = getattr(cs_bet, "PassLine", None)
-            dont_pass_cls = getattr(cs_bet, "DontPass", None)
+            side = (args.get("side") or target.get("side") or "pass")
+            amt = float((args.get("amount") or {}).get("value", 0.0))
+            bankroll_before = self._snap_bankroll()
+            PL = getattr(cs_bet, "PassLine", None)
+            DPL = getattr(cs_bet, "DontPass", None)
             bet_obj = None
-            if side in ("pass", "pass_line") and callable(pass_cls):
-                for kwargs in ({"amount": val}, {},):
+            if side == "pass" and callable(PL):
+                try:
+                    bet_obj = PL(amount=amt)
+                except Exception:
                     try:
-                        bet_obj = pass_cls(**kwargs) if kwargs else pass_cls(val)
-                        break
+                        bet_obj = PL(amt)
                     except Exception:
-                        continue
-            elif side in ("dont_pass", "dp", "don't_pass") and callable(dont_pass_cls):
-                for kwargs in ({"amount": val}, {},):
+                        bet_obj = None
+            elif side in ("dont_pass", "dp") and callable(DPL):
+                try:
+                    bet_obj = DPL(amount=amt)
+                except Exception:
                     try:
-                        bet_obj = dont_pass_cls(**kwargs) if kwargs else dont_pass_cls(val)
-                        break
+                        bet_obj = DPL(amt)
                     except Exception:
-                        continue
-            if bet_obj and _add_bet(bet_obj):
-                key = "pass" if side in ("pass", "pass_line") else "dont_pass"
-                bets_delta[key] = f"+{int(val)}"
+                        bet_obj = None
+            if bet_obj and self._cs_add_bet(bet_obj):
+                key = "pass" if side == "pass" else "dont_pass"
+                bets_delta[key] = f"+{int(amt)}"
+            bankroll_after = self._snap_bankroll()
+            bankroll_delta += (bankroll_after - bankroll_before)
 
         elif verb in ("come_bet", "dont_come_bet"):
-            val = float((args.get("amount") or {}).get("value", 0.0))
-            if val <= 0:
-                raise ValueError(f"{verb}_invalid_args")
-            come_cls = getattr(cs_bet, "Come", None)
-            dont_come_cls = getattr(cs_bet, "DontCome", None)
+            amt = float((args.get("amount") or {}).get("value", 0.0))
+            bankroll_before = self._snap_bankroll()
+            Come = getattr(cs_bet, "Come", None)
+            DontCome = getattr(cs_bet, "DontCome", None)
             bet_obj = None
-            if verb == "come_bet" and callable(come_cls):
-                for kwargs in ({"amount": val}, {},):
+            if verb == "come_bet" and callable(Come):
+                try:
+                    bet_obj = Come(amount=amt)
+                except Exception:
                     try:
-                        bet_obj = come_cls(**kwargs) if kwargs else come_cls(val)
-                        break
+                        bet_obj = Come(amt)
                     except Exception:
-                        continue
-            elif verb == "dont_come_bet" and callable(dont_come_cls):
-                for kwargs in ({"amount": val}, {},):
+                        bet_obj = None
+            elif verb == "dont_come_bet" and callable(DontCome):
+                try:
+                    bet_obj = DontCome(amount=amt)
+                except Exception:
                     try:
-                        bet_obj = dont_come_cls(**kwargs) if kwargs else dont_come_cls(val)
-                        break
+                        bet_obj = DontCome(amt)
                     except Exception:
-                        continue
-            if bet_obj and _add_bet(bet_obj):
-                bets_delta["come" if verb == "come_bet" else "dc"] = f"+{int(val)}"
+                        bet_obj = None
+            if bet_obj and self._cs_add_bet(bet_obj):
+                bets_delta["come" if verb == "come_bet" else "dc"] = f"+{int(amt)}"
+            bankroll_after = self._snap_bankroll()
+            bankroll_delta += (bankroll_after - bankroll_before)
 
         elif verb in ("set_odds", "take_odds"):
-            on = str(args.get("on") or target.get("on") or "pass").lower()
-            pt_raw = target.get("point") if isinstance(target, Mapping) else None
-            if pt_raw is None:
-                pt_raw = args.get("point")
-            point = None
-            if _is_box_number(pt_raw):
-                point = int(pt_raw)
-            val = float((args.get("amount") or {}).get("value", 0.0))
-            if val <= 0:
-                raise ValueError(f"{verb}_invalid_args")
-            direction = 1 if verb == "set_odds" else -1
-            odds_cls = getattr(cs_bet, "Odds", None)
+            on_raw = args.get("on") or target.get("on") or "pass"
+            on = str(on_raw).lower() if isinstance(on_raw, str) else "pass"
+            pt = target.get("point") or args.get("point")
+            amt = float((args.get("amount") or {}).get("value", 0.0))
+            amt_value = float(amt)
+            direction = +1 if verb == "set_odds" else -1
+            bankroll_before = self._snap_bankroll()
+
             pass_cls = getattr(cs_bet, "PassLine", None)
             dont_pass_cls = getattr(cs_bet, "DontPass", None)
             come_cls = getattr(cs_bet, "Come", None)
             dont_come_cls = getattr(cs_bet, "DontCome", None)
+            OddsPass = getattr(cs_bet, "OddsPass", None)
+            OddsDontPass = getattr(cs_bet, "OddsDontPass", None)
+            OddsCome = getattr(cs_bet, "OddsCome", None)
+            OddsDontCome = getattr(cs_bet, "OddsDontCome", None)
+            OddsGeneric = getattr(cs_bet, "Odds", None)
+
             table_point = getattr(table, "point", None)
             if table_point is not None and not isinstance(table_point, (int, type(None))):
                 table_point = getattr(table_point, "value", getattr(table_point, "number", None))
-            base_type = None
-            odds_key = "pass"
-            if on in ("pass", "pass_line"):
-                base_type = pass_cls
-                if _is_box_number(table_point):
-                    point = int(table_point)
-            elif on in ("dp", "dont_pass", "don't_pass"):
-                base_type = dont_pass_cls
-                odds_key = "dont_pass"
-                if _is_box_number(table_point):
-                    point = int(table_point)
-            elif on in ("come",):
-                base_type = come_cls
-                odds_key = f"come_{point}" if point is not None else "come"
-            elif on in ("dc", "dont_come", "don't_come"):
-                base_type = dont_come_cls
-                odds_key = f"dc_{point}" if point is not None else "dc"
 
-            success = False
-            adjusted = 0.0
-            if direction > 0 and callable(odds_cls) and base_type and point is not None:
-                try:
-                    bet_obj = odds_cls(base_type, point, val)
-                except Exception:
-                    bet_obj = None
+            point_spec = int(pt) if _is_box_number(pt) else None
+
+            placed = False
+            removed_total = 0.0
+
+            def _make_odds_bet(base_type, number, amount):
+                bet_obj = None
+                if base_type is pass_cls and callable(OddsPass):
                     try:
-                        bet_obj = odds_cls(base_type=base_type, number=point, amount=val)
+                        bet_obj = OddsPass(amount=amount)
                     except Exception:
-                        bet_obj = None
-                if bet_obj and _add_bet(bet_obj):
-                    success = True
-                    adjusted = val
-            elif direction < 0 and base_type:
-                odds_instances = []
-                odds_type = getattr(cs_bet, "Odds", None)
-                for bet_obj, num_val, amt_val, _ in list(_iter_player_bets()):
-                    if odds_type is not None and isinstance(bet_obj, odds_type):
-                        base = getattr(bet_obj, "base_type", None)
-                        num = getattr(bet_obj, "number", None)
-                        if base is base_type and (point is None or num == point):
-                            odds_instances.append((bet_obj, num, float(amt_val)))
-                for bet_obj, num_val, amt_val in odds_instances:
-                    take = min(val, amt_val)
-                    if take <= 0:
-                        continue
-                    if take >= amt_val or not hasattr(bet_obj, "amount"):
-                        if _remove_bet_object(bet_obj, num_val):
-                            bankroll_delta += amt_val
-                            adjusted += amt_val
-                            val = max(0.0, val - amt_val)
-                            success = True
-                    else:
                         try:
-                            setattr(bet_obj, "amount", max(0.0, amt_val - take))
-                            bankroll_delta += take
-                            adjusted += take
-                            val = max(0.0, val - take)
-                            success = True
+                            bet_obj = OddsPass(amount)
                         except Exception:
-                            continue
-                    if val <= 0:
-                        break
-            if success:
-                if odds_key in ("pass", "dont_pass"):
-                    sign = "+" if direction > 0 else "-"
-                    bets_delta[f"odds_{odds_key}"] = f"{sign}{int(adjusted)}"
-                elif point is not None:
-                    family = "come" if on == "come" else "dc"
-                    sign = "+" if direction > 0 else "-"
-                    bets_delta[f"odds_{family}_{point}"] = f"{sign}{int(adjusted)}"
-            elif direction > 0:
-                if on in ("pass", "pass_line"):
-                    bets_delta["odds_pass"] = f"+{int(val)}"
-                elif on in ("dp", "dont_pass", "don't_pass"):
-                    bets_delta["odds_dont_pass"] = f"+{int(val)}"
-                elif point is not None:
-                    family = "come" if on == "come" else "dc"
-                    bets_delta[f"odds_{family}_{point}"] = f"+{int(val)}"
+                            bet_obj = None
+                elif base_type is dont_pass_cls and callable(OddsDontPass):
+                    try:
+                        bet_obj = OddsDontPass(amount=amount)
+                    except Exception:
+                        try:
+                            bet_obj = OddsDontPass(amount)
+                        except Exception:
+                            bet_obj = None
+                elif base_type is come_cls and callable(OddsCome):
+                    try:
+                        bet_obj = OddsCome(number=number, amount=amount)
+                    except Exception:
+                        try:
+                            bet_obj = OddsCome(number, amount)
+                        except Exception:
+                            bet_obj = None
+                elif base_type is dont_come_cls and callable(OddsDontCome):
+                    try:
+                        bet_obj = OddsDontCome(number=number, amount=amount)
+                    except Exception:
+                        try:
+                            bet_obj = OddsDontCome(number, amount)
+                        except Exception:
+                            bet_obj = None
+                if bet_obj is None and callable(OddsGeneric) and base_type and number is not None:
+                    for args_variant in ((base_type, number, amount),):
+                        try:
+                            bet_obj = OddsGeneric(*args_variant)
+                            break
+                        except Exception:
+                            bet_obj = None
+                    if bet_obj is None:
+                        for kwargs in ({"base_type": base_type, "number": number, "amount": amount}, {"base_type": base_type, "point": number, "amount": amount}):
+                            try:
+                                bet_obj = OddsGeneric(**kwargs)
+                                break
+                            except Exception:
+                                bet_obj = None
+                return bet_obj
+
+            def _readd_leftover(base_type, number, amount):
+                if amount <= 0 or number is None:
+                    return
+                bet_obj = _make_odds_bet(base_type, number, amount)
+                if bet_obj is not None:
+                    self._cs_add_bet(bet_obj)
+
+            try:
+                p = self._cs_get_player()
+                if on in ("pass", "dp", "dont_pass"):
+                    base_type = pass_cls if on == "pass" else dont_pass_cls
+                    point_val = point_spec
+                    if point_val is None and _is_box_number(table_point):
+                        point_val = int(table_point)
+                    removed_total = 0.0
+                    if direction > 0:
+                        bet_obj = _make_odds_bet(base_type, point_val, amt) if point_val is not None else None
+                        placed = self._cs_add_bet(bet_obj) if bet_obj is not None else False
+                    else:
+                        odds_type = OddsGeneric
+                        remaining = amt
+                        for bet_obj, num_val, amt_val, _ in list(_iter_player_bets()):
+                            if odds_type is not None and isinstance(bet_obj, odds_type):
+                                base = getattr(bet_obj, "base_type", None)
+                                target_num = getattr(bet_obj, "number", getattr(bet_obj, "point", None))
+                                if base is base_type and (point_val is None or target_num == point_val):
+                                    take = min(remaining, amt_val)
+                                    if take <= 0:
+                                        continue
+                                    leftover = max(0.0, amt_val - take)
+                                    if _remove_bet_object(bet_obj, num_val):
+                                        removed_total += take
+                                        if leftover > 0:
+                                            _readd_leftover(base_type, target_num, leftover)
+                                        remaining -= take
+                                    if remaining <= 0:
+                                        break
+                    if direction > 0 and placed:
+                        key = "dont_pass" if on in ("dp", "dont_pass") else "pass"
+                        bets_delta[f"odds_{key}"] = f"+{int(amt_value)}"
+                    elif direction < 0 and removed_total > 0:
+                        key = "dont_pass" if on in ("dp", "dont_pass") else "pass"
+                        bets_delta[f"odds_{key}"] = f"-{int(removed_total)}"
+                elif on in ("come", "dc"):
+                    base_type = come_cls if on == "come" else dont_come_cls
+                    point_val = point_spec
+                    if base_type and point_val is not None:
+                        removed_total = 0.0
+                        if direction > 0:
+                            bet_obj = _make_odds_bet(base_type, point_val, amt)
+                            placed = self._cs_add_bet(bet_obj) if bet_obj is not None else False
+                            if placed:
+                                fam = "dc" if on == "dc" else "come"
+                                bets_delta[f"odds_{fam}_{point_val}"] = f"+{int(amt_value)}"
+                        else:
+                            odds_type = OddsGeneric
+                            remaining = amt
+                            for bet_obj, num_val, amt_val, _ in list(_iter_player_bets()):
+                                if odds_type is not None and isinstance(bet_obj, odds_type):
+                                    base = getattr(bet_obj, "base_type", None)
+                                    target_num = getattr(bet_obj, "number", getattr(bet_obj, "point", None))
+                                    if base is base_type and target_num == point_val:
+                                        take = min(remaining, amt_val)
+                                        if take <= 0:
+                                            continue
+                                        leftover = max(0.0, amt_val - take)
+                                        if _remove_bet_object(bet_obj, num_val):
+                                            removed_total += take
+                                            if leftover > 0:
+                                                _readd_leftover(base_type, target_num, leftover)
+                                            remaining -= take
+                                        if remaining <= 0:
+                                            break
+                            if removed_total > 0:
+                                fam = "dc" if on == "dc" else "come"
+                                bets_delta[f"odds_{fam}_{point_val}"] = f"-{int(removed_total)}"
+            except Exception:
+                placed = False
+
+            bankroll_after = self._snap_bankroll()
+            bankroll_delta += (bankroll_after - bankroll_before)
 
         elif verb in ("remove_line", "remove_come", "remove_dont_come"):
             snap_now = self.snapshot_state()
@@ -1400,23 +1496,34 @@ class VanillaAdapter(EngineAdapter):
             come_cls = getattr(cs_bet, "Come", None)
             dont_come_cls = getattr(cs_bet, "DontCome", None)
             if verb == "remove_line":
-                for bet_obj, num_val, amt_val, _ in list(_iter_player_bets()):
+                bankroll_before = self._snap_bankroll()
+                for bet_obj, num_val, _, _ in list(_iter_player_bets()):
                     if pass_cls and isinstance(bet_obj, pass_cls):
-                        if _remove_bet_object(bet_obj, num_val):
-                            bankroll_delta += amt_val
+                        _remove_bet_object(bet_obj, num_val)
                     elif dont_pass_cls and isinstance(bet_obj, dont_pass_cls):
-                        if _remove_bet_object(bet_obj, num_val):
-                            bankroll_delta += amt_val
+                        _remove_bet_object(bet_obj, num_val)
                     elif odds_type and isinstance(bet_obj, odds_type):
                         base = getattr(bet_obj, "base_type", None)
-                        amt_val = float(amt_val)
                         if base is pass_cls and _remove_bet_object(bet_obj, num_val):
-                            bankroll_delta += amt_val
-                        elif base is dont_pass_cls and _remove_bet_object(bet_obj, num_val):
-                            bankroll_delta += amt_val
+                            continue
+                        if base is dont_pass_cls and _remove_bet_object(bet_obj, num_val):
+                            continue
+                for key in ("pass", "dont_pass"):
+                    cur = float(snap_now.get("bets", {}).get(key, 0.0))
+                    if cur > 0:
+                        bets_delta[key] = f"-{int(cur)}"
+                for k in ("pass", "dont_pass"):
+                    oamt = float(snap_now.get("odds", {}).get(k, 0.0))
+                    if oamt > 0:
+                        bets_delta[f"odds_{k}"] = f"-{int(oamt)}"
+                bankroll_after = self._snap_bankroll()
+                bankroll_delta += (bankroll_after - bankroll_before)
             else:
-                families = {"remove_come": (come_cls, "come"), "remove_dont_come": (dont_come_cls, "dc")}
-                bet_cls, family_key = families[verb]
+                families = {
+                    "remove_come": (come_cls, "come", "come_flat"),
+                    "remove_dont_come": (dont_come_cls, "dc", "dc_flat"),
+                }
+                bet_cls, branch_key, flat_key = families[verb]
                 for bet_obj, num_val, amt_val, _ in list(_iter_player_bets()):
                     if bet_cls and isinstance(bet_obj, bet_cls) and _is_box_number(num_val):
                         if _remove_bet_object(bet_obj, num_val):
@@ -1428,36 +1535,13 @@ class VanillaAdapter(EngineAdapter):
                             amt_val = float(amt_val)
                             if _remove_bet_object(bet_obj, num):
                                 bankroll_delta += amt_val
-
-            if verb == "remove_line":
-                odds_pass = float(snap_now.get("odds", {}).get("pass", 0.0))
-                odds_dp = float(snap_now.get("odds", {}).get("dont_pass", 0.0))
-                pass_amt = float(snap_now.get("bets", {}).get("pass", 0.0))
-                dp_amt = float(snap_now.get("bets", {}).get("dont_pass", 0.0))
-                if pass_amt > 0:
-                    bets_delta["pass"] = f"-{int(pass_amt)}"
-                if dp_amt > 0:
-                    bets_delta["dont_pass"] = f"-{int(dp_amt)}"
-                if odds_pass > 0:
-                    bets_delta["odds_pass"] = f"-{int(odds_pass)}"
-                if odds_dp > 0:
-                    bets_delta["odds_dont_pass"] = f"-{int(odds_dp)}"
-            elif verb == "remove_come":
                 for p in ("4", "5", "6", "8", "9", "10"):
-                    cur = float(snap_now.get("come_flat", {}).get(p, 0.0))
+                    cur = float(snap_now.get(flat_key, {}).get(p, 0.0))
                     if cur > 0:
                         bets_delta[p] = f"-{int(cur)}"
-                    oamt = float(snap_now.get("odds", {}).get("come", {}).get(p, 0.0))
+                    oamt = float(snap_now.get("odds", {}).get(branch_key, {}).get(p, 0.0))
                     if oamt > 0:
-                        bets_delta[f"odds_come_{p}"] = f"-{int(oamt)}"
-            elif verb == "remove_dont_come":
-                for p in ("4", "5", "6", "8", "9", "10"):
-                    cur = float(snap_now.get("dc_flat", {}).get(p, 0.0))
-                    if cur > 0:
-                        bets_delta[p] = f"-{int(cur)}"
-                    oamt = float(snap_now.get("odds", {}).get("dc", {}).get(p, 0.0))
-                    if oamt > 0:
-                        bets_delta[f"odds_dc_{p}"] = f"-{int(oamt)}"
+                        bets_delta[f"odds_{branch_key}_{p}"] = f"-{int(oamt)}"
 
         snap = _normalize_snapshot(table, player)
         if snap:
