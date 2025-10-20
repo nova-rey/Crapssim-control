@@ -11,11 +11,28 @@ from .engine_adapter import VerbRegistry
 
 
 def _amt(args: Dict[str, Any]) -> float:
-    return float((args.get("amount") or {}).get("value", 0.0))
+    amount = args.get("amount")
+    if isinstance(amount, dict):
+        value = amount.get("value", amount.get("amount", 0.0))
+    else:
+        value = amount
+    try:
+        return float(value or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def _pt(args: Dict[str, Any]) -> str | None:
-    return str(int(args.get("point"))) if args.get("point") is not None else None
+    if args.get("point") is not None:
+        candidate = args.get("point")
+    else:
+        candidate = args.get("number")
+    if candidate is None:
+        return None
+    try:
+        return str(int(candidate))
+    except (TypeError, ValueError):
+        return None
 
 
 def verb_line_bet(snapshot: Dict[str, Any], args: Dict[str, Any]) -> Dict[str, Any]:
@@ -61,7 +78,7 @@ def verb_dont_come_bet(snapshot: Dict[str, Any], args: Dict[str, Any]) -> Dict[s
 
 
 def verb_set_odds(snapshot: Dict[str, Any], args: Dict[str, Any]) -> Dict[str, Any]:
-    on = args.get("on") or "pass"
+    on = args.get("on") or args.get("side") or "pass"
     val = _amt(args)
     pt = _pt(args)
     if val <= 0:
@@ -85,7 +102,7 @@ def verb_set_odds(snapshot: Dict[str, Any], args: Dict[str, Any]) -> Dict[str, A
 
 
 def verb_take_odds(snapshot: Dict[str, Any], args: Dict[str, Any]) -> Dict[str, Any]:
-    on = args.get("on") or "pass"
+    on = args.get("on") or args.get("side") or "pass"
     val = _amt(args)
     pt = _pt(args)
     if val <= 0:
@@ -104,6 +121,38 @@ def verb_take_odds(snapshot: Dict[str, Any], args: Dict[str, Any]) -> Dict[str, 
         "verb": "take_odds",
         "bets": {key: f"-{int(val)}"},
         "bankroll_delta": val,
+        "policy": None,
+    }
+
+
+def verb_field_bet(snapshot: Dict[str, Any], args: Dict[str, Any]) -> Dict[str, Any]:
+    val = _amt(args)
+    if val <= 0:
+        raise ValueError("field_bet_invalid_args")
+    return {
+        "schema": "1.0",
+        "verb": "field_bet",
+        "bets": {"field": f"+{int(val)}"},
+        "bankroll_delta": -val,
+        "policy": None,
+    }
+
+
+def verb_hardway_bet(snapshot: Dict[str, Any], args: Dict[str, Any]) -> Dict[str, Any]:
+    number = args.get("number")
+    try:
+        point = int(number)
+    except (TypeError, ValueError):
+        point = 0
+    val = _amt(args)
+    if val <= 0 or point not in {4, 6, 8, 10}:
+        raise ValueError("hardway_bet_invalid_args")
+    key = f"hardway_{point}"
+    return {
+        "schema": "1.0",
+        "verb": "hardway_bet",
+        "bets": {key: f"+{int(val)}"},
+        "bankroll_delta": -val,
         "policy": None,
     }
 
@@ -190,6 +239,8 @@ VerbRegistry.register("come_bet", verb_come_bet)
 VerbRegistry.register("dont_come_bet", verb_dont_come_bet)
 VerbRegistry.register("set_odds", verb_set_odds)
 VerbRegistry.register("take_odds", verb_take_odds)
+VerbRegistry.register("field_bet", verb_field_bet)
+VerbRegistry.register("hardway_bet", verb_hardway_bet)
 VerbRegistry.register("remove_line", verb_remove_line)
 VerbRegistry.register("remove_come", verb_remove_come)
 VerbRegistry.register("remove_dont_come", verb_remove_dont_come)

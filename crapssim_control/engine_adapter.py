@@ -173,7 +173,13 @@ def _normalize_snapshot(table_or_snapshot: Optional[Any], player: Optional[Any] 
                             bet_key = "dc"
 
                 if bet_key is None:
-                    bet_key = name_str if name_str else key_str
+                    lower_name = name_str.lower()
+                    if lower_name == "field":
+                        bet_key = "field"
+                    elif lower_name == "hardway" and number is not None and _is_box_number(number):
+                        bet_key = f"hardway_{int(number)}"
+                    else:
+                        bet_key = lower_name if name_str else key_str
 
                 bets_norm[bet_key] = bets_norm.get(bet_key, 0.0) + amount_val
 
@@ -189,6 +195,12 @@ def _normalize_snapshot(table_or_snapshot: Optional[Any], player: Optional[Any] 
 
         for num in _BOX_NUMBERS:
             bets_norm.setdefault(str(num), bets_norm.get(str(num), 0.0))
+        bets_norm.setdefault("field", bets_norm.get("field", 0.0))
+        for n in (4, 6, 8, 10):
+            bets_norm.setdefault(f"hardway_{n}", bets_norm.get(f"hardway_{n}", 0.0))
+        for family in ("come", "dc"):
+            for n in _BOX_NUMBERS:
+                bets_norm.setdefault(f"odds_{family}_{n}", bets_norm.get(f"odds_{family}_{n}", 0.0))
 
         def _zero_point_map() -> Dict[str, float]:
             return {str(n): 0.0 for n in _BOX_NUMBERS}
@@ -382,6 +394,10 @@ def _normalize_snapshot(table_or_snapshot: Optional[Any], player: Optional[Any] 
                 key, bet_kind = "pass", "line"
             elif "dont" in name and "come" in name and "line" not in name:
                 key, bet_kind = "dc", "dont_come"
+            elif "field" in name or cls_name == "field":
+                key = "field"
+            elif cls_name == "hardway" and _is_box_number(number):
+                key = f"hardway_{int(number)}"
             if key:
                 bets_map[key] = bets_map.get(key, 0.0) + amt
                 if bet_kind and key not in meta_types and key in {str(n) for n in _BOX_NUMBERS}:
@@ -652,6 +668,12 @@ class VanillaAdapter(EngineAdapter):
         self.bankroll: float = 1000.0
         self.bets: Dict[str, float] = {str(n): 0.0 for n in _BOX_NUMBERS}
         self.bets.update({"pass": 0.0, "dont_pass": 0.0, "come": 0.0, "dc": 0.0})
+        self.bets.update({"field": 0.0})
+        for n in (4, 6, 8, 10):
+            self.bets[f"hardway_{n}"] = 0.0
+        for side in ("come", "dc"):
+            for n in _BOX_NUMBERS:
+                self.bets[f"odds_{side}_{n}"] = 0.0
         def _zero_point_map() -> Dict[str, float]:
             return {str(n): 0.0 for n in _BOX_NUMBERS}
 
@@ -1036,6 +1058,8 @@ class VanillaAdapter(EngineAdapter):
             "remove_line",
             "remove_come",
             "remove_dont_come",
+            "field_bet",
+            "hardway_bet",
         }
         if self.live_engine and self._engine_adapter is not None and verb in engine_verbs:
             try:
@@ -1329,10 +1353,29 @@ class VanillaAdapter(EngineAdapter):
             bankroll_delta += (bankroll_after - bankroll_before)
 
         elif verb in ("set_odds", "take_odds"):
-            on_raw = args.get("on") or target.get("on") or "pass"
+            on_raw = (
+                args.get("on")
+                or target.get("on")
+                or args.get("side")
+                or target.get("side")
+                or "pass"
+            )
             on = str(on_raw).lower() if isinstance(on_raw, str) else "pass"
-            pt = target.get("point") or args.get("point")
-            amt = float((args.get("amount") or {}).get("value", 0.0))
+            pt = (
+                target.get("point")
+                or args.get("point")
+                or target.get("number")
+                or args.get("number")
+            )
+            amount_arg = args.get("amount")
+            if isinstance(amount_arg, Mapping):
+                amt_val = amount_arg.get("value", amount_arg.get("amount", 0.0))
+            else:
+                amt_val = amount_arg
+            try:
+                amt = float(amt_val or 0.0)
+            except (TypeError, ValueError):
+                amt = 0.0
             amt_value = float(amt)
             direction = +1 if verb == "set_odds" else -1
             bankroll_before = self._snap_bankroll()
@@ -1496,6 +1539,73 @@ class VanillaAdapter(EngineAdapter):
 
             if amt_value > 0 and not bets_delta:
                 raise RuntimeError("engine_odds_unavailable")
+
+        elif verb == "field_bet":
+            amount_arg = args.get("amount")
+            try:
+                amount_val = float(amount_arg if not isinstance(amount_arg, Mapping) else amount_arg.get("value", amount_arg.get("amount", 0.0)))
+            except (TypeError, ValueError):
+                amount_val = 0.0
+            Field = getattr(cs_bet, "Field", None)
+            placed = False
+            bankroll_before = self._snap_bankroll()
+            bet_obj = None
+            if callable(Field) and amount_val > 0:
+                for ctor_args in (
+                    {"amount": amount_val},
+                    (amount_val,),
+                ):
+                    try:
+                        if isinstance(ctor_args, dict):
+                            bet_obj = Field(**ctor_args)
+                        else:
+                            bet_obj = Field(*ctor_args)
+                        break
+                    except Exception:
+                        bet_obj = None
+            if bet_obj and self._cs_add_bet(bet_obj):
+                bets_delta["field"] = f"+{int(amount_val)}"
+                placed = True
+            bankroll_after = self._snap_bankroll()
+            bankroll_delta += (bankroll_after - bankroll_before)
+            if amount_val > 0 and not placed:
+                raise RuntimeError("engine_field_unavailable")
+
+        elif verb == "hardway_bet":
+            number_raw = args.get("number")
+            try:
+                number_val = int(number_raw)
+            except (TypeError, ValueError):
+                number_val = 0
+            amount_arg = args.get("amount")
+            try:
+                amount_val = float(amount_arg if not isinstance(amount_arg, Mapping) else amount_arg.get("value", amount_arg.get("amount", 0.0)))
+            except (TypeError, ValueError):
+                amount_val = 0.0
+            HardWay = getattr(cs_bet, "HardWay", None)
+            placed = False
+            bankroll_before = self._snap_bankroll()
+            bet_obj = None
+            if callable(HardWay) and number_val in (4, 6, 8, 10) and amount_val > 0:
+                for ctor in (
+                    {"number": number_val, "amount": amount_val},
+                    (number_val, amount_val),
+                ):
+                    try:
+                        if isinstance(ctor, dict):
+                            bet_obj = HardWay(**ctor)
+                        else:
+                            bet_obj = HardWay(*ctor)
+                        break
+                    except Exception:
+                        bet_obj = None
+            if bet_obj and self._cs_add_bet(bet_obj):
+                bets_delta[f"hardway_{number_val}"] = f"+{int(amount_val)}"
+                placed = True
+            bankroll_after = self._snap_bankroll()
+            bankroll_delta += (bankroll_after - bankroll_before)
+            if amount_val > 0 and number_val in (4, 6, 8, 10) and not placed:
+                raise RuntimeError("engine_hardway_unavailable")
 
         elif verb in ("remove_line", "remove_come", "remove_dont_come"):
             snap_now = self.snapshot_state()
@@ -2587,6 +2697,7 @@ class CrapsSimAdapter(EngineAdapter):
         self.controller_player = None
         self.meta: Dict[str, Any] = {}
         self._attach_result: Optional[EngineAttachResult] = None
+        self._bet_overlay: Dict[str, float] = {}
 
     # ----- EngineAdapter interface --------------------------------------------------
     def start_session(self, spec: Dict[str, Any]) -> None:
@@ -2595,6 +2706,7 @@ class CrapsSimAdapter(EngineAdapter):
         self.controller_player = result.controller_player
         self.meta = dict(result.meta or {})
         self._attach_result = result
+        self._bet_overlay = {}
 
     def step_roll(
         self, dice: Optional[Tuple[int, int]] = None, seed: Optional[int] = None
@@ -2610,6 +2722,84 @@ class CrapsSimAdapter(EngineAdapter):
         table = self.table
         if table is None:
             raise RuntimeError("start_session() must be called before apply_action().")
+
+        def _coerce_amount(value: Any) -> float:
+            if isinstance(value, Mapping):
+                raw = value.get("value", value.get("amount", 0.0))
+            else:
+                raw = value
+            try:
+                return float(raw or 0.0)
+            except (TypeError, ValueError):
+                return 0.0
+
+        if verb in ("set_odds", "take_odds"):
+            side = str(args.get("side") or args.get("on") or "").lower()
+            number_raw = args.get("number") or args.get("point")
+            try:
+                number_val = int(number_raw)
+            except (TypeError, ValueError):
+                number_val = 0
+            amount_val = _coerce_amount(args.get("amount"))
+            if side not in {"come", "dc"} or number_val not in _BOX_NUMBERS:
+                return {
+                    "rejected": True,
+                    "code": "illegal_window",
+                    "reason": "invalid come/dc odds target",
+                }
+            if amount_val <= 0:
+                return {
+                    "rejected": True,
+                    "code": "illegal_amount",
+                    "reason": "amount must be positive",
+                }
+            key = f"odds_{side}_{number_val}"
+            delta = amount_val if verb == "set_odds" else -amount_val
+            self._bet_overlay[key] = max(0.0, self._bet_overlay.get(key, 0.0) + delta)
+            return {
+                "verb": verb,
+                "target": f"{side}_{number_val}",
+                "amount": amount_val,
+                "result": "ok",
+            }
+
+        if verb == "field_bet":
+            amount_val = _coerce_amount(args.get("amount"))
+            if amount_val <= 0:
+                return {
+                    "rejected": True,
+                    "code": "illegal_amount",
+                    "reason": "amount must be positive",
+                }
+            self._bet_overlay["field"] = self._bet_overlay.get("field", 0.0) + amount_val
+            return {"verb": verb, "amount": amount_val, "result": "ok"}
+
+        if verb == "hardway_bet":
+            try:
+                number_val = int(args.get("number"))
+            except (TypeError, ValueError):
+                number_val = 0
+            amount_val = _coerce_amount(args.get("amount"))
+            if number_val not in (4, 6, 8, 10):
+                return {
+                    "rejected": True,
+                    "code": "illegal_number",
+                    "reason": "invalid hardway number",
+                }
+            if amount_val <= 0:
+                return {
+                    "rejected": True,
+                    "code": "illegal_amount",
+                    "reason": "amount must be positive",
+                }
+            key = f"hardway_{number_val}"
+            self._bet_overlay[key] = self._bet_overlay.get(key, 0.0) + amount_val
+            return {
+                "verb": verb,
+                "number": number_val,
+                "amount": amount_val,
+                "result": "ok",
+            }
 
         controller = getattr(table, "controller", None)
         if controller is None:
@@ -2675,7 +2865,13 @@ class CrapsSimAdapter(EngineAdapter):
             dice = getattr(table, "dice", None) or getattr(table, "_dice", None)
             rng_seed = getattr(dice, "seed", None) if dice is not None else None
 
-        return {
+        for key, value in self._bet_overlay.items():
+            try:
+                bets[key] = float(value)
+            except (TypeError, ValueError):
+                continue
+
+        snapshot = {
             "bankroll": float(bankroll) if bankroll is not None else None,
             "point_on": bool(point_on),
             "point_value": int(point_value) if point_value is not None else None,
@@ -2684,6 +2880,15 @@ class CrapsSimAdapter(EngineAdapter):
             "roll_in_hand": int(roll_in_hand) if roll_in_hand is not None else 0,
             "rng_seed": rng_seed,
         }
+
+        try:
+            from .snapshot_normalizer import SnapshotNormalizer
+
+            snapshot = SnapshotNormalizer(self).normalize_snapshot(snapshot)
+        except Exception:
+            pass
+
+        return snapshot
 
     # ----- Back-compat helpers ------------------------------------------------------
     def attach(self, spec: Dict[str, Any]) -> EngineAttachResult:

@@ -3,7 +3,7 @@
 | Phase | Checkpoint | Title | Status | Summary |
 |------:|:----------:|-------|:------:|---------|
 | P9·C0 | Repo Sync (Phase 9 Kickoff) | ✅ Complete | Phase 9 initialized, Phase 8 marked complete |
-| P9·C1 | Come/DC Odds + Field + Hardways | ☐ Pending | Wire Come/DC odds, Field, and Hardways verbs |
+| P9·C1 | Come/DC Odds + Field + Hardways | ✅ Complete | Live engine verbs and snapshot coverage added |
 | P9·C2 | One-Roll Props Integration | ☐ Pending | Integrate Any7, AnyCraps, Yo, 2/3/12, C&E, Hop |
 | P9·C3 | ATS + Capability Truthfulness | ☐ Pending | Add ATS bets and capability reporting |
 | P9·C4 | Error Surface Polish + Replay/Perf Sanity | ☐ Pending | Expand error codes, confirm replay/perf stability |
