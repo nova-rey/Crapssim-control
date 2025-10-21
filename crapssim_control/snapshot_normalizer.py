@@ -131,6 +131,24 @@ class SnapshotNormalizer:
                     amt = 0.0
                 props_bucket[key] = amt
 
+        ats_keys = ("small", "tall", "all")
+        progress: Dict[str, float] = {k: 0.0 for k in ats_keys}
+        raw_progress = None
+        if player is not None:
+            raw_progress = getattr(player, "_ats_progress", None)
+        if raw_progress is None:
+            raw_progress = getattr(self.engine, "_ats_progress", None)
+        if isinstance(raw_progress, Mapping):
+            for key in ats_keys:
+                value = raw_progress.get(key, 0)
+                try:
+                    progress[key] = float(value)
+                except (TypeError, ValueError):
+                    progress[key] = 0.0
+        for key in ats_keys:
+            bets[f"ats_{key}"] = progress.get(key, 0.0)
+        snap["ats_progress"] = {k: progress.get(k, 0.0) for k in ats_keys}
+
         dice_val = snap.get("dice")
         total_val = snap.get("total")
         last_roll: Dict[str, Any] = {}

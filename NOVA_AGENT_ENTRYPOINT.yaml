@@ -1,5 +1,5 @@
 current_phase: 9
-current_checkpoint: 2
-checkpoint_title: One-Roll Props Integration
+current_checkpoint: 3
+checkpoint_title: ATS + Capability Truthfulness
 allow_behavior_change: true
 notes: CSC_BIBLE.md edits must always be additive; roadmap file reflects current truth.

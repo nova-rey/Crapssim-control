@@ -1,8 +1,10 @@
-"""
-Run Manifest generator: captures run metadata, CLI flags, schema versions, and outputs.
-"""
+"""Run Manifest generator and capability embedding helpers."""
+
 from uuid import uuid4
 from datetime import datetime
+from typing import Any, Dict, Mapping
+
+from .capabilities import get_capabilities
 from .schemas import JOURNAL_SCHEMA_VERSION, SUMMARY_SCHEMA_VERSION
 
 
@@ -43,3 +45,15 @@ def generate_manifest(
         },
         "ui": {"report_url": None, "journal_url": None},
     }
+
+
+def build_manifest(run_id: str, report: Mapping[str, Any] | None) -> Dict[str, Any]:
+    """Build a manifest payload that includes capability metadata."""
+
+    payload: Dict[str, Any] = {
+        "run_id": run_id,
+        "report": dict(report) if isinstance(report, Mapping) else {},
+    }
+    payload["capabilities"] = get_capabilities()
+    payload["capabilities_schema_version"] = "1.0"
+    return payload
