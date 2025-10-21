@@ -1,0 +1,8 @@
+{
+  "run": { "seed": 9 },
+  "actions": [
+    { "verb": "any7_bet", "args": { "amount": 5 } },
+    { "verb": "ce_bet", "args": { "amount": 5 } },
+    { "verb": "step_roll", "args": { "dice": [6,1] } }
+  ]
+}

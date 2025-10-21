@@ -1,0 +1,8 @@
+{
+  "run": { "seed": 42 },
+  "actions": [
+    { "verb": "line_bet", "args": { "amount": 10 } },
+    { "verb": "set_odds", "args": { "side": "pass", "number": 6, "amount": 30 } },
+    { "verb": "step_roll", "args": { "dice": [3,3] } }
+  ]
+}

@@ -506,3 +506,10 @@ Manifest and summary now embed `capabilities_schema_version: 1.0`.
 Standardized all adapter error codes and ensured rejected actions are logged cleanly with `rejected_effect` entries.  
 Verified replay determinism between live and replay modes.  
 Added lightweight performance harness and schema tags for error, replay, and perf tracking in manifest and summary.
+
+### Checkpoint 5 — Docs & Examples Pack (Phase 9 Closeout)
+
+Phase 9 concludes with full documentation and example coverage for every vanilla bet family.  
+Each example demonstrates end-to-end execution through CrapsSim and CSC, including snapshot, journal, and manifest outputs.  
+All schema versions finalized, and release tagged as **v0.41.0-phase9-baseline**.
+

@@ -1,0 +1,8 @@
+{
+  "run": { "seed": 7 },
+  "actions": [
+    { "verb": "field_bet", "args": { "amount": 5 } },
+    { "verb": "hardway_bet", "args": { "number": 8, "amount": 12 } },
+    { "verb": "step_roll", "args": { "dice": [4,4] } }
+  ]
+}

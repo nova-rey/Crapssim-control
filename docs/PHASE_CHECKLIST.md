@@ -7,7 +7,7 @@
 | P9·C2 | One-Roll Props Integration | ✅ Complete | Added Any7/AnyCraps/Yo/2/3/12/C&E/Hop verbs; one-roll props & journaling. |
 | P9·C3 | ATS + Capability Truthfulness | ✅ Complete | Integrated ATS bets and added capability reporting |
 | P9·C4 | Error Surface Polish + Replay/Perf Sanity | ✅ Complete | Standardized error codes, replay parity, and performance metrics |
-| P9·C5 | Docs & Examples Pack | ☐ Pending | Add examples per bet family and update engine_contract.md |
+| P9·C5 | Docs & Examples Pack (Phase 9 Closeout) | ✅ Complete | Documentation and examples finalized for all vanilla bets |
 | P8·C1 | CrapsSim Wiring (press/regress) + Snapshot Normalizer + Seed Handoff | ✅ Complete | Engine-backed press/regress; seed handoff; normalization v1. |
 | P8·C2 | Place/Buy/Lay Wiring | ✅ Complete | Engine-backed place/buy/lay/move/take_down; box bets normalized. |
 | P8·C3 | Line & Come Family + Odds Wiring | ✅ Complete | Pass/Don’t, Come/DC, and Odds wired; flats/odds per point in snapshot. |

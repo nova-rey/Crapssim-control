@@ -1,0 +1,10 @@
+{
+  "run": { "seed": 99 },
+  "actions": [
+    { "verb": "ats_all_bet", "args": { "amount": 10 } },
+    { "verb": "step_roll", "args": { "dice": [2,2] } },
+    { "verb": "step_roll", "args": { "dice": [5,6] } },
+    { "verb": "step_roll", "args": { "dice": [3,4] } },
+    { "verb": "step_roll", "args": { "dice": [6,6] } }
+  ]
+}

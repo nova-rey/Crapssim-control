@@ -1,5 +1,5 @@
 phase: 9
-checkpoint: 4
-title: Error Surface Polish + Replay/Perf Sanity
-description: Unified error codes, rejection logging, replay parity, and performance sanity tests with schema tags v1.0.
+checkpoint: 5
+title: Docs & Examples Pack (Phase 9 Closeout)
+description: Added complete docs and working examples for all vanilla bet families. Tagged v0.41.0-phase9-baseline.
 status: active
