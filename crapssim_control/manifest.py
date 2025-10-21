@@ -47,9 +47,7 @@ def generate_manifest(
     }
 
 
-def build_manifest(run_id: str, report: Mapping[str, Any] | None) -> Dict[str, Any]:
-    """Build a manifest payload that includes capability metadata."""
-
+def _build_manifest_base(run_id: str, report: Mapping[str, Any] | None) -> Dict[str, Any]:
     payload: Dict[str, Any] = {
         "run_id": run_id,
         "report": dict(report) if isinstance(report, Mapping) else {},
@@ -57,3 +55,19 @@ def build_manifest(run_id: str, report: Mapping[str, Any] | None) -> Dict[str, A
     payload["capabilities"] = get_capabilities()
     payload["capabilities_schema_version"] = "1.0"
     return payload
+
+
+def build_manifest(run_id: str, report: Mapping[str, Any] | None) -> Dict[str, Any]:
+    """Build a manifest payload that includes capability and perf metadata."""
+
+    base = _build_manifest_base(run_id, report)
+    base["error_surface_schema_version"] = "1.0"
+    base["replay_schema_version"] = "1.0"
+    try:
+        from crapssim_control.replay_tester import run_perf_test
+
+        perf = run_perf_test(rolls=1000)
+        base["perf_metrics"] = {"rps": perf["rps"], "elapsed": perf["elapsed"]}
+    except Exception:
+        base["perf_metrics"] = {"rps": 0, "elapsed": 0}
+    return base

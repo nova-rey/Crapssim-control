@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Dict, Any
 import json
 import os
+from datetime import datetime
 
 EFFECT_KEYS_ORDER = (
     "schema",
@@ -46,9 +47,26 @@ def dumps_effect_summary_line(eff: Dict[str, Any]) -> str:
     return json.dumps(ordered, separators=(",", ":"), ensure_ascii=False)
 
 
-def append_effect_summary_line(path: str, eff: Dict[str, Any]) -> None:
+def _write_line(line: Dict[str, Any], *, path: str) -> None:
     directory = os.path.dirname(path) or "."
     os.makedirs(directory, exist_ok=True)
-    line = dumps_effect_summary_line(eff)
+    if line.get("event") == "rejected_effect":
+        payload = json.dumps(line, separators=(",", ":"), ensure_ascii=False)
+    else:
+        payload = dumps_effect_summary_line(line)
     with open(path, "a", encoding="utf-8") as f:
-        f.write(line + "\n")
+        f.write(payload + "\n")
+
+
+def append_effect_summary_line(effect: Dict[str, Any], *, path: str) -> None:
+    if effect.get("rejected"):
+        line = {
+            "event": "rejected_effect",
+            "code": effect.get("code"),
+            "reason": effect.get("reason"),
+            "timestamp": datetime.utcnow().isoformat(timespec="seconds"),
+        }
+    else:
+        line = effect
+
+    _write_line(line, path=path)

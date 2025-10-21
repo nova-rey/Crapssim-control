@@ -500,3 +500,9 @@ Journaling marks `one_roll: true` and includes `prop_family` for audit and repla
 Integrated ATS (All/Small/Tall) bets with live-engine verbs and normalized snapshot tracking.
 Added a capability reporting layer exposing all supported verbs, increments, and supported status for external tools.
 Manifest and summary now embed `capabilities_schema_version: 1.0`.
+
+### Checkpoint 4 — Error Surface Polish + Replay/Perf Sanity
+
+Standardized all adapter error codes and ensured rejected actions are logged cleanly with `rejected_effect` entries.  
+Verified replay determinism between live and replay modes.  
+Added lightweight performance harness and schema tags for error, replay, and perf tracking in manifest and summary.
