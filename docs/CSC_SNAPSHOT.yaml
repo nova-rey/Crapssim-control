@@ -1,5 +1,5 @@
 phase: 9
-checkpoint: 2
-title: One-Roll Props Integration
-description: Engine-backed Any7/AnyCraps/Yo/2/3/12/C&E/Hop verbs; one-roll lifecycle and snapshot 'props' bucket.
+checkpoint: 3
+title: ATS + Capability Truthfulness
+description: Added ATS bonus bets and truthful capability introspection with schema v1.0 embedded in manifest.
 status: active

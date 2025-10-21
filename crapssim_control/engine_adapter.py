@@ -587,6 +587,28 @@ def _normalize_snapshot(table_or_snapshot: Optional[Any], player: Optional[Any] 
         props_bucket[key] = amt
     normalized["props"] = props_bucket
 
+    ats_keys = ("small", "tall", "all")
+    ats_progress: Dict[str, float] = {k: 0.0 for k in ats_keys}
+    raw_progress = None
+    if player is not None:
+        raw_progress = getattr(player, "_ats_progress", None)
+        if raw_progress is None:
+            adapter_ref = getattr(player, "_csc_adapter_ref", None)
+            if adapter_ref is not None:
+                raw_progress = getattr(adapter_ref, "_ats_progress", None)
+    if raw_progress is None:
+        raw_progress = getattr(table, "_ats_progress", None)
+    if isinstance(raw_progress, Mapping):
+        for key in ats_keys:
+            value = raw_progress.get(key, 0)
+            try:
+                ats_progress[key] = float(value)
+            except (TypeError, ValueError):
+                ats_progress[key] = 0.0
+    for key in ats_keys:
+        bets_map[f"ats_{key}"] = ats_progress.get(key, bets_map.get(f"ats_{key}", 0.0))
+    normalized["ats_progress"] = {k: ats_progress.get(k, 0.0) for k in ats_keys}
+
     last_roll: Dict[str, Any] = {}
     normalized["last_roll"] = last_roll
 
@@ -1253,6 +1275,9 @@ class VanillaAdapter(EngineAdapter):
             "craps12_bet",
             "ce_bet",
             "hop_bet",
+            "ats_all_bet",
+            "ats_small_bet",
+            "ats_tall_bet",
         }
         if self.live_engine and self._engine_adapter is not None and verb in engine_verbs:
             try:
@@ -1885,6 +1910,82 @@ class VanillaAdapter(EngineAdapter):
 
             extra_effect = {"one_roll": True, "meta": meta_note, "bets_delta": dict(bets_delta)}
 
+        elif verb in ("ats_all_bet", "ats_small_bet", "ats_tall_bet"):
+            amt_arg = args.get("amount") if isinstance(args, Mapping) else args
+            if isinstance(amt_arg, Mapping):
+                amt_val = amt_arg.get("value", amt_arg.get("amount", 0.0))
+            else:
+                amt_val = amt_arg
+            try:
+                amount = float(amt_val or 0.0)
+            except (TypeError, ValueError):
+                amount = 0.0
+
+            if amount <= 0:
+                raise ValueError("ats_bet_invalid_amount")
+
+            bankroll_before = self._snap_bankroll()
+
+            ats_mapping = {
+                "ats_all_bet": getattr(cs_bet, "ATSAll", None),
+                "ats_small_bet": getattr(cs_bet, "ATSSmall", None),
+                "ats_tall_bet": getattr(cs_bet, "ATSTall", None),
+            }
+            bet_ctor = ats_mapping.get(verb)
+            bet_obj = None
+            placed = False
+            if callable(bet_ctor):
+                for ctor in ({"amount": amount}, (amount,)):
+                    try:
+                        bet_obj = bet_ctor(**ctor) if isinstance(ctor, dict) else bet_ctor(*ctor)
+                        break
+                    except Exception:
+                        bet_obj = None
+            if bet_obj is not None:
+                placed = self._add_prop_bet(bet_obj)
+
+            if placed:
+                bankroll_after = self._snap_bankroll()
+                bankroll_delta += float(bankroll_after - bankroll_before)
+            else:
+                bankroll_delta -= float(amount)
+
+            key = verb.replace("ats_", "").replace("_bet", "")
+            bets_delta[f"ats_{key}"] = f"+{amount:g}"
+
+            progress_defaults = {"small": 0, "tall": 0, "all": 0}
+            player_progress = getattr(player, "_ats_progress", None)
+            progress: Dict[str, Any] = {}
+            if isinstance(player_progress, Mapping):
+                for prog_key in progress_defaults:
+                    raw_value = player_progress.get(prog_key, 0)
+                    try:
+                        progress[prog_key] = int(raw_value)
+                    except (TypeError, ValueError):
+                        try:
+                            progress[prog_key] = float(raw_value or 0.0)
+                        except Exception:
+                            progress[prog_key] = 0
+            else:
+                progress.update(progress_defaults)
+
+            progress.setdefault("small", 0)
+            progress.setdefault("tall", 0)
+            progress.setdefault("all", 0)
+            progress[key] = 0
+
+            try:
+                setattr(player, "_ats_progress", dict(progress))
+            except Exception:
+                pass
+
+            try:
+                self._ats_progress = dict(progress)
+            except Exception:
+                pass
+
+            extra_effect = {"bonus_family": "ATS", "ats_progress": dict(progress)}
+
         elif verb in ("remove_line", "remove_come", "remove_dont_come"):
             snap_now = self.snapshot_state()
             odds_type = getattr(cs_bet, "Odds", None)
@@ -2068,6 +2169,19 @@ class VanillaAdapter(EngineAdapter):
                         branch[key] = max(0.0, float(branch.get(key, 0.0)) + delta)
                         self.odds_state["dc"] = branch
 
+        ats_progress = effect.get("ats_progress")
+        if isinstance(ats_progress, Mapping):
+            try:
+                self._ats_progress = dict(ats_progress)
+            except Exception:
+                pass
+            player = self._cs_get_player()
+            if player is not None:
+                try:
+                    setattr(player, "_ats_progress", dict(ats_progress))
+                except Exception:
+                    pass
+
         for bet_key in list(self.box_bet_types.keys()):
             if self.bets.get(bet_key, 0.0) <= 0.0:
                 self.box_bet_types.pop(bet_key, None)
@@ -2188,6 +2302,25 @@ class VanillaAdapter(EngineAdapter):
                 "dc": {str(n): 0.0 for n in _BOX_NUMBERS},
             }
 
+        ats_progress = snapshot.get("ats_progress")
+        if isinstance(ats_progress, Mapping):
+            coerced_progress: Dict[str, float] = {}
+            for key, value in ats_progress.items():
+                try:
+                    coerced_progress[str(key)] = float(value or 0.0)
+                except (TypeError, ValueError):
+                    coerced_progress[str(key)] = 0.0
+            try:
+                self._ats_progress = coerced_progress
+            except Exception:
+                pass
+            player = self._cs_get_player()
+            if player is not None:
+                try:
+                    setattr(player, "_ats_progress", dict(coerced_progress))
+                except Exception:
+                    pass
+
         on_comeout = snapshot.get("on_comeout")
         if isinstance(on_comeout, bool):
             self.on_comeout = on_comeout
@@ -2286,6 +2419,20 @@ class VanillaAdapter(EngineAdapter):
                     }
                 elif "props" not in merged:
                     merged["props"] = {}
+                if "ats_progress" in overlay and isinstance(overlay.get("ats_progress"), Mapping):
+                    merged["ats_progress"] = {
+                        str(k): float(v)
+                        for k, v in overlay.get("ats_progress", {}).items()
+                        if isinstance(v, (int, float))
+                    }
+                elif "ats_progress" not in merged and hasattr(self, "_ats_progress"):
+                    progress_map = getattr(self, "_ats_progress", {})
+                    if isinstance(progress_map, Mapping):
+                        merged["ats_progress"] = {
+                            str(k): float(v)
+                            for k, v in progress_map.items()
+                            if isinstance(v, (int, float))
+                        }
                 for flat_key in ("come_flat", "dc_flat"):
                     branch_overlay = overlay.get(flat_key)
                     if isinstance(branch_overlay, Mapping):

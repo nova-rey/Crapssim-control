@@ -491,6 +491,12 @@ Initialized Phase 9, closed out Phase 8 baseline, and synchronized documentation
 
 ### Checkpoint 2 — One-Roll Props Integration
 
-Added verbs for classic single-roll propositions: Any7, AnyCraps, Yo, 2/3/12, C&E, and Hop.  
-They are placed before a roll, resolved on the next roll, and removed from the snapshot.  
+Added verbs for classic single-roll propositions: Any7, AnyCraps, Yo, 2/3/12, C&E, and Hop.
+They are placed before a roll, resolved on the next roll, and removed from the snapshot.
 Journaling marks `one_roll: true` and includes `prop_family` for audit and replay clarity.
+
+### Checkpoint 3 — ATS + Capability Truthfulness
+
+Integrated ATS (All/Small/Tall) bets with live-engine verbs and normalized snapshot tracking.
+Added a capability reporting layer exposing all supported verbs, increments, and supported status for external tools.
+Manifest and summary now embed `capabilities_schema_version: 1.0`.
