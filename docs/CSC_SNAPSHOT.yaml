@@ -1,5 +1,5 @@
 phase: 9
-checkpoint: 3
-title: ATS + Capability Truthfulness
-description: Added ATS bonus bets and truthful capability introspection with schema v1.0 embedded in manifest.
+checkpoint: 4
+title: Error Surface Polish + Replay/Perf Sanity
+description: Unified error codes, rejection logging, replay parity, and performance sanity tests with schema tags v1.0.
 status: active

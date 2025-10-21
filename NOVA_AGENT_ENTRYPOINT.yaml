@@ -1,5 +1,5 @@
 current_phase: 9
-current_checkpoint: 3
-checkpoint_title: ATS + Capability Truthfulness
+current_checkpoint: 4
+checkpoint_title: Error Surface Polish + Replay/Perf Sanity
 allow_behavior_change: true
 notes: CSC_BIBLE.md edits must always be additive; roadmap file reflects current truth.

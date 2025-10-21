@@ -54,6 +54,27 @@ def _is_box_number(x) -> bool:
         return False
 
 
+def _reject(code: str, reason: str) -> Dict[str, Any]:
+    return {"rejected": True, "code": code, "reason": reason}
+
+
+_VALUE_ERROR_CODE_SUFFIXES = {
+    "invalid_amount": "illegal_amount",
+    "invalid_args": "invalid_args",
+    "invalid_dice": "illegal_dice",
+    "invalid_number": "illegal_number",
+    "invalid_increment": "illegal_increment",
+}
+
+
+def _reject_from_value_error(exc: ValueError) -> Dict[str, Any]:
+    message = str(exc) or "invalid"
+    for suffix, code in _VALUE_ERROR_CODE_SUFFIXES.items():
+        if suffix in message:
+            return _reject(code, message)
+    return _reject("illegal_increment", message)
+
+
 class Effect(TypedDict, total=False):
     schema: str
     verb: str
@@ -1289,9 +1310,33 @@ class VanillaAdapter(EngineAdapter):
                     f"live_engine_{verb}_failed:fallback_to_stub", RuntimeWarning
                 )
 
-        handler = VerbRegistry.get(verb)
-        effect = handler(self._effect_context(), args or {})
-        self._apply_effect(effect)
+        try:
+            handler = VerbRegistry.get(verb)
+        except KeyError as exc:
+            return _reject("unsupported", str(exc))
+
+        try:
+            effect = handler(self._effect_context(), args or {})
+        except ValueError as exc:
+            return _reject_from_value_error(exc)
+        except AttributeError as exc:
+            return _reject("unsupported", str(exc))
+        except Exception as exc:
+            return _reject("engine_error", str(exc))
+
+        if isinstance(effect, Mapping) and effect.get("rejected"):
+            self.last_effect = effect  # type: ignore[assignment]
+            return effect
+
+        try:
+            self._apply_effect(effect)
+        except ValueError as exc:
+            return _reject_from_value_error(exc)
+        except AttributeError as exc:
+            return _reject("unsupported", str(exc))
+        except Exception as exc:
+            return _reject("engine_error", str(exc))
+
         self.last_effect = effect
         return effect
 
@@ -3183,17 +3228,9 @@ class CrapsSimAdapter(EngineAdapter):
                 number_val = 0
             amount_val = _coerce_amount(args.get("amount"))
             if side not in {"come", "dc"} or number_val not in _BOX_NUMBERS:
-                return {
-                    "rejected": True,
-                    "code": "illegal_window",
-                    "reason": "invalid come/dc odds target",
-                }
+                return _reject("illegal_window", "invalid come/dc odds target")
             if amount_val <= 0:
-                return {
-                    "rejected": True,
-                    "code": "illegal_amount",
-                    "reason": "amount must be positive",
-                }
+                return _reject("illegal_amount", "amount must be positive")
             key = f"odds_{side}_{number_val}"
             delta = amount_val if verb == "set_odds" else -amount_val
             self._bet_overlay[key] = max(0.0, self._bet_overlay.get(key, 0.0) + delta)
@@ -3207,11 +3244,7 @@ class CrapsSimAdapter(EngineAdapter):
         if verb == "field_bet":
             amount_val = _coerce_amount(args.get("amount"))
             if amount_val <= 0:
-                return {
-                    "rejected": True,
-                    "code": "illegal_amount",
-                    "reason": "amount must be positive",
-                }
+                return _reject("illegal_amount", "amount must be positive")
             self._bet_overlay["field"] = self._bet_overlay.get("field", 0.0) + amount_val
             return {"verb": verb, "amount": amount_val, "result": "ok"}
 
@@ -3222,17 +3255,9 @@ class CrapsSimAdapter(EngineAdapter):
                 number_val = 0
             amount_val = _coerce_amount(args.get("amount"))
             if number_val not in (4, 6, 8, 10):
-                return {
-                    "rejected": True,
-                    "code": "illegal_number",
-                    "reason": "invalid hardway number",
-                }
+                return _reject("illegal_number", "invalid hardway number")
             if amount_val <= 0:
-                return {
-                    "rejected": True,
-                    "code": "illegal_amount",
-                    "reason": "amount must be positive",
-                }
+                return _reject("illegal_amount", "amount must be positive")
             key = f"hardway_{number_val}"
             self._bet_overlay[key] = self._bet_overlay.get(key, 0.0) + amount_val
             return {
@@ -3254,7 +3279,7 @@ class CrapsSimAdapter(EngineAdapter):
             except TypeError:
                 return fn(verb, **(args or {}))  # type: ignore[misc]
             except Exception as exc:  # pragma: no cover - defensive
-                return {"result": "error", "error": str(exc)}
+                return _reject("engine_error", str(exc))
 
         return {"result": "noop", "applied": verb, "args": dict(args)}
 
