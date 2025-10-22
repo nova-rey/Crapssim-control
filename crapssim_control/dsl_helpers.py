@@ -13,6 +13,13 @@ rule_templates: Dict[str, str] = {
     "odds_on_point": "WHEN point_on AND odds.{num} == 0 AND point_value == {num} THEN set_odds(number={num}, multiple=1)",
 }
 
+rule_templates.update(
+    {
+        "set_come_odds_on_travel": "WHEN come_flat.{num} > 0 AND odds.come.{num} == 0 THEN set_odds(on=come, point={num}, amount={amt})",
+        "pull_dc_between_rolls": "WHEN dc_flat.{num} > 0 AND NOT point_on THEN cancel_bet(family=dc, target={num})",
+    }
+)
+
 
 def generate_rule(template_name: str, **kwargs: Any) -> str:
     """Render a DSL rule from a template, substituting placeholders."""

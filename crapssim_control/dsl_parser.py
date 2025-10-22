@@ -28,14 +28,41 @@ TOKEN_RE = re.compile(
 class DSLParseError(Exception):
     """Raised when the DSL parser encounters invalid syntax."""
 
-    def __init__(self, message: str, *, line: int = 1, col: int = 0) -> None:
-        self.message = message
-        self.line = line
-        self.col = col
-        super().__init__(f"DSL parse error at line {line}, col {col}: {message}")
+    def __init__(self, message: str, line: int = 1, col: int = 1, snippet: str = "") -> None:
+        self.detail = message
+        self.line = int(line)
+        self.col = int(col)
+        self.snippet = snippet
+        caret = ""
+        if snippet:
+            caret = " " * (max(0, self.col - 1)) + "^"
+        loc = f"line {self.line}, col {self.col}"
+        full_msg = f"DSL parse error at {loc}: {message}"
+        if snippet:
+            full_msg += f"\n  {snippet}\n  {caret}"
+        super().__init__(full_msg)
+        # Provide compatibility attribute used by older call sites
+        self.message = full_msg
 
 
-def _tokenize(expr: str) -> List[str]:
+def _line_col(source: str, offset: int) -> tuple[int, int, str]:
+    """Return (line, col, snippet) from a 0-based offset into ``source``."""
+
+    lines = source.splitlines(True)
+    total = 0
+    for idx, line in enumerate(lines, start=1):
+        next_total = total + len(line)
+        if offset < next_total:
+            col = offset - total + 1
+            return idx, col, line.rstrip("\n\r")
+        total = next_total
+    if lines:
+        snippet = lines[-1].rstrip("\n\r")
+        return len(lines), len(snippet) + 1, snippet
+    return 1, 1, ""
+
+
+def _tokenize(expr: str, *, source: str = "", base_offset: int = 0) -> List[str]:
     """Tokenize a condition expression for basic validation."""
 
     tokens: List[str] = []
@@ -45,7 +72,21 @@ def _tokenize(expr: str) -> List[str]:
     while pos < length:
         match = TOKEN_RE.match(expr, pos)
         if not match:
-            raise DSLParseError(f"Unexpected character '{expr[pos]}'", col=pos)
+            offset = base_offset + pos
+            if source:
+                line, col, snippet = _line_col(source, offset)
+                raise DSLParseError(
+                    f"Unexpected character '{expr[pos]}' in condition",
+                    line=line,
+                    col=col,
+                    snippet=snippet,
+                )
+            raise DSLParseError(
+                f"Unexpected character '{expr[pos]}' in condition",
+                line=1,
+                col=pos + 1,
+                snippet=expr,
+            )
         token = next((group for group in match.groups() if group), None)
         if token is not None:
             tokens.append(token)
@@ -82,33 +123,61 @@ def parse_sentence(sentence: str) -> Dict[str, Any]:
     surface validation only; expression evaluation is deferred.
     """
 
-    if not sentence or not sentence.strip():
-        raise DSLParseError("Empty sentence")
+    src = sentence or ""
+    if not src.strip():
+        raise DSLParseError("Empty sentence", line=1, col=1, snippet=src)
 
-    parts = re.split(r"\bTHEN\b", sentence, flags=re.IGNORECASE)
-    if len(parts) != 2:
-        raise DSLParseError("Missing THEN in sentence")
+    then_match = re.search(r"\bTHEN\b", src, flags=re.IGNORECASE)
+    if not then_match:
+        idx = len(src)
+        upper_idx = src.upper().find("THEN")
+        if upper_idx >= 0:
+            idx = upper_idx
+        line, col, snippet = _line_col(src, idx)
+        raise DSLParseError("Missing THEN in sentence", line=line, col=col, snippet=snippet)
 
-    cond_part, action_part = parts
+    cond_part = src[: then_match.start()]
+    action_part = src[then_match.end() :]
+
     cond_match = re.search(r"\bWHEN\b", cond_part, flags=re.IGNORECASE)
     if not cond_match:
-        raise DSLParseError("Missing WHEN in sentence")
+        upper_idx = src.upper().find("WHEN")
+        idx = upper_idx if upper_idx >= 0 else 0
+        line, col, snippet = _line_col(src, idx)
+        raise DSLParseError("Missing WHEN in sentence", line=line, col=col, snippet=snippet)
 
-    condition = cond_part[cond_match.end():].strip()
+    condition_raw = cond_part[cond_match.end() :]
+    leading_ws = len(condition_raw) - len(condition_raw.lstrip())
+    condition = condition_raw.strip()
+    cond_start_offset = cond_match.end() + max(0, leading_ws)
     if not condition:
-        raise DSLParseError("Missing condition expression after WHEN")
+        line, col, snippet = _line_col(src, cond_start_offset)
+        raise DSLParseError(
+            "Missing condition expression after WHEN",
+            line=line,
+            col=col,
+            snippet=snippet,
+        )
 
     # Basic token validation to surface unexpected characters early.
-    _tokenize(condition)
+    _tokenize(condition, source=src, base_offset=cond_start_offset)
 
-    action_text = action_part.strip()
+    action_raw = action_part
+    action_text = action_raw.strip()
     action_match = re.match(
-        r"^([A-Za-z_][A-Za-z0-9_]*)\s*\((.*)\)\s*$",
+        r"^([A-Za-z_][A-Za-z0-9_]*)\s*\((.*?)\)\s*$",
         action_text,
         flags=re.DOTALL,
     )
     if not action_match:
-        raise DSLParseError("Malformed THEN clause; expected verb(args)")
+        action_offset = then_match.end() + (len(action_raw) - len(action_raw.lstrip()))
+        line, col, snippet = _line_col(src, action_offset)
+        raise DSLParseError(
+            "Malformed THEN clause; expected verb(args)",
+            line=line,
+            col=col,
+            snippet=snippet,
+        )
 
     verb = action_match.group(1)
     arg_str = action_match.group(2).strip()
@@ -129,13 +198,15 @@ def parse_file(text: str) -> List[Dict[str, Any]]:
 
     rules: List[Dict[str, Any]] = []
     for line_no, raw_line in enumerate(text.splitlines(), start=1):
-        sentence = raw_line.strip()
-        if not sentence or sentence.startswith("#"):
+        line_text = raw_line.rstrip("\n\r")
+        if not line_text.strip() or line_text.lstrip().startswith("#"):
             continue
         try:
-            rule = parse_sentence(sentence)
+            rule = parse_sentence(line_text)
         except DSLParseError as err:
-            raise DSLParseError(err.message, line=line_no, col=err.col) from err
+            snippet = err.snippet or line_text
+            line = line_no + (err.line - 1)
+            raise DSLParseError(err.detail, line=line, col=err.col, snippet=snippet) from err
         rules.append(rule)
     return rules
 

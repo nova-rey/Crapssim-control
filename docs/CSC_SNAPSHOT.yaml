@@ -1,5 +1,5 @@
 phase: 11
-checkpoint: 6
-title: Validation & Baseline (Seeded Integration + Replay)
-description: Seeded end-to-end validation for DSL v1; live vs replay parity with baseline artifacts and schema tags.
+checkpoint: 7
+title: DSL Polish (Errors, Templates, Replay Parity)
+description: Improved DSL parser error messages, added odds/DC templates, and added a deterministic parity test toggling trace/explain flags.
 status: active

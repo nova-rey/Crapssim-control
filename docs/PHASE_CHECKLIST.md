@@ -9,6 +9,7 @@
 | P11·C4 | Journal + Debug Trace | ✅ Complete | Added structured rule evaluation traces to journal, with explainable "why" fields |
 | P11·C5 | DSL Spec Authoring Helpers | ✅ Complete | Added templates, macros, and CLI (`csc dsl new` / `csc dsl validate`) for DSL rule creation |
 | P11·C6 | Validation & Baseline (Seeded Integration + Replay) | ✅ Complete | Seeded live vs replay parity; baseline artifacts under baselines/phase11 |
+| P11·C7 | DSL Polish (Errors, Templates, Replay Parity) | ✅ Complete | Clearer parser errors, new odds/DC templates, and explicit replay-parity test |
 | P9.1·C0 | Repo Sync (Transport Abstraction Mini-Phase) | ✅ Complete | Initialized Phase 9.1 docs; no code changes |
 | P9.1·C1 | EngineTransport + LocalTransport | ✅ Complete | Adapter now delegates to transport interface |
 | P9.1·C2 | Capability Handshake (Engine-Aware) | ✅ Complete | Adapter now merges static and live engine capabilities |
