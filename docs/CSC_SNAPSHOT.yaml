@@ -1,5 +1,5 @@
 phase: 11
-checkpoint: 1
-title: DSL Schema & Parser
-description: Added Strategy DSL parser for WHEN/THEN sentences with validation and CLI testing tool.
+checkpoint: 2
+title: Expression Evaluator v1
+description: Added a deterministic, safe evaluator for WHEN expressions over normalized snapshots with comparisons, boolean logic, and dotted paths.
 status: active

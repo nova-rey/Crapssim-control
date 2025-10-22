@@ -10,10 +10,13 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, List
 
+from .dsl_eval import compile_expr
+
 __all__ = [
     "DSLParseError",
     "parse_sentence",
     "parse_file",
+    "compile_rules",
 ]
 
 TOKEN_RE = re.compile(
@@ -135,3 +138,15 @@ def parse_file(text: str) -> List[Dict[str, Any]]:
             raise DSLParseError(err.message, line=line_no, col=err.col) from err
         rules.append(rule)
     return rules
+
+
+def compile_rules(rules: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Attach compiled '_compiled' AST to each rule's WHEN string."""
+
+    compiled: List[Dict[str, Any]] = []
+    for rule in rules:
+        rule_copy = dict(rule)
+        when_expr = rule_copy.get("when", "")
+        rule_copy["_compiled"] = compile_expr(when_expr)
+        compiled.append(rule_copy)
+    return compiled
