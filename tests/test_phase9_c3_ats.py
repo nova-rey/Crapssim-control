@@ -32,7 +32,7 @@ def test_capabilities_truthful():
 
     capabilities = get_capabilities()
     assert "bonus" in capabilities["verbs"]
-    assert capabilities["supported"]["ats_all"]
+    assert capabilities["supported"]["ats_all_bet"]
 
 
 def test_manifest_includes_capabilities():
