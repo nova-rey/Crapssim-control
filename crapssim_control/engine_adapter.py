@@ -2325,16 +2325,30 @@ class VanillaAdapter(EngineAdapter):
         static_values = static_caps()
         merged: Dict[str, Any] = dict(static_values) if isinstance(static_values, Mapping) else {}
         merged["source"] = "static"
+        # Always surface an engine_detected key so downstream consumers can rely
+        # on the shape even when no live engine is present (P0/P1 invariant).
+        merged.setdefault("engine_detected", {})
+
         try:
-            engine_caps = self.transport.capabilities()
+            engine_caps_raw = self.transport.capabilities()
+            engine_caps = (
+                dict(engine_caps_raw)
+                if isinstance(engine_caps_raw, Mapping)
+                else {}
+            )
+
             if engine_caps:
                 merged["source"] = "merged"
                 merged["engine_source"] = "live"
-                merged["engine_detected"] = engine_caps
-                if hasattr(self, "_engine_info"):
-                    self._engine_info["capabilities"] = engine_caps
+            else:
+                merged.pop("engine_source", None)
+
+            merged["engine_detected"] = engine_caps
+            if hasattr(self, "_engine_info"):
+                self._engine_info["capabilities"] = engine_caps
         except Exception:
             merged["engine_detected"] = {"error": "capability_probe_failed"}
+
         return merged
 
     def _apply_normalized_snapshot(self, snapshot: Dict[str, Any]) -> None:
