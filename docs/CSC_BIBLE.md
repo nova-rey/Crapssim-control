@@ -55,6 +55,13 @@ Optional DSL tracing was added. When enabled by `--dsl-trace` or `run.journal.ds
 Each trace entry includes the rule ID, WHEN expression, evaluation result, triggered actions, and a merged explanation group.
 Reports include `dsl_trace_count` and `trace_schema_version`.
 
+### Checkpoint 5 — DSL Spec Authoring Helpers
+
+Introduced authoring utilities for DSL rule creation and validation.
+`dsl_helpers.py` provides built-in templates, rule generation, and validation helpers.
+New CLI commands `csc dsl new`, `csc dsl validate`, and `csc dsl list` simplify rule authoring.
+A reference file `docs/dsl_templates.md` documents available templates.
+
 ---
 ### Checkpoint 1 — EngineTransport + LocalTransport
 
