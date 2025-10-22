@@ -9,6 +9,30 @@ Where the snapshot tracks *state*, the Bible records *story*—why decisions wer
 
 ---
 
+## Phase 12 — Bankroll & Risk Policies
+
+**Goal:**  
+Introduce a safety layer between strategy logic and bankroll management. CSC will enforce heat limits, drawdown stops, bet caps, and recovery policies before bets reach the engine.
+
+**Planned Checkpoints**
+
+| ID | Title | Description |
+|----|--------|-------------|
+| P12·C0 | Docs Kickoff & Roadmap Sync | Sync docs and roadmap for new phase start. |
+| P12·C1 | Risk Policy Schema & Loader | Define schema, defaults, and loader for risk settings. |
+| P12·C2 | Policy Engine Core | Implement logic for evaluating caps, drawdown, heat, and recovery gates. |
+| P12·C3 | Integration with Runtime | Intercept outgoing actions and annotate journal entries with policy outcomes. |
+| P12·C4 | CLI Flags & Spec Overrides | Add CLI overrides and risk policy injection. |
+| P12·C5 | Validation & Baseline | Run seeded scenarios; confirm tagging; tag `v0.43.0-phase12-baseline`. |
+
+**Guardrails**
+- Policies never retroactively modify historical actions.  
+- Enforcement must remain deterministic for replay parity.  
+- Violations are logged, not fatal.  
+- Default = unrestricted (legacy compatibility).
+
+---
+
 ### Phase 11 — Strategy DSL v1 (“Sentences”)
 
 **Intent.** Make strategies editable as readable IF/THEN sentences that compile into CSC’s action tape.
