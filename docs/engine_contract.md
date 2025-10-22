@@ -23,3 +23,14 @@ The CrapsSim-Control engine adapter now supports the full vanilla bet surface.
 | Replay | 1.0 |
 
 For verb and field examples, see `/examples/` and `README.md`.
+
+### cancel_bet(family, target[, amount])
+Universal alias to remove or turn off existing bets between rolls.
+
+| family | target | effect |
+|---------|---------|---------|
+| place/buy/lay | number | remove bet or reduce amount |
+| odds | ("come"|"dc"|"pass"|"dont_pass", point) | remove odds |
+| hardway | number | remove hardway |
+| dc/dont_pass | point | move DC/DP to off |
+| field | "field" | clear field bet |

@@ -1,5 +1,5 @@
 phase: 9.1
-checkpoint: 4
-title: HTTP Transport Stub (Optional)
-description: Added HTTPTransport implementation of EngineTransport for remote CrapsSim API connectivity. Uses REST endpoints and returns structured responses.
+checkpoint: 5
+title: Universal Cancel Bet Alias
+description: Added cancel_bet() verb routing to take_down, remove_odds, or move_bet for between-roll cancellations.
 status: active
