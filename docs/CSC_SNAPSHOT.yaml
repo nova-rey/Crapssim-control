@@ -1,5 +1,5 @@
 phase: 11
-checkpoint: 0
-title: Docs Kickoff & Roadmap Sync
-description: Initialized Phase 11 (Strategy DSL v1) documentation and checklist. No runtime changes.
+checkpoint: 1
+title: DSL Schema & Parser
+description: Added Strategy DSL parser for WHEN/THEN sentences with validation and CLI testing tool.
 status: active
