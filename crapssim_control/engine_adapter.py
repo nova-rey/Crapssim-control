@@ -12,6 +12,8 @@ import re
 import warnings
 from typing import Any, Callable, Dict, Mapping, Optional, Tuple, Type, TypedDict, List
 
+from crapssim_control.transport import EngineTransport, LocalTransport
+
 __all__ = [
     "EngineAdapter",
     "NullAdapter",
@@ -792,7 +794,9 @@ class VanillaAdapter(EngineAdapter):
     Adapter that defaults to deterministic stubs but can bridge to CrapsSim live engines.
     """
 
-    def __init__(self):
+    def __init__(self, transport: EngineTransport | None = None):
+        self.transport = transport or LocalTransport()
+        self._session_started = False
         self.spec: Dict[str, Any] = {}
         self.seed: Optional[int] = None
         self.live_engine: bool = False
@@ -894,6 +898,12 @@ class VanillaAdapter(EngineAdapter):
                 return
 
     def start_session(self, spec: Dict[str, Any]) -> None:
+        try:
+            self.transport.start_session(spec or {})
+        except Exception:
+            # Transport failures shouldn't block stub fallback.
+            pass
+        self._session_started = True
         self.spec = spec or {}
         run_cfg = self.spec.get("run") if isinstance(self.spec, dict) else {}
         if isinstance(run_cfg, dict):
@@ -1045,6 +1055,11 @@ class VanillaAdapter(EngineAdapter):
         coerced_seed = self._coerce_seed(seed) if seed is not None else None
         if seed is not None:
             self.set_seed(seed)
+
+        try:
+            self.transport.step(dice, seed)
+        except Exception:
+            pass
 
         rng = self._rng if coerced_seed is None else random.Random(int(coerced_seed))
         if dice is None:
@@ -1269,6 +1284,11 @@ class VanillaAdapter(EngineAdapter):
             raw_args["policy"] = policy
             args = {"policy": policy}
             verb = "apply_policy"
+
+        try:
+            self.transport.apply(verb, args or {})
+        except Exception:
+            pass
 
         engine_verbs = {
             "press",
@@ -2270,6 +2290,28 @@ class VanillaAdapter(EngineAdapter):
             }
         )
 
+    def get_version(self) -> Dict[str, Any]:
+        try:
+            return self.transport.version()
+        except Exception:
+            return {"engine": "unknown", "version": "unavailable"}
+
+    def get_capabilities(self) -> Dict[str, Any]:
+        from crapssim_control.capabilities import (
+            get_capabilities as static_capabilities,
+        )
+
+        merged = dict(static_capabilities())
+        try:
+            engine_caps = self.transport.capabilities()
+            if isinstance(engine_caps, dict):
+                merged["engine_detected"] = engine_caps
+            elif "engine_detected" not in merged:
+                merged["engine_detected"] = {}
+        except Exception:
+            merged["engine_detected"] = {"error": "capability_probe_failed"}
+        return merged
+
     def _apply_normalized_snapshot(self, snapshot: Dict[str, Any]) -> None:
         self.bankroll = float(snapshot.get("bankroll", self.bankroll))
         bets = snapshot.get("bets") or {}
@@ -2434,6 +2476,11 @@ class VanillaAdapter(EngineAdapter):
         return effect
 
     def snapshot_state(self) -> Dict[str, Any]:
+        if self._session_started:
+            try:
+                self.transport.snapshot()
+            except Exception:
+                pass
         if self.live_engine and self._engine_adapter is not None:
             raw = self._engine_adapter.snapshot_state()
             snapshot = _normalize_snapshot(raw)
