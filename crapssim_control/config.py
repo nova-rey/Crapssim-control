@@ -56,3 +56,17 @@ def normalize_demo_fallbacks(run_blk: Optional[Dict[str, Any]]) -> bool:
     if ok and normalized is None:
         return DEMO_FALLBACKS_DEFAULT
     return DEMO_FALLBACKS_DEFAULT
+
+
+def get_journal_options(spec: Dict[str, Any]) -> Dict[str, Any]:
+    """Extract journal explain options from the run spec."""
+
+    run_blk = (spec or {}).get("run") if isinstance(spec, dict) else {}
+    journal_blk = run_blk.get("journal") if isinstance(run_blk, dict) else {}
+    journal: Dict[str, Any] = journal_blk if isinstance(journal_blk, dict) else {}
+    explain_enabled = bool(journal.get("explain", False))
+    grouping = journal.get("explain_grouping") or "first_only"
+    return {
+        "explain": explain_enabled,
+        "explain_grouping": grouping,
+    }

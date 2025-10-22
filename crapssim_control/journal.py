@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Dict, Any
+from datetime import datetime
+from typing import Any, Dict, Optional
+
 import json
 import os
-from datetime import datetime
 
 EFFECT_KEYS_ORDER = (
     "schema",
@@ -19,6 +20,27 @@ EFFECT_KEYS_ORDER = (
     "error",
     "meta",
 )
+
+
+_group_state: Dict[str, Any] = {"written": set()}
+
+
+def reset_group_state() -> None:
+    """Reset per-run explain grouping state."""
+
+    _group_state["written"] = set()
+
+
+def _format_why_for_row(why: str, grouping: str, is_first: bool) -> str:
+    if not why:
+        return ""
+    if grouping == "first_only":
+        return why if is_first else ""
+    if grouping == "ditto":
+        return why if is_first else "〃"
+    if grouping == "aggregate_line":
+        return ""
+    return why if is_first else ""
 
 
 def normalize_effect_summary(eff: Dict[str, Any]) -> Dict[str, Any]:
@@ -37,28 +59,65 @@ def normalize_effect_summary(eff: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
-def dumps_effect_summary_line(eff: Dict[str, Any]) -> str:
-    eff = normalize_effect_summary(eff)
-    ordered = {k: eff.get(k, None) for k in EFFECT_KEYS_ORDER if k in eff or k in ("verb","schema")}
-    # append other keys in sorted order for stability
-    extras = {k: v for k, v in eff.items() if k not in ordered}
-    for k in sorted(extras.keys()):
-        ordered[k] = extras[k]
+def dumps_effect_summary_line(
+    effect: Dict[str, Any], *, explain_opts: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
+    """Normalize an effect row and attach optional explain metadata."""
+
+    explain = explain_opts or {}
+    line = normalize_effect_summary(effect)
+    why = line.pop("_why", "") or line.pop("why", "")
+    group_id = line.pop("_why_group", None)
+    grouping = str(explain.get("explain_grouping", "first_only"))
+
+    is_first = True
+    track_group = True
+    if grouping == "aggregate_line" and line.get("event") != "group_explain":
+        track_group = False
+    if group_id:
+        seen: set[str] = _group_state.setdefault("written", set())  # type: ignore[assignment]
+        if track_group:
+            is_first = group_id not in seen
+            if is_first:
+                seen.add(group_id)
+        else:
+            is_first = group_id not in seen
+
+    if explain.get("explain"):
+        line["why"] = _format_why_for_row(str(why), grouping, is_first)
+
+    line.setdefault("timestamp", datetime.utcnow().isoformat(timespec="seconds"))
+    return line
+
+
+def _serialize_line(line: Dict[str, Any]) -> str:
+    ordered = {
+        k: line.get(k, None)
+        for k in EFFECT_KEYS_ORDER
+        if k in line or k in ("verb", "schema")
+    }
+    extras = {k: v for k, v in line.items() if k not in ordered}
+    for key in sorted(extras.keys()):
+        ordered[key] = extras[key]
     return json.dumps(ordered, separators=(",", ":"), ensure_ascii=False)
 
 
-def _write_line(line: Dict[str, Any], *, path: str) -> None:
+def _write_line(line: Dict[str, Any], *, path: Optional[str]) -> None:
+    if path is None:
+        return
     directory = os.path.dirname(path) or "."
     os.makedirs(directory, exist_ok=True)
     if line.get("event") == "rejected_effect":
         payload = json.dumps(line, separators=(",", ":"), ensure_ascii=False)
     else:
-        payload = dumps_effect_summary_line(line)
+        payload = _serialize_line(line)
     with open(path, "a", encoding="utf-8") as f:
         f.write(payload + "\n")
 
 
-def append_effect_summary_line(effect: Dict[str, Any], *, path: str) -> None:
+def append_effect_summary_line(
+    effect: Dict[str, Any], *, path: Optional[str], explain_opts: Optional[Dict[str, Any]] = None
+) -> None:
     if effect.get("rejected"):
         line = {
             "event": "rejected_effect",
@@ -67,6 +126,6 @@ def append_effect_summary_line(effect: Dict[str, Any], *, path: str) -> None:
             "timestamp": datetime.utcnow().isoformat(timespec="seconds"),
         }
     else:
-        line = effect
+        line = dumps_effect_summary_line(effect, explain_opts=explain_opts)
 
     _write_line(line, path=path)
