@@ -25,9 +25,9 @@ __all__ = [
 
 _BOX_NUMBERS = (4, 5, 6, 8, 9, 10)
 
-try:  # pragma: no cover - optional engine dependency
-    import crapssim.bet as cs_bet  # type: ignore
-except Exception:  # pragma: no cover - tolerate missing engine
+try:
+    import crapssim.bet as cs_bet
+except Exception:
     cs_bet = None  # type: ignore
 
 
@@ -1971,21 +1971,28 @@ class VanillaAdapter(EngineAdapter):
 
             bankroll_before = self._snap_bankroll()
 
+            AllCls = getattr(cs_bet, "ATSAll", None) or getattr(cs_bet, "All", None)
+            SmallCls = getattr(cs_bet, "ATSSmall", None) or getattr(cs_bet, "Small", None)
+            TallCls = getattr(cs_bet, "ATSTall", None) or getattr(cs_bet, "Tall", None)
+
             ats_mapping = {
-                "ats_all_bet": getattr(cs_bet, "ATSAll", None),
-                "ats_small_bet": getattr(cs_bet, "ATSSmall", None),
-                "ats_tall_bet": getattr(cs_bet, "ATSTall", None),
+                "ats_all_bet": AllCls,
+                "ats_small_bet": SmallCls,
+                "ats_tall_bet": TallCls,
             }
             bet_ctor = ats_mapping.get(verb)
             bet_obj = None
             placed = False
             if callable(bet_ctor):
-                for ctor in ({"amount": amount}, (amount,)):
+                try:
+                    bet_obj = bet_ctor(amount=amount)
+                except TypeError:
                     try:
-                        bet_obj = bet_ctor(**ctor) if isinstance(ctor, dict) else bet_ctor(*ctor)
-                        break
+                        bet_obj = bet_ctor(amount)
                     except Exception:
                         bet_obj = None
+                except Exception:
+                    bet_obj = None
             if bet_obj is not None:
                 placed = self._add_prop_bet(bet_obj)
 

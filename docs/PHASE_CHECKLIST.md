@@ -8,6 +8,7 @@
 | P9·C3 | ATS + Capability Truthfulness | ✅ Complete | Integrated ATS bets and added capability reporting |
 | P9·C4 | Error Surface Polish + Replay/Perf Sanity | ✅ Complete | Standardized error codes, replay parity, and performance metrics |
 | P9·C5 | Docs & Examples Pack (Phase 9 Closeout) | ✅ Complete | Documentation and examples finalized for all vanilla bets |
+| P9·WRAP | Phase 9 Wrap Hotfix | ✅ Complete | Version bump, capability flags truthfulness, tolerant ATS mapping |
 | P8·C1 | CrapsSim Wiring (press/regress) + Snapshot Normalizer + Seed Handoff | ✅ Complete | Engine-backed press/regress; seed handoff; normalization v1. |
 | P8·C2 | Place/Buy/Lay Wiring | ✅ Complete | Engine-backed place/buy/lay/move/take_down; box bets normalized. |
 | P8·C3 | Line & Come Family + Odds Wiring | ✅ Complete | Pass/Don’t, Come/DC, and Odds wired; flats/odds per point in snapshot. |

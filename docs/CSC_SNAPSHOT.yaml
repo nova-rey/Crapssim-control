@@ -1,5 +1,5 @@
 phase: 9
-checkpoint: 5
-title: Docs & Examples Pack (Phase 9 Closeout)
-description: Added complete docs and working examples for all vanilla bet families. Tagged v0.41.0-phase9-baseline.
+checkpoint: WRAP
+title: Phase 9 Wrap Hotfix
+description: Bumped version to v0.41.0-phase9-baseline; capabilities now expose supported flags; ATS mapping tolerant to engine class names.
 status: active
