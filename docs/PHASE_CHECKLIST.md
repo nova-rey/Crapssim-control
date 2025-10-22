@@ -1,7 +1,14 @@
 # Phase Checklist
 
-| Phase | Checkpoint | Title | Status | Summary |
-|------:|:----------:|-------|:------:|---------|
+| Phase | Checkpoint | ✅ Complete | Description |
+|------|------------|------------|-------------|
+| P11·C0 | Docs Kickoff & Roadmap Sync | ✅ Complete | Initialized Phase 11 docs; no code changes |
+| P11·C1 | DSL Schema & Parser | ☐ Pending | Define sentence schema and parser (WHEN … THEN …) |
+| P11·C2 | Expression Evaluator v1 | ☐ Pending | Deterministic evaluator over snapshot keys (no eval) |
+| P11·C3 | Rule Engine Integration | ☐ Pending | Evaluate rules per roll; enqueue verbs; cooldown/scope/once |
+| P11·C4 | Journal + Debug Trace | ☐ Pending | Log rule_id, when_expr, evaluated_true, why (flagged) |
+| P11·C5 | DSL Spec Authoring Helpers | ☐ Pending | Common patterns/macros and CLI scaffolder |
+| P11·C6 | Validation & Baseline | ☐ Pending | Seeded demos for press/regress/switch; tag v0.42.0-phase11-baseline |
 | P9.1·C0 | Repo Sync (Transport Abstraction Mini-Phase) | ✅ Complete | Initialized Phase 9.1 docs; no code changes |
 | P9.1·C1 | EngineTransport + LocalTransport | ✅ Complete | Adapter now delegates to transport interface |
 | P9.1·C2 | Capability Handshake (Engine-Aware) | ✅ Complete | Adapter now merges static and live engine capabilities |
@@ -24,6 +31,5 @@
 | P8·C5a | Live Engine Wiring — Line/Come/Odds Hotfix | ✅ Complete | Route line/come/odds to engine; bankroll deltas engine-derived; snapshot reflects flats/odds. |
 
 ## Future Proposed Phases
-- P10 — Web Dashboard MVP.
-- P11 — Run Launcher & Spec Library.
 - P12 — Integrated Spec Builder & Chained Runs.
+- P13 — TBD.

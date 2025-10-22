@@ -9,6 +9,22 @@ Where the snapshot tracks *state*, the Bible records *story*—why decisions wer
 
 ---
 
+### Phase 11 — Strategy DSL v1 (“Sentences”)
+
+**Intent.** Make strategies editable as readable IF/THEN sentences that compile into CSC’s action tape.
+
+**Scope (planned).**
+- **C1 — DSL Schema & Parser:** Sentence form `WHEN <condition_expr> THEN <verb>(<args>)`, validation with line/col errors.
+- **C2 — Expression Evaluator v1:** Deterministic evaluator over snapshot keys (bankroll, point_on, bets.*, odds.*, working.*, etc.). No `eval`.
+- **C3 — Rule Engine Integration:** Evaluate rules each roll; enqueue verbs; `cooldown`, `scope`, `once` flags.
+- **C4 — Journal + Debug Trace:** Journal `rule_id`, `when_expr`, `evaluated_true`, and `why` (behind `run.journal.dsl_trace`).
+- **C5 — Authoring Helpers:** Patterns/macros (`point_established`, `after_hit(n)`, `loss_streak(n)`), CLI scaffolder.
+- **C6 — Validation & Baseline:** Seeded end-to-end runs for press/regress/switch_profile; tag `v0.42.0-phase11-baseline`.
+
+**Notes.** Pure-Python, deterministic replay. Rules read normalized snapshots only.
+
+---
+
 ### Checkpoint 1 — EngineTransport + LocalTransport
 
 Introduced an abstract EngineTransport interface defining start_session, apply, step, snapshot, version, and capabilities.
