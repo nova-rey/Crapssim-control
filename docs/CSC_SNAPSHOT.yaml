@@ -1,5 +1,5 @@
 phase: 9.1
-checkpoint: 2
-title: Capability Handshake (Engine-Aware)
-description: Adapter performs engine handshake to gather version and live capability data, merges into manifest and /capabilities.
+checkpoint: 4
+title: HTTP Transport Stub (Optional)
+description: Added HTTPTransport implementation of EngineTransport for remote CrapsSim API connectivity. Uses REST endpoints and returns structured responses.
 status: active

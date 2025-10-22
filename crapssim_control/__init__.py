@@ -23,7 +23,7 @@ from .csv_journal import CSVJournal
 from .csv_summary import summarize_journal, write_summary_csv
 
 # Phase 5 Cycle 5 — includes report/export integration
-__version__ = "0.41.1-phase9.1-c2"
+__version__ = "0.41.3-phase9.1-c4"
 
 __all__ = [
     # Core controller

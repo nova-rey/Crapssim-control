@@ -17,6 +17,14 @@ This abstraction decouples CSC from direct CrapsSim imports and prepares for fut
 
 ---
 
+### Checkpoint 4 — HTTP Transport Stub (Optional)
+
+Added an HTTPTransport class that implements EngineTransport over REST.
+It communicates with a remote CrapsSim engine API via `/version`, `/capabilities`, `/session`, `/action`, and `/roll` endpoints.
+The transport registry now includes both "local" and "http" entries, completing the adapter’s decoupling from engine runtime.
+
+---
+
 ### Checkpoint 1 — Come/DC Odds + Field + Hardways
 CSC now recognizes and actuates come/don’t come odds, field, and hardways bets via live-engine verbs.
 Snapshot normalization and legality enforcement are complete, bringing full mid-table support online.

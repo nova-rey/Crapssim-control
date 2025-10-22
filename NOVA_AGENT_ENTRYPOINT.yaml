@@ -1,4 +1,4 @@
 current_phase: 9.1
-current_checkpoint: 2
-checkpoint_title: Capability Handshake (Engine-Aware)
+current_checkpoint: 4
+checkpoint_title: HTTP Transport Stub (Optional)
 allow_behavior_change: true
