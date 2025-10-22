@@ -548,3 +548,8 @@ The adapter now performs a handshake with its transport layer, retrieving versio
 The merged result is written into the manifest as `engine_info` and into `/capabilities` output.
 Schema version updated to 1.1 to reflect dynamic capability merging.
 
+### Checkpoint 5 — Universal Cancel Bet Alias
+
+A new verb `cancel_bet()` provides a universal way to remove or reduce existing bets between rolls.
+It automatically routes to the correct underlying action depending on bet family, simplifying rule scripting and adapter logic.
+

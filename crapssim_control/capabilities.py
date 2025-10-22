@@ -20,7 +20,8 @@ CAPABILITIES = {
         "place": ["place_bet", "buy_bet", "lay_bet", "take_down", "move_bet"],
         "props": ["any7_bet", "anycraps_bet", "yo_bet", "craps2_bet", "craps3_bet", "craps12_bet", "ce_bet", "hop_bet"],
         "bonus": ["ats_all_bet", "ats_small_bet", "ats_tall_bet"],
-        "meta": ["set_working", "clear_all", "start_session", "step_roll"]
+        "control": ["set_working", "clear_all", "cancel_bet"],
+        "meta": ["start_session", "step_roll"]
     },
     "increments": {
         "place_6_8": 6,

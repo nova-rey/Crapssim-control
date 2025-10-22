@@ -2351,6 +2351,56 @@ class VanillaAdapter(EngineAdapter):
 
         return merged
 
+    def cancel_bet(self, family: str, target=None, amount=None):
+        """Universal alias to cancel or pull down bets between rolls."""
+
+        def _call_take_down(selector, amt):
+            handler = getattr(self, "take_down", None)
+            if callable(handler):
+                return handler(selector, amt)
+
+            args: Dict[str, Any] = {}
+            if selector is not None:
+                if isinstance(selector, (list, tuple, set)):
+                    selectors = list(selector)
+                else:
+                    selectors = [selector]
+                args["target"] = {"selector": selectors}
+            if amt is not None:
+                args["amount"] = amt if isinstance(amt, Mapping) else {"value": amt}
+            return self.apply_action("take_down", args)
+
+        fam = (family or "").lower()
+        if fam in {"place", "buy", "lay"}:
+            return _call_take_down(target, amount)
+        elif fam == "odds":
+            subfam = "pass"
+            if isinstance(target, (tuple, list)) and len(target) == 2:
+                subfam, point = target
+            else:
+                point = target
+            handler = getattr(self, "remove_odds", None)
+            if callable(handler):
+                return handler(on=subfam, point=point)
+            args = {"on": subfam}
+            if point is not None:
+                args["point"] = point
+            return self.apply_action("remove_odds", args)
+        elif fam == "hardway":
+            return _call_take_down(target, amount)
+        elif fam in {"dc", "dont_come", "dont_pass"}:
+            handler = getattr(self, "move_bet", None)
+            if callable(handler):
+                return handler(from_=target, to="off")
+            return self.apply_action(
+                "move_bet",
+                {"target": {"from": target, "to": "off"}},
+            )
+        elif fam == "field":
+            return _call_take_down("field", amount)
+        else:
+            return {"error": f"Unknown family '{family}'", "verb": "cancel_bet"}
+
     def _apply_normalized_snapshot(self, snapshot: Dict[str, Any]) -> None:
         self.bankroll = float(snapshot.get("bankroll", self.bankroll))
         bets = snapshot.get("bets") or {}

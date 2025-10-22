@@ -7,6 +7,7 @@
 | P9.1·C2 | Capability Handshake (Engine-Aware) | ✅ Complete | Adapter now merges static and live engine capabilities |
 | P9.1·C3 | Conformance Suite + API Proposal | ☐ Pending | Transport-param tests and engine_api_proposal.md |
 | P9.1·C4 | HTTP Transport Stub (Optional) | ✅ Complete | Added HTTPTransport class for remote CrapsSim API |
+| P9.1·C5 | Universal Cancel Bet Alias | ✅ Complete | Added cancel_bet() universal alias for pulling down or clearing bets |
 | P9·C0 | Repo Sync (Phase 9 Kickoff) | ✅ Complete | Phase 9 initialized, Phase 8 marked complete |
 | P9·C1 | Come/DC Odds + Field + Hardways | ✅ Complete | Live engine verbs and snapshot coverage added |
 | P9·C2 | One-Roll Props Integration | ✅ Complete | Added Any7/AnyCraps/Yo/2/3/12/C&E/Hop verbs; one-roll props & journaling. |
