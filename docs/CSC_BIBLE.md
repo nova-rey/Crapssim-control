@@ -66,6 +66,12 @@ A reference file `docs/dsl_templates.md` documents available templates.
 
 A seeded, deterministic run validates the DSL pipeline from authoring to replay. Parity is asserted between a live fixed-dice run and a replay using the same dice sequence and rules. Baseline artifacts are stored under `baselines/phase11/` and reports include `dsl_schema_version` and `trace_schema_version`.
 
+### Checkpoint 7 — DSL Polish (Errors, Templates, Replay Parity)
+
+- Parser errors now report line/col with a caret under the offending token/snippet.
+- New authoring templates cover come odds and DC pull-down scenarios.
+- Added a deterministic test verifying identical outcomes with and without DSL tracing and journal explanations enabled.
+
 ---
 ### Checkpoint 1 — EngineTransport + LocalTransport
 

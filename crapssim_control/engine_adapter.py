@@ -3769,6 +3769,10 @@ class CrapsSimAdapter(EngineAdapter):
             if callable(process):
                 process(tuple(int(x) for x in dice))
                 return
+            fixed_run = getattr(table, "fixed_run", None)
+            if callable(fixed_run):
+                fixed_run([tuple(int(x) for x in dice)], verbose=False)
+                return
 
         roll_fn = getattr(table, "roll", None)
         if callable(roll_fn):
