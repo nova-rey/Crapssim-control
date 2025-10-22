@@ -29,6 +29,19 @@ Introduced the Strategy DSL base grammar. Supports single-line sentences in the 
 Parser validates syntax, provides clear errors, and outputs normalized rule JSON.
 A new CLI `csc-parse-dsl` allows quick validation and parsing tests.
 
+### Checkpoint 2 — Expression Evaluator v1
+
+Implemented a pure-Python evaluator for WHEN expressions. The tokenizer recognizes
+booleans, numbers, quoted strings, dotted identifiers, comparison operators, and
+logical keywords while rejecting suspicious double-underscore segments such as
+`__import__`.
+
+Expressions compile into a cached AST that the evaluator walks deterministically
+against normalized snapshots. Logical precedence matches `NOT` > `AND` > `OR`,
+and comparisons leverage Python’s native ordering with TypeError guarded to
+return `False` for mismatched types. Missing snapshot paths raise
+`ExpressionError` to expose typos early.
+
 ---
 ### Checkpoint 1 — EngineTransport + LocalTransport
 

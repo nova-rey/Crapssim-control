@@ -1,4 +1,4 @@
 current_phase: 11
-current_checkpoint: 1
-checkpoint_title: DSL Schema & Parser
+current_checkpoint: 2
+checkpoint_title: Expression Evaluator v1
 allow_behavior_change: true
