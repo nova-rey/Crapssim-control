@@ -6,12 +6,15 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from datetime import datetime
 from importlib import import_module
 import random
 import re
 import warnings
-from typing import Any, Callable, Dict, Mapping, Optional, Tuple, Type, TypedDict, List
+from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple, Type, TypedDict
 
+from crapssim_control.config import get_journal_options
+from crapssim_control.journal import append_effect_summary_line, reset_group_state
 from crapssim_control.transport import EngineTransport, LocalTransport
 
 __all__ = [
@@ -813,6 +816,7 @@ class VanillaAdapter(EngineAdapter):
         self._props_pending: List[Dict[str, Any]] = []
 
         self._reset_stub_state()
+        self._journal_opts: Dict[str, Any] = get_journal_options({})
 
     def perform_handshake(self) -> None:
         """Query engine for version and capabilities, store for manifest export."""
@@ -926,11 +930,17 @@ class VanillaAdapter(EngineAdapter):
             pass
         self._session_started = True
         self.spec = spec or {}
+        self._journal_opts = get_journal_options(self.spec)
+        reset_group_state()
         run_cfg = self.spec.get("run") if isinstance(self.spec, dict) else {}
+        run_seed: Optional[int] = None
         if isinstance(run_cfg, dict):
             run_seed = self._coerce_seed(run_cfg.get("seed"))
-            if run_seed is not None:
-                self.seed = run_seed
+        if run_seed is None and isinstance(self.spec, dict):
+            run_seed = self._coerce_seed(self.spec.get("seed"))
+        if run_seed is not None:
+            self.seed = run_seed
+        self._reset_stub_state()
         adapter_cfg = run_cfg.get("adapter") if isinstance(run_cfg, dict) else {}
         live_requested = bool(adapter_cfg.get("live_engine")) if isinstance(adapter_cfg, dict) else False
 
@@ -978,7 +988,53 @@ class VanillaAdapter(EngineAdapter):
                 return
             self._engine_reason = reason
 
-        self._reset_stub_state()
+    def _render_auto_why(
+        self, verb: str, args: Dict[str, Any], pre: Dict[str, Any]
+    ) -> str:
+        try:
+            def _amt(value: Any) -> Any:
+                raw = value
+                if isinstance(raw, dict):
+                    raw = raw.get("value", raw.get("amount"))
+                try:
+                    return int(float(raw))
+                except Exception:
+                    return raw
+
+            point_on = bool(pre.get("point_on"))
+            point = pre.get("point_value")
+            if verb == "place_bet":
+                number = args.get("number")
+                if number is None:
+                    target = args.get("target")
+                    if isinstance(target, Mapping):
+                        number = target.get("bet")
+                amount = _amt(args.get("amount"))
+                base = f"Placed ${amount} on {number}"
+                bets = pre.get("bets") if isinstance(pre.get("bets"), dict) else {}
+                existing = bets.get(str(number)) if isinstance(bets, dict) else None
+                if point_on and not existing:
+                    return f"{base} because point is {point} and no existing place bet."
+                return f"{base} per strategy."
+            if verb == "set_odds":
+                side = args.get("on")
+                point_val = args.get("point")
+                amount = _amt(args.get("amount"))
+                return (
+                    f"Set ${amount} {side} odds on {point_val} because flat is established."
+                )
+            if verb == "cancel_bet":
+                family = args.get("family")
+                target = args.get("target")
+                return f"Removed {family} {target} between rolls per rule."
+            if verb == "set_working":
+                scope = args.get("scope")
+                family = args.get("family")
+                mode = "on" if args.get("on", True) else "off"
+                return f"Turned {family} {mode} on {scope} by policy."
+        except Exception:
+            pass
+        return f"Requested {verb} with args={args}."
 
     def _cs_get_player(self):
         try:
@@ -1280,6 +1336,16 @@ class VanillaAdapter(EngineAdapter):
 
     def apply_action(self, verb: str, args: Dict[str, Any]) -> Dict[str, Any]:
         global _DEPRECATION_EMITTED
+        args = dict(args or {})
+        group_id = args.pop("_why_group", None)
+        why = args.pop("_why", None)
+        journal_opts = self._journal_opts or {}
+        pre_snapshot: Dict[str, Any] = {}
+        if journal_opts.get("explain"):
+            try:
+                pre_snapshot = self.snapshot_state()
+            except Exception:
+                pre_snapshot = {}
         if verb == "martingale":
             if not _DEPRECATION_EMITTED:
                 warnings.warn(
@@ -1366,8 +1432,14 @@ class VanillaAdapter(EngineAdapter):
             return _reject("engine_error", str(exc))
 
         if isinstance(effect, Mapping) and effect.get("rejected"):
-            self.last_effect = effect  # type: ignore[assignment]
-            return effect
+            effect_out = dict(effect)
+            if journal_opts.get("explain"):
+                why_text = why or self._render_auto_why(verb, args, pre_snapshot)
+                effect_out["_why"] = why_text
+                if group_id:
+                    effect_out["_why_group"] = group_id
+            self.last_effect = effect_out  # type: ignore[assignment]
+            return effect_out
 
         try:
             self._apply_effect(effect)
@@ -1378,8 +1450,79 @@ class VanillaAdapter(EngineAdapter):
         except Exception as exc:
             return _reject("engine_error", str(exc))
 
-        self.last_effect = effect
-        return effect
+        effect_out = dict(effect)
+        if journal_opts.get("explain"):
+            why_text = why or self._render_auto_why(verb, args, pre_snapshot)
+            effect_out["_why"] = why_text
+            if group_id:
+                effect_out["_why_group"] = group_id
+        self.last_effect = effect_out
+        return effect_out
+
+    def apply_actions(
+        self,
+        actions: List[Dict[str, Any]],
+        *,
+        why: Optional[str] = None,
+        group_id: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        grouping = str(self._journal_opts.get("explain_grouping", "first_only"))
+        aggregate = grouping == "aggregate_line"
+        explain_enabled = bool(self._journal_opts.get("explain"))
+        resolved_group = group_id or f"grp-{int(datetime.utcnow().timestamp())}"
+        results: List[Dict[str, Any]] = []
+        auto = why is None
+        pre_snapshot: Dict[str, Any] = {}
+        if explain_enabled:
+            try:
+                pre_snapshot = self.snapshot_state()
+            except Exception:
+                pre_snapshot = {}
+        for idx, action in enumerate(actions):
+            verb = action.get("verb")
+            args = dict(action.get("args", {}))
+            if verb in {"place_bet", "buy_bet", "lay_bet"}:
+                number = args.pop("number", None)
+                if number is not None:
+                    target = dict(args.get("target") or {})
+                    target.setdefault("bet", number)
+                    args["target"] = target
+                amount_val = args.get("amount")
+                if not isinstance(amount_val, Mapping):
+                    if amount_val is None:
+                        args["amount"] = {}
+                    else:
+                        args["amount"] = {"value": amount_val}
+            if explain_enabled:
+                args["_why_group"] = resolved_group
+                if not aggregate:
+                    if auto and why is None and verb is not None:
+                        why = self._render_auto_why(verb, args, pre_snapshot)
+                    if idx == 0 and why is not None:
+                        args["_why"] = why
+            result = self.apply_action(verb or "", args)
+            results.append(result)
+            if explain_enabled:
+                append_effect_summary_line(
+                    result,
+                    path=None,
+                    explain_opts=self._journal_opts,
+                )
+        if explain_enabled and aggregate:
+            verbs = [action.get("verb") for action in actions]
+            why_text = why or f"Executed {', '.join(v for v in verbs if v)} by strategy policy."
+            synthetic = {
+                "event": "group_explain",
+                "verbs": verbs,
+                "_why": why_text,
+                "_why_group": resolved_group,
+            }
+            append_effect_summary_line(
+                synthetic,
+                path=None,
+                explain_opts=self._journal_opts,
+            )
+        return results
 
     def _apply_engine_action(self, verb: str, args: Dict[str, Any]) -> Effect:
         if not self.live_engine or self._engine_adapter is None:
@@ -3330,6 +3473,14 @@ class CrapsSimAdapter(EngineAdapter):
 
     # ----- EngineAdapter interface --------------------------------------------------
     def start_session(self, spec: Dict[str, Any]) -> None:
+        seed = None
+        if isinstance(spec, dict):
+            seed = spec.get("seed") or spec.get("run", {}).get("seed")
+        if seed is not None:
+            try:
+                random.seed(int(seed))
+            except Exception:
+                pass
         result = attach_engine(spec)
         self.table = result.table
         self.controller_player = result.controller_player

@@ -34,3 +34,19 @@ Universal alias to remove or turn off existing bets between rolls.
 | hardway | number | remove hardway |
 | dc/dont_pass | point | move DC/DP to off |
 | field | "field" | clear field bet |
+
+### Journal Explanations (why)
+
+- Toggle: `run.journal.explain: true|false` (default: false)
+- Grouping mode: `run.journal.explain_grouping: "first_only" | "ditto" | "aggregate_line"`
+
+**Usage**
+- Pass `_why` and `_why_group` in `args` to explicitly group actions.
+- Or call `apply_actions([{verb,args}, ...], why="…", group_id="…")` to batch with a single explanation.
+
+**CSV**
+- Adds a `why` column when enabled.
+- For grouped actions:
+  - `first_only`: only the first row in the group carries the text.
+  - `ditto`: first row carries the text; subsequent show `〃`.
+  - `aggregate_line`: a synthetic `group_explain` row carries the text; action rows omit `why`.
