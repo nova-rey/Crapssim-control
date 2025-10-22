@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any, Dict, List, Tuple
 
 
@@ -49,13 +50,13 @@ class RuleEngine:
             return ("hand", hand_id)
         return ("roll", roll_in_hand)
 
-    def evaluate(self, snapshot: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """
-        Returns a list of actions: {"verb":..., "args":..., "_rule_id":..., "_why_group":...}
-        Applies cooldown/once and preserves rule order deterministically.
-        """
+    def evaluate(
+        self, snapshot: Dict[str, Any], trace_enabled: bool = False
+    ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+        """Evaluate rules and optionally emit DSL traces."""
 
         actions: List[Dict[str, Any]] = []
+        traces: List[Dict[str, Any]] = []
         self.state.tick()
 
         self._group_seq += 1
@@ -85,7 +86,6 @@ class RuleEngine:
 
             ast = r.get("_compiled")
             if ast is None:
-                # Rule not compiled; skip
                 continue
 
             from .dsl_eval import _eval_node  # lazy import to avoid circulars
@@ -95,11 +95,27 @@ class RuleEngine:
             except Exception:
                 fire = False
 
+            if trace_enabled:
+                now = datetime.utcnow().isoformat()
+                why = f"WHEN ({r.get('when', '')}) → {'True' if fire else 'False'}"
+                traces.append(
+                    {
+                        "type": "dsl_trace",
+                        "rule_id": rid,
+                        "when_expr": r.get("when", ""),
+                        "evaluated_true": fire,
+                        "why": why,
+                        "actions": [r.get("then", {}).get("verb")],
+                        "roll_id": snapshot.get("roll_in_hand", 0),
+                        "timestamp": now,
+                    }
+                )
+
             if not fire:
                 continue
 
             then = r.get("then", {})
-            verb = then.get("verb")
+            verb = then.get("verb") if isinstance(then, dict) else None
             args = dict(then.get("args", {})) if isinstance(then, dict) else {}
             if not verb:
                 continue
@@ -123,4 +139,4 @@ class RuleEngine:
                 }
             )
 
-        return actions
+        return actions, traces

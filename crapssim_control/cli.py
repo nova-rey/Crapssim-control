@@ -408,6 +408,14 @@ def _merge_cli_run_flags(spec: Dict[str, Any], args: argparse.Namespace) -> None
         sources["embed_analytics"] = "cli"
         changed = True
 
+    if getattr(args, "dsl_trace", False):
+        journal_blk = run_dict.get("journal")
+        if not isinstance(journal_blk, dict):
+            journal_blk = {}
+        journal_blk["dsl_trace"] = True
+        run_dict["journal"] = journal_blk
+        changed = True
+
     if sources:
         run_dict["_csc_flag_sources"] = sources
     elif "_csc_flag_sources" in run_dict:
@@ -638,6 +646,11 @@ def run(args: argparse.Namespace) -> int:
         if not hasattr(adapter, "attach"):
             raise RuntimeError("engine adapter missing attach() implementation")
         attach_result = adapter.attach(spec)
+        if getattr(args, "dsl_trace", False) and hasattr(adapter, "enable_dsl_trace"):
+            try:
+                adapter.enable_dsl_trace(True)
+            except Exception:
+                log.debug("failed to enable DSL trace on adapter", exc_info=True)
         table = attach_result.table
         # CRITICAL: seed the actual dice/rng instance now that it exists
         _force_seed_on_table(table, seed_int)
@@ -831,6 +844,11 @@ def _build_parser() -> argparse.ArgumentParser:
         type=str,
         default=None,
         help="Path to DSL rule file (WHEN ... THEN ...)",
+    )
+    p_run.add_argument(
+        "--dsl-trace",
+        action="store_true",
+        help="Enable DSL rule evaluation tracing in journal.",
     )
     # runtime flag overrides
     p_run.add_argument(

@@ -1,4 +1,4 @@
 current_phase: 11
-current_checkpoint: 3
-checkpoint_title: Rule Engine Integration
+current_checkpoint: 4
+checkpoint_title: Journal + Debug Trace
 allow_behavior_change: true

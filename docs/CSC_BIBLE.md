@@ -49,6 +49,12 @@ snapshots. Matching rules enqueue actions (`then {verb,args}`) in rule order.
 Supports `scope` (`roll|hand|session`), `cooldown` (rolls to wait), and `once`
 (fire once). CLI supports `--dsl <path>` to load rulesets at runtime.
 
+### Checkpoint 4 — Journal + Debug Trace
+
+Optional DSL tracing was added. When enabled by `--dsl-trace` or `run.journal.dsl_trace`, CSC now records rule evaluations and outcomes in the journal.
+Each trace entry includes the rule ID, WHEN expression, evaluation result, triggered actions, and a merged explanation group.
+Reports include `dsl_trace_count` and `trace_schema_version`.
+
 ---
 ### Checkpoint 1 — EngineTransport + LocalTransport
 

@@ -31,7 +31,7 @@ def test_rule_triggers_and_action_order():
         }),
     ]
     eng = RuleEngine(rules)
-    acts = eng.evaluate(SNAP)
+    acts, _ = eng.evaluate(SNAP)
     assert [a["verb"] for a in acts] == ["place_bet", "field_bet"]
 
 
@@ -55,9 +55,9 @@ def test_cooldown_and_once():
         }),
     ]
     eng = RuleEngine(rules)
-    a1 = eng.evaluate(SNAP)
+    a1, _ = eng.evaluate(SNAP)
     assert len(a1) == 2
-    a2 = eng.evaluate(SNAP)
+    a2, _ = eng.evaluate(SNAP)
     assert len(a2) == 0
 
 
