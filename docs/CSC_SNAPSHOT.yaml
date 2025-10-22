@@ -1,5 +1,5 @@
 phase: 12
-checkpoint: 0
-title: Docs Kickoff & Roadmap Sync
-description: Initialize Phase 12 — Bankroll & Risk Policies roadmap and update documentation.
+checkpoint: 1
+title: Risk Policy Schema & Loader
+description: Define schema, defaults, and loader for bankroll and heat risk policy settings.
 status: active
