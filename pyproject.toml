@@ -25,6 +25,7 @@ yaml = ["PyYAML>=6.0"]
 
 [project.scripts]
 crapssim-ctl = "crapssim_control.cli:main"
+csc-parse-dsl = "crapssim_control.cli_parse_dsl:main"
 
 [tool.setuptools]
 # If you later add a MANIFEST.in, setuptools will respect it.

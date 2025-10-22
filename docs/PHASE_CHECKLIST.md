@@ -3,7 +3,7 @@
 | Phase | Checkpoint | ✅ Complete | Description |
 |------|------------|------------|-------------|
 | P11·C0 | Docs Kickoff & Roadmap Sync | ✅ Complete | Initialized Phase 11 docs; no code changes |
-| P11·C1 | DSL Schema & Parser | ☐ Pending | Define sentence schema and parser (WHEN … THEN …) |
+| P11·C1 | DSL Schema & Parser | ✅ Complete | Added parser for WHEN/THEN sentences with validation and CLI tool |
 | P11·C2 | Expression Evaluator v1 | ☐ Pending | Deterministic evaluator over snapshot keys (no eval) |
 | P11·C3 | Rule Engine Integration | ☐ Pending | Evaluate rules per roll; enqueue verbs; cooldown/scope/once |
 | P11·C4 | Journal + Debug Trace | ☐ Pending | Log rule_id, when_expr, evaluated_true, why (flagged) |

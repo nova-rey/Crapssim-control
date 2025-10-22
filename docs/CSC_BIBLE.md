@@ -23,8 +23,13 @@ Where the snapshot tracks *state*, the Bible records *story*—why decisions wer
 
 **Notes.** Pure-Python, deterministic replay. Rules read normalized snapshots only.
 
----
+### Checkpoint 1 — DSL Schema & Parser
 
+Introduced the Strategy DSL base grammar. Supports single-line sentences in the form `WHEN <condition> THEN <verb>(<args>)`.
+Parser validates syntax, provides clear errors, and outputs normalized rule JSON.
+A new CLI `csc-parse-dsl` allows quick validation and parsing tests.
+
+---
 ### Checkpoint 1 — EngineTransport + LocalTransport
 
 Introduced an abstract EngineTransport interface defining start_session, apply, step, snapshot, version, and capabilities.
