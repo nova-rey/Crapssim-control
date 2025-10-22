@@ -816,6 +816,8 @@ class VanillaAdapter(EngineAdapter):
         self._last_snapshot: Dict[str, Any] = {}
         self._props_intent: List[Dict[str, Any]] = []
         self._props_pending: List[Dict[str, Any]] = []
+        self.dsl_trace_enabled: bool = False
+        self.journal: Optional[Any] = None
 
         self._reset_stub_state()
         self._journal_opts: Dict[str, Any] = get_journal_options({})
@@ -835,10 +837,16 @@ class VanillaAdapter(EngineAdapter):
         compiled = compile_rules(rules)
         self.rule_engine = RuleEngine(compiled)
 
-    def maybe_eval_rules(self, snapshot: Dict[str, Any]) -> List[Dict[str, Any]]:
+    def maybe_eval_rules(
+        self, snapshot: Dict[str, Any], trace_enabled: bool = False
+    ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
         if not self.rule_engine:
-            return []
-        return self.rule_engine.evaluate(snapshot)
+            return [], []
+        return self.rule_engine.evaluate(snapshot, trace_enabled=trace_enabled)
+
+    def enable_dsl_trace(self, enabled: bool = True) -> None:
+        """Enable or disable DSL trace logging."""
+        self.dsl_trace_enabled = bool(enabled)
 
     def perform_handshake(self) -> None:
         """Query engine for version and capabilities, store for manifest export."""
@@ -962,6 +970,11 @@ class VanillaAdapter(EngineAdapter):
             run_seed = self._coerce_seed(self.spec.get("seed"))
         if run_seed is not None:
             self.seed = run_seed
+        journal_cfg = run_cfg.get("journal") if isinstance(run_cfg, dict) else {}
+        if isinstance(journal_cfg, dict):
+            self.dsl_trace_enabled = bool(journal_cfg.get("dsl_trace", False))
+        else:
+            self.dsl_trace_enabled = False
         self._reset_stub_state()
         adapter_cfg = run_cfg.get("adapter") if isinstance(run_cfg, dict) else {}
         live_requested = bool(adapter_cfg.get("live_engine")) if isinstance(adapter_cfg, dict) else False
@@ -1156,7 +1169,10 @@ class VanillaAdapter(EngineAdapter):
             self.set_seed(seed)
 
         pre_snapshot = self.snapshot_state()
-        for act in self.maybe_eval_rules(pre_snapshot):
+        trace_enabled = bool(getattr(self, "dsl_trace_enabled", False))
+        actions, traces = self.maybe_eval_rules(pre_snapshot, trace_enabled)
+
+        for act in actions:
             verb = act.get("verb", "")
             reason = (
                 f"{verb} was triggered because WHEN ({act.get('_when', '')}) "
@@ -1171,6 +1187,15 @@ class VanillaAdapter(EngineAdapter):
         except Exception:
             pass
 
+        def _emit_traces() -> None:
+            if not (trace_enabled and traces):
+                return
+            journal_obj = getattr(self, "journal", None)
+            if journal_obj is None or not hasattr(journal_obj, "append"):
+                return
+            for entry in traces:
+                journal_obj.append(entry)
+
         rng = self._rng if coerced_seed is None else random.Random(int(coerced_seed))
         if dice is None:
             d1 = rng.randint(1, 6)
@@ -1184,9 +1209,11 @@ class VanillaAdapter(EngineAdapter):
         if self.live_engine:
             live_result = self._step_roll_live((int(d1), int(d2)), total)
             if live_result is not None:
+                _emit_traces()
                 return self._finalize_prop_cleanup(live_result)
 
         stub_result = self._step_roll_stub((int(d1), int(d2)), total)
+        _emit_traces()
         return self._finalize_prop_cleanup(stub_result)
 
     def _step_roll_live(

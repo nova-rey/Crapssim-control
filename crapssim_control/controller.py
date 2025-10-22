@@ -39,6 +39,7 @@ from .config import (
     coerce_flag,
     normalize_demo_fallbacks,
 )
+from .report_builder import attach_trace_metadata
 from .csv_journal import CSVJournal  # Per-event journaling
 from .engine_adapter import NullAdapter, VanillaAdapter
 from .eval import evaluate, EvalError
@@ -2107,6 +2108,7 @@ class ControlStrategy:
         journal_lines = 0
         external_executed = 0
         external_rejected = 0
+        dsl_trace_count = 0
         journal_path = getattr(getattr(self, "journal", None), "path", None)
         if isinstance(journal_path, (str, Path)) and str(journal_path):
             try:
@@ -2118,6 +2120,8 @@ class ControlStrategy:
                         entry = json.loads(line)
                     except Exception:
                         continue
+                    if isinstance(entry, dict) and entry.get("type") == "dsl_trace":
+                        dsl_trace_count += 1
                     origin = str(entry.get("origin") or "")
                     if origin.startswith("external:"):
                         if entry.get("executed"):
@@ -2149,6 +2153,7 @@ class ControlStrategy:
         summary_block["journal_lines"] = journal_lines
         summary_block["external_executed"] = external_executed
         summary_block["external_rejected"] = external_rejected
+        attach_trace_metadata(report, trace_count=dsl_trace_count)
 
         limits_stats = ((report.get("metadata") or {}).get("limits", {}) or {}).get("stats", {})
         rejected_map = {}

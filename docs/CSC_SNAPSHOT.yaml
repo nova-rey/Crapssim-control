@@ -1,5 +1,5 @@
 phase: 11
-checkpoint: 3
-title: Rule Engine Integration
-description: Integrated DSL rules into runtime via RuleEngine; evaluates per roll and enqueues actions with scope, cooldown, and once semantics.
+checkpoint: 4
+title: Journal + Debug Trace
+description: Adds optional DSL rule evaluation trace logging controlled by run.journal.dsl_trace or --dsl-trace flag. Records WHEN/THEN outcomes and merged explanations.
 status: active
