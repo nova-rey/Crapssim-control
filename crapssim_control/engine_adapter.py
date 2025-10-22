@@ -16,6 +16,8 @@ from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple, Type, Ty
 from crapssim_control.config import get_journal_options
 from crapssim_control.journal import append_effect_summary_line, reset_group_state
 from crapssim_control.transport import EngineTransport, LocalTransport
+from crapssim_control.rule_engine import RuleEngine
+from crapssim_control.dsl_parser import parse_file, compile_rules
 
 __all__ = [
     "EngineAdapter",
@@ -817,6 +819,26 @@ class VanillaAdapter(EngineAdapter):
 
         self._reset_stub_state()
         self._journal_opts: Dict[str, Any] = get_journal_options({})
+        self.rule_engine: Optional[RuleEngine] = None
+
+    def load_ruleset(self, text_or_path: str) -> None:
+        """Load and compile DSL rules from a file path or raw text."""
+
+        from pathlib import Path
+
+        source = Path(text_or_path)
+        if source.exists():
+            text = source.read_text(encoding="utf-8")
+        else:
+            text = text_or_path
+        rules = parse_file(text)
+        compiled = compile_rules(rules)
+        self.rule_engine = RuleEngine(compiled)
+
+    def maybe_eval_rules(self, snapshot: Dict[str, Any]) -> List[Dict[str, Any]]:
+        if not self.rule_engine:
+            return []
+        return self.rule_engine.evaluate(snapshot)
 
     def perform_handshake(self) -> None:
         """Query engine for version and capabilities, store for manifest export."""
@@ -1132,6 +1154,17 @@ class VanillaAdapter(EngineAdapter):
         coerced_seed = self._coerce_seed(seed) if seed is not None else None
         if seed is not None:
             self.set_seed(seed)
+
+        pre_snapshot = self.snapshot_state()
+        for act in self.maybe_eval_rules(pre_snapshot):
+            verb = act.get("verb", "")
+            reason = (
+                f"{verb} was triggered because WHEN ({act.get('_when', '')}) "
+                "evaluated True."
+            )
+            args = dict(act.get("args", {}))
+            args.setdefault("_why", reason)
+            self.apply_action(verb, args)
 
         try:
             self.transport.step(dice, seed)
@@ -3487,6 +3520,11 @@ class CrapsSimAdapter(EngineAdapter):
         self.meta = dict(result.meta or {})
         self._attach_result = result
         self._bet_overlay = {}
+        if seed is not None:
+            try:
+                self.set_seed(int(seed))
+            except Exception:
+                pass
 
     def step_roll(
         self, dice: Optional[Tuple[int, int]] = None, seed: Optional[int] = None

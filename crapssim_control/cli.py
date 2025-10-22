@@ -630,6 +630,11 @@ def run(args: argparse.Namespace) -> int:
             raise RuntimeError(reason or "engine adapter scaffolding not connected")
 
         adapter = adapter_cls()
+        if getattr(args, "dsl", None) and hasattr(adapter, "load_ruleset"):
+            try:
+                adapter.load_ruleset(str(args.dsl))
+            except Exception as exc:
+                print(f"warn: failed to load DSL ruleset: {exc}", file=sys.stderr)
         if not hasattr(adapter, "attach"):
             raise RuntimeError("engine adapter missing attach() implementation")
         attach_result = adapter.attach(spec)
@@ -820,6 +825,12 @@ def _build_parser() -> argparse.ArgumentParser:
         const="export/summary.csv",
         type=str,
         help="Path to CSV summary export (optional; defaults to export/summary.csv)",
+    )
+    p_run.add_argument(
+        "--dsl",
+        type=str,
+        default=None,
+        help="Path to DSL rule file (WHEN ... THEN ...)",
     )
     # runtime flag overrides
     p_run.add_argument(

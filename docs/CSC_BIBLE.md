@@ -42,6 +42,13 @@ and comparisons leverage Python’s native ordering with TypeError guarded to
 return `False` for mismatched types. Missing snapshot paths raise
 `ExpressionError` to expose typos early.
 
+### Checkpoint 3 — Rule Engine Integration
+
+A new `RuleEngine` evaluates compiled DSL rules on every roll using normalized
+snapshots. Matching rules enqueue actions (`then {verb,args}`) in rule order.
+Supports `scope` (`roll|hand|session`), `cooldown` (rolls to wait), and `once`
+(fire once). CLI supports `--dsl <path>` to load rulesets at runtime.
+
 ---
 ### Checkpoint 1 — EngineTransport + LocalTransport
 

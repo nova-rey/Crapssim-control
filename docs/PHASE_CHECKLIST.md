@@ -5,7 +5,7 @@
 | P11·C0 | Docs Kickoff & Roadmap Sync | ✅ Complete | Initialized Phase 11 docs; no code changes |
 | P11·C1 | DSL Schema & Parser | ✅ Complete | Added parser for WHEN/THEN sentences with validation and CLI tool |
 | P11·C2 | Expression Evaluator v1 | ✅ Complete | Safe evaluator over snapshot keys with AND/OR/NOT and comparisons |
-| P11·C3 | Rule Engine Integration | ☐ Pending | Evaluate rules per roll; enqueue verbs; cooldown/scope/once |
+| P11·C3 | Rule Engine Integration | ✅ Complete | Rules evaluate each roll; actions enqueued with scope/cooldown/once |
 | P11·C4 | Journal + Debug Trace | ☐ Pending | Log rule_id, when_expr, evaluated_true, why (flagged) |
 | P11·C5 | DSL Spec Authoring Helpers | ☐ Pending | Common patterns/macros and CLI scaffolder |
 | P11·C6 | Validation & Baseline | ☐ Pending | Seeded demos for press/regress/switch; tag v0.42.0-phase11-baseline |

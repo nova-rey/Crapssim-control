@@ -1,5 +1,5 @@
 phase: 11
-checkpoint: 2
-title: Expression Evaluator v1
-description: Added a deterministic, safe evaluator for WHEN expressions over normalized snapshots with comparisons, boolean logic, and dotted paths.
+checkpoint: 3
+title: Rule Engine Integration
+description: Integrated DSL rules into runtime via RuleEngine; evaluates per roll and enqueues actions with scope, cooldown, and once semantics.
 status: active
