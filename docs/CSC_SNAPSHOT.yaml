@@ -1,5 +1,5 @@
 phase: 9.1
-checkpoint: 1
-title: EngineTransport + LocalTransport
-description: Introduced EngineTransport interface and LocalTransport wrapper; adapter refactored to use transport abstraction.
+checkpoint: 2
+title: Capability Handshake (Engine-Aware)
+description: Adapter performs engine handshake to gather version and live capability data, merges into manifest and /capabilities.
 status: active

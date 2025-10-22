@@ -814,6 +814,27 @@ class VanillaAdapter(EngineAdapter):
 
         self._reset_stub_state()
 
+    def perform_handshake(self) -> None:
+        """Query engine for version and capabilities, store for manifest export."""
+
+        try:
+            ver_info = self.transport.version()
+            caps_info = self.transport.capabilities()
+            self._engine_info = {
+                "engine": ver_info.get("engine", "unknown") if isinstance(ver_info, dict) else "unknown",
+                "version": ver_info.get("version", "unknown") if isinstance(ver_info, dict) else "unknown",
+                "capabilities": caps_info if isinstance(caps_info, dict) else {},
+            }
+        except Exception as exc:  # pragma: no cover - defensive handshake guard
+            self._engine_info = {"engine": "unknown", "error": str(exc)}
+
+    def get_engine_info(self) -> Dict[str, Any]:
+        """Return cached engine handshake info."""
+
+        if not hasattr(self, "_engine_info"):
+            self.perform_handshake()
+        return getattr(self, "_engine_info", {})
+
     @staticmethod
     def _coerce_seed(seed_raw: Any) -> Optional[int]:
         if seed_raw is None or isinstance(seed_raw, bool):
@@ -2297,17 +2318,21 @@ class VanillaAdapter(EngineAdapter):
             return {"engine": "unknown", "version": "unavailable"}
 
     def get_capabilities(self) -> Dict[str, Any]:
-        from crapssim_control.capabilities import (
-            get_capabilities as static_capabilities,
-        )
+        """Merge static defaults with transport-provided capabilities."""
 
-        merged = dict(static_capabilities())
+        from crapssim_control.capabilities import get_capabilities as static_caps
+
+        static_values = static_caps()
+        merged: Dict[str, Any] = dict(static_values) if isinstance(static_values, Mapping) else {}
+        merged["source"] = "static"
         try:
             engine_caps = self.transport.capabilities()
-            if isinstance(engine_caps, dict):
+            if engine_caps:
+                merged["source"] = "merged"
+                merged["engine_source"] = "live"
                 merged["engine_detected"] = engine_caps
-            elif "engine_detected" not in merged:
-                merged["engine_detected"] = {}
+                if hasattr(self, "_engine_info"):
+                    self._engine_info["capabilities"] = engine_caps
         except Exception:
             merged["engine_detected"] = {"error": "capability_probe_failed"}
         return merged

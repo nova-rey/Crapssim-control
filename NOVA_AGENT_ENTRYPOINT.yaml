@@ -1,4 +1,4 @@
 current_phase: 9.1
-current_checkpoint: 1
-checkpoint_title: EngineTransport + LocalTransport
+current_checkpoint: 2
+checkpoint_title: Capability Handshake (Engine-Aware)
 allow_behavior_change: true
