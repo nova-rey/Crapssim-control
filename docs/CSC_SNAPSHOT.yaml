@@ -1,5 +1,5 @@
-phase: 9
-checkpoint: WRAP
-title: Phase 9 Wrap Hotfix
-description: Bumped version to v0.41.0-phase9-baseline; capabilities now expose supported flags; ATS mapping tolerant to engine class names.
+phase: 9.1
+checkpoint: 0
+title: Phase 9.1 Kickoff (Repo Sync)
+description: Added Phase 9.1 skeleton for transport abstraction and engine handshake. No runtime changes.
 status: active
