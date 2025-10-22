@@ -1,5 +1,5 @@
-phase: 11
-checkpoint: 7
-title: DSL Polish (Errors, Templates, Replay Parity)
-description: Improved DSL parser error messages, added odds/DC templates, and added a deterministic parity test toggling trace/explain flags.
+phase: 12
+checkpoint: 0
+title: Docs Kickoff & Roadmap Sync
+description: Initialize Phase 12 — Bankroll & Risk Policies roadmap and update documentation.
 status: active
