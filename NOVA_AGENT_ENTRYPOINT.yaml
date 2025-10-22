@@ -1,4 +1,4 @@
 current_phase: 11
-current_checkpoint: 2
-checkpoint_title: Expression Evaluator v1
+current_checkpoint: 3
+checkpoint_title: Rule Engine Integration
 allow_behavior_change: true
