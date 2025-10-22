@@ -14,7 +14,7 @@ SUPPORTED = {
 
 CAPABILITIES = {
     "phase": 9,
-    "capabilities_schema": "1.0",
+    "capabilities_schema": "1.1",
     "verbs": {
         "line": ["line_bet", "set_odds", "take_odds", "remove_odds"],
         "place": ["place_bet", "buy_bet", "lay_bet", "take_down", "move_bet"],

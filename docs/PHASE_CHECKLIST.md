@@ -4,7 +4,7 @@
 |------:|:----------:|-------|:------:|---------|
 | P9.1·C0 | Repo Sync (Transport Abstraction Mini-Phase) | ✅ Complete | Initialized Phase 9.1 docs; no code changes |
 | P9.1·C1 | EngineTransport + LocalTransport | ✅ Complete | Adapter now delegates to transport interface |
-| P9.1·C2 | Capability Handshake (Engine-Aware) | ☐ Pending | Probe engine, merge into /capabilities + manifest |
+| P9.1·C2 | Capability Handshake (Engine-Aware) | ✅ Complete | Adapter now merges static and live engine capabilities |
 | P9.1·C3 | Conformance Suite + API Proposal | ☐ Pending | Transport-param tests and engine_api_proposal.md |
 | P9.1·C4 | HTTP Transport Stub (Optional) | ☐ Pending | Wire stub client for future CrapsSim API |
 | P9·C0 | Repo Sync (Phase 9 Kickoff) | ✅ Complete | Phase 9 initialized, Phase 8 marked complete |

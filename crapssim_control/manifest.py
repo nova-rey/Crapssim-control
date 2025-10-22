@@ -2,7 +2,7 @@
 
 from uuid import uuid4
 from datetime import datetime
-from typing import Any, Dict, Mapping
+from typing import Any, Dict, Mapping, Optional
 
 from .capabilities import get_capabilities
 from .schemas import JOURNAL_SCHEMA_VERSION, SUMMARY_SCHEMA_VERSION
@@ -47,20 +47,40 @@ def generate_manifest(
     }
 
 
-def _build_manifest_base(run_id: str, report: Mapping[str, Any] | None) -> Dict[str, Any]:
+def _resolve_capabilities(adapter: Any | None) -> Dict[str, Any]:
+    if adapter is not None:
+        get_caps = getattr(adapter, "get_capabilities", None)
+        if callable(get_caps):
+            try:
+                caps = get_caps()
+                if isinstance(caps, Mapping):
+                    return dict(caps)
+            except Exception:
+                pass
+    raw_caps = get_capabilities()
+    return dict(raw_caps) if isinstance(raw_caps, Mapping) else {}
+
+
+def _build_manifest_base(
+    run_id: str, report: Mapping[str, Any] | None, adapter: Optional[Any] = None
+) -> Dict[str, Any]:
     payload: Dict[str, Any] = {
         "run_id": run_id,
         "report": dict(report) if isinstance(report, Mapping) else {},
     }
-    payload["capabilities"] = get_capabilities()
-    payload["capabilities_schema_version"] = "1.0"
+    payload["capabilities"] = _resolve_capabilities(adapter)
+    payload.setdefault("capabilities_schema_version", "1.1")
+    engine_info = getattr(adapter, "get_engine_info", lambda: {})()
+    payload["engine_info"] = engine_info
     return payload
 
 
-def build_manifest(run_id: str, report: Mapping[str, Any] | None) -> Dict[str, Any]:
+def build_manifest(
+    run_id: str, report: Mapping[str, Any] | None, adapter: Optional[Any] = None
+) -> Dict[str, Any]:
     """Build a manifest payload that includes capability and perf metadata."""
 
-    base = _build_manifest_base(run_id, report)
+    base = _build_manifest_base(run_id, report, adapter=adapter)
     base["error_surface_schema_version"] = "1.0"
     base["replay_schema_version"] = "1.0"
     try:

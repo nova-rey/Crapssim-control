@@ -534,3 +534,9 @@ Initialized Phase 9.1 documentation only. No behavior changes introduced.
 - **C3:** Conformance test suite (parametrized by transport) + engine_api_proposal.md.
 - **C4 (opt):** HTTP transport stub for future CrapsSim API.
 
+### Checkpoint 2 — Capability Handshake (Engine-Aware)
+
+The adapter now performs a handshake with its transport layer, retrieving version and live capability data from the engine.
+The merged result is written into the manifest as `engine_info` and into `/capabilities` output.
+Schema version updated to 1.1 to reflect dynamic capability merging.
+

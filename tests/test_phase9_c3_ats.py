@@ -40,4 +40,4 @@ def test_manifest_includes_capabilities():
 
     manifest = build_manifest("run_123", {})
     assert "capabilities" in manifest
-    assert manifest["capabilities_schema_version"] == "1.0"
+    assert manifest["capabilities_schema_version"] == "1.1"
