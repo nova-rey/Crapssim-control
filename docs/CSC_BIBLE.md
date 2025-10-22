@@ -62,6 +62,10 @@ Introduced authoring utilities for DSL rule creation and validation.
 New CLI commands `csc dsl new`, `csc dsl validate`, and `csc dsl list` simplify rule authoring.
 A reference file `docs/dsl_templates.md` documents available templates.
 
+### Checkpoint 6 — Validation & Baseline (Seeded Integration + Replay)
+
+A seeded, deterministic run validates the DSL pipeline from authoring to replay. Parity is asserted between a live fixed-dice run and a replay using the same dice sequence and rules. Baseline artifacts are stored under `baselines/phase11/` and reports include `dsl_schema_version` and `trace_schema_version`.
+
 ---
 ### Checkpoint 1 — EngineTransport + LocalTransport
 

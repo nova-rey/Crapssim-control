@@ -15,6 +15,9 @@ def attach_trace_metadata(
 ) -> None:
     """Attach DSL trace summary metadata to the report."""
 
+    report.setdefault("dsl_schema_version", "1.0")
+    report.setdefault("trace_schema_version", TRACE_SCHEMA_VERSION)
+
     resolved_count = trace_count
     if resolved_count is None and journal_entries is not None:
         resolved_count = sum(
