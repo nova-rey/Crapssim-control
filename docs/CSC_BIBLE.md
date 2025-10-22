@@ -35,9 +35,15 @@ Introduce a safety layer between strategy logic and bankroll management. CSC wil
 
 ### Checkpoint 1 — Risk Policy Schema & Loader
 
-Created `risk_schema.py` defining the RiskPolicy dataclass, defaults, and loader.  
-Policies now load from `spec.run.risk` and record version `1.0`.  
+Created `risk_schema.py` defining the RiskPolicy dataclass, defaults, and loader.
+Policies now load from `spec.run.risk` and record version `1.0`.
 No enforcement logic added yet — this establishes configuration groundwork for future checkpoints.
+
+### Checkpoint 2 — Policy Engine Core
+
+Added `policy_engine.py` implementing the PolicyEngine class.
+This module evaluates drawdown, heat, and bet caps deterministically, and applies recovery adjustments.
+No runtime integration yet — results are returned as structured dictionaries for testing.
 
 ---
 

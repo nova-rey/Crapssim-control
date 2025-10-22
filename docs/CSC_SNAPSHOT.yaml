@@ -1,5 +1,5 @@
 phase: 12
-checkpoint: 1
-title: Risk Policy Schema & Loader
-description: Define schema, defaults, and loader for bankroll and heat risk policy settings.
+checkpoint: 2
+title: Policy Engine Core
+description: Implement deterministic risk and bankroll evaluation logic using PolicyEngine.
 status: active
