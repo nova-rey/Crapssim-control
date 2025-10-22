@@ -50,3 +50,15 @@ Universal alias to remove or turn off existing bets between rolls.
   - `first_only`: only the first row in the group carries the text.
   - `ditto`: first row carries the text; subsequent show `〃`.
   - `aggregate_line`: a synthetic `group_explain` row carries the text; action rows omit `why`.
+
+### Baseline Artifacts (Phase 11)
+
+Baseline runs for DSL v1 produce:
+- `baselines/phase11/journal.csv`
+- `baselines/phase11/report.json`
+- `baselines/phase11/manifest.json`
+- `examples/demo_rules.dsl`
+
+Schema tags used:
+- `dsl_schema_version: "1.0"`
+- `trace_schema_version: "1.0"`

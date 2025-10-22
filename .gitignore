@@ -18,6 +18,8 @@ build/
 # Generated baseline artifacts (created by simulate_rounds)
 baselines/*
 !baselines/.keep
+!baselines/**/
+!baselines/**/*.gitkeep
 
 # Default ignore CSV/JSON…
 *.csv
