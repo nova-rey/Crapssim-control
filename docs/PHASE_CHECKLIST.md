@@ -7,7 +7,7 @@
 | P11·C2 | Expression Evaluator v1 | ✅ Complete | Safe evaluator over snapshot keys with AND/OR/NOT and comparisons |
 | P11·C3 | Rule Engine Integration | ✅ Complete | Rules evaluate each roll; actions enqueued with scope/cooldown/once |
 | P11·C4 | Journal + Debug Trace | ✅ Complete | Added structured rule evaluation traces to journal, with explainable "why" fields |
-| P11·C5 | DSL Spec Authoring Helpers | ☐ Pending | Common patterns/macros and CLI scaffolder |
+| P11·C5 | DSL Spec Authoring Helpers | ✅ Complete | Added templates, macros, and CLI (`csc dsl new` / `csc dsl validate`) for DSL rule creation |
 | P11·C6 | Validation & Baseline | ☐ Pending | Seeded demos for press/regress/switch; tag v0.42.0-phase11-baseline |
 | P9.1·C0 | Repo Sync (Transport Abstraction Mini-Phase) | ✅ Complete | Initialized Phase 9.1 docs; no code changes |
 | P9.1·C1 | EngineTransport + LocalTransport | ✅ Complete | Adapter now delegates to transport interface |

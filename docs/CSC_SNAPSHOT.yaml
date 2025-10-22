@@ -1,5 +1,5 @@
 phase: 11
-checkpoint: 4
-title: Journal + Debug Trace
-description: Adds optional DSL rule evaluation trace logging controlled by run.journal.dsl_trace or --dsl-trace flag. Records WHEN/THEN outcomes and merged explanations.
+checkpoint: 5
+title: DSL Spec Authoring Helpers
+description: Adds DSL helper utilities and CLI scaffolder to create and validate rule sentences using built-in templates.
 status: active

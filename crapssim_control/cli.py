@@ -813,7 +813,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Path to macro YAML file.",
     )
 
-    sub = parser.add_subparsers(dest="cmd", required=False)
+    sub = parser.add_subparsers(dest="subcommand", required=False)
 
     # validate
     p_val = sub.add_parser("validate", help="Validate a strategy spec (JSON or YAML)")
@@ -910,6 +910,11 @@ def _build_parser() -> argparse.ArgumentParser:
                        help="(scaffold) Print RNG inspection info (does not affect results).")
     p_run.set_defaults(func=_cmd_run)
 
+    # dsl helpers
+    p_dsl = sub.add_parser("dsl", help="DSL authoring utilities (new, validate, list)")
+    p_dsl.add_argument("action", help="new|validate|list")
+    p_dsl.add_argument("args", nargs="*", help="template args or file")
+
     # journal summarize
     p_j = sub.add_parser("journal", help="CSV journal utilities")
     p_j_sub = p_j.add_subparsers(dest="journal_cmd", required=True)
@@ -956,8 +961,13 @@ def main(argv: List[str] | None = None) -> int:
         print("Expanded to expanded_rules.json")
         handled = True
 
-    if handled and not getattr(args, "cmd", None):
+    if handled and not getattr(args, "subcommand", None):
         return 0
+
+    if getattr(args, "subcommand", None) == "dsl":
+        from crapssim_control import dsl_helpers
+
+        return dsl_helpers.cli_entry(["dsl", args.action, *list(args.args)])
 
     if not hasattr(args, "func") or args.func is None:
         parser.print_help()
