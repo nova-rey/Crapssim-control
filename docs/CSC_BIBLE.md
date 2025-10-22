@@ -26,10 +26,18 @@ Introduce a safety layer between strategy logic and bankroll management. CSC wil
 | P12·C5 | Validation & Baseline | Run seeded scenarios; confirm tagging; tag `v0.43.0-phase12-baseline`. |
 
 **Guardrails**
-- Policies never retroactively modify historical actions.  
-- Enforcement must remain deterministic for replay parity.  
-- Violations are logged, not fatal.  
+- Policies never retroactively modify historical actions.
+- Enforcement must remain deterministic for replay parity.
+- Violations are logged, not fatal.
 - Default = unrestricted (legacy compatibility).
+
+---
+
+### Checkpoint 1 — Risk Policy Schema & Loader
+
+Created `risk_schema.py` defining the RiskPolicy dataclass, defaults, and loader.  
+Policies now load from `spec.run.risk` and record version `1.0`.  
+No enforcement logic added yet — this establishes configuration groundwork for future checkpoints.
 
 ---
 
