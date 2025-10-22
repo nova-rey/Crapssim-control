@@ -9,6 +9,9 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional, Tuple
 import importlib
+import json
+import urllib.request
+from urllib.error import HTTPError, URLError
 
 
 class EngineTransport(ABC):
@@ -106,3 +109,75 @@ class LocalTransport(EngineTransport):
             return {"detected": sorted([x for x in dir(cs_bet) if x[0].isupper()])}
         except Exception:
             return {}
+
+
+class HTTPTransport(EngineTransport):
+    """HTTP-based transport layer communicating with a remote CrapsSim engine API."""
+
+    def __init__(
+        self,
+        base_url: str = "http://localhost:5000/api/engine",
+        timeout: int = 5,
+    ) -> None:
+        self.base_url = base_url.rstrip("/")
+        self.timeout = timeout
+        self.session_id: Optional[str] = None
+
+    def _post(self, endpoint: str, payload: Dict[str, Any] | None) -> Dict[str, Any]:
+        url = f"{self.base_url}/{endpoint.lstrip('/')}"
+        data = json.dumps(payload or {}).encode("utf-8")
+        request = urllib.request.Request(
+            url,
+            data=data,
+            headers={"Content-Type": "application/json"},
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=self.timeout) as response:
+                body = response.read().decode("utf-8")
+                return json.loads(body)
+        except (HTTPError, URLError, json.JSONDecodeError, Exception) as exc:
+            return {"error": str(exc), "endpoint": endpoint}
+
+    def _get(self, endpoint: str) -> Dict[str, Any]:
+        url = f"{self.base_url}/{endpoint.lstrip('/')}"
+        try:
+            with urllib.request.urlopen(url, timeout=self.timeout) as response:
+                body = response.read().decode("utf-8")
+                return json.loads(body)
+        except (HTTPError, URLError, json.JSONDecodeError, Exception) as exc:
+            return {"error": str(exc), "endpoint": endpoint}
+
+    def start_session(self, spec: Dict[str, Any]) -> None:
+        response = self._post("session", {"spec": spec})
+        self.session_id = response.get("session_id")
+
+    def apply(self, verb: str, args: Dict[str, Any]) -> Dict[str, Any]:
+        payload = {"verb": verb, "args": args, "session_id": self.session_id}
+        return self._post("action", payload)
+
+    def step(
+        self,
+        dice: Optional[Tuple[int, int]] = None,
+        seed: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {"session_id": self.session_id}
+        if dice:
+            payload["dice"] = dice
+        if seed is not None:
+            payload["seed"] = seed
+        return self._post("roll", payload)
+
+    def snapshot(self) -> Dict[str, Any]:
+        return self._get("snapshot")
+
+    def version(self) -> Dict[str, Any]:
+        return self._get("version")
+
+    def capabilities(self) -> Dict[str, Any]:
+        return self._get("capabilities")
+
+
+TRANSPORTS = {
+    "local": LocalTransport,
+    "http": HTTPTransport,
+}

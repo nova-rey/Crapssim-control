@@ -72,6 +72,12 @@ def _build_manifest_base(
     payload.setdefault("capabilities_schema_version", "1.1")
     engine_info = getattr(adapter, "get_engine_info", lambda: {})()
     payload["engine_info"] = engine_info
+    if hasattr(adapter, "transport") and isinstance(getattr(adapter, "transport"), object):
+        transport = getattr(adapter, "transport")
+        base_url = getattr(transport, "base_url", "")
+        if hasattr(transport, "base_url") and "http" in base_url:
+            payload["engine_mode"] = "remote"
+            payload["remote_base_url"] = base_url
     return payload
 
 
