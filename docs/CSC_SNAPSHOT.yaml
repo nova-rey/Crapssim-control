@@ -1,5 +1,5 @@
 phase: 9.1
-checkpoint: 0
-title: Phase 9.1 Kickoff (Repo Sync)
-description: Added Phase 9.1 skeleton for transport abstraction and engine handshake. No runtime changes.
+checkpoint: 1
+title: EngineTransport + LocalTransport
+description: Introduced EngineTransport interface and LocalTransport wrapper; adapter refactored to use transport abstraction.
 status: active

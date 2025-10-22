@@ -9,6 +9,14 @@ Where the snapshot tracks *state*, the Bible records *story*—why decisions wer
 
 ---
 
+### Checkpoint 1 — EngineTransport + LocalTransport
+
+Introduced an abstract EngineTransport interface defining start_session, apply, step, snapshot, version, and capabilities.
+Implemented LocalTransport for in-process CrapsSim use and refactored the adapter to delegate all engine calls through it.
+This abstraction decouples CSC from direct CrapsSim imports and prepares for future API transport support.
+
+---
+
 ### Checkpoint 1 — Come/DC Odds + Field + Hardways
 CSC now recognizes and actuates come/don’t come odds, field, and hardways bets via live-engine verbs.
 Snapshot normalization and legality enforcement are complete, bringing full mid-table support online.
