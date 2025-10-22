@@ -513,3 +513,16 @@ Phase 9 concludes with full documentation and example coverage for every vanilla
 Each example demonstrates end-to-end execution through CrapsSim and CSC, including snapshot, journal, and manifest outputs.  
 All schema versions finalized, and release tagged as **v0.41.0-phase9-baseline**.
 
+### Phase 9.1 — Transport Abstraction & Engine Handshake (Mini)
+
+This mini-phase decouples CSC from a specific CrapsSim shape by introducing a transport interface and an engine capability handshake.
+
+#### Checkpoint 0 — Repo Sync
+Initialized Phase 9.1 documentation only. No behavior changes introduced.
+
+#### Upcoming
+- **C1:** EngineTransport interface + LocalTransport; adapter refactor.
+- **C2:** Engine-aware capability handshake; merge into /capabilities and manifest.
+- **C3:** Conformance test suite (parametrized by transport) + engine_api_proposal.md.
+- **C4 (opt):** HTTP transport stub for future CrapsSim API.
+
