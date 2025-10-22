@@ -1,5 +1,5 @@
 phase: 11
-checkpoint: 5
-title: DSL Spec Authoring Helpers
-description: Adds DSL helper utilities and CLI scaffolder to create and validate rule sentences using built-in templates.
+checkpoint: 6
+title: Validation & Baseline (Seeded Integration + Replay)
+description: Seeded end-to-end validation for DSL v1; live vs replay parity with baseline artifacts and schema tags.
 status: active
