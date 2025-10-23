@@ -1,0 +1,6 @@
+mode: explicit
+out_dir: exports/
+items:
+  - path: specs/iron_cross.json
+  - path: inputs/gen1/child_07.zip
+  - path: specs/three_point_molly.json
