@@ -6,7 +6,7 @@
 | P12 | C1 | Risk Policy Schema & Loader | ✅ Complete | Define schema, defaults, and loader for risk settings |
 | P12 | C2 | Policy Engine Core | ✅ Complete | Implement logic for evaluating caps, drawdown, heat, and recovery gates |
 | P12 | C3 | Integration with Runtime | ☐ | Intercept outgoing actions and annotate journal entries with policy outcomes |
-| P12 | C4 | CLI Flags & Spec Overrides | ☐ | Add CLI overrides and risk policy injection |
+| P12 | C4 | CLI Flags & Spec Overrides | ✅ Complete | Added CLI overrides for drawdown, heat, bet caps, and recovery; manifest logs risk_overrides |
 | P12 | C5 | Validation & Baseline | ☐ | Run seeded scenarios; confirm tagging; tag v0.43.0-phase12-baseline |
 
 ## Future Proposed Phases

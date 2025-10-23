@@ -1,5 +1,5 @@
 phase: 12
-checkpoint: 2
-title: Policy Engine Core
-description: Implement deterministic risk and bankroll evaluation logic using PolicyEngine.
+checkpoint: 4
+title: CLI Flags & Spec Overrides
+description: Added CLI arguments and merge logic for drawdown, heat, bet cap, and recovery overrides; logged risk_overrides in manifest.
 status: active

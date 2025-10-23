@@ -14,3 +14,4 @@ def test_manifest_structure(tmp_path):
     assert manifest["schema"]["journal"] == JOURNAL_SCHEMA_VERSION
     assert manifest["schema"]["summary"] == SUMMARY_SCHEMA_VERSION
     assert set(outputs.keys()).issubset(set(manifest["output_paths"].keys()))
+    assert manifest.get("risk_overrides") == {}

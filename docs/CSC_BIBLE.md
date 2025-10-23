@@ -47,6 +47,14 @@ No runtime integration yet — results are returned as structured dictionaries f
 
 ---
 
+### Checkpoint 4 — CLI Flags & Spec Overrides
+
+Introduced CLI flags for controlling risk limits and policy enforcement.  
+Overrides now merge with loaded RiskPolicy and are logged in manifest as `risk_overrides`.  
+Precedence order: file < spec < CLI.  Default behavior unchanged if no flags are provided.
+
+---
+
 ### Phase 11 — Strategy DSL v1 (“Sentences”)
 
 **Intent.** Make strategies editable as readable IF/THEN sentences that compile into CSC’s action tape.

@@ -43,6 +43,7 @@ def generate_manifest(
             "enabled": bool(cli_flags.get("evo_enabled", False)),
             "trial_tag": cli_flags.get("trial_tag"),
         },
+        "risk_overrides": {},
         "ui": {"report_url": None, "journal_url": None},
     }
 
