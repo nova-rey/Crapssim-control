@@ -1,0 +1,9 @@
+mode: grid
+out_dir: exports/
+template: specs/template.json
+vars:
+  bankroll: [500, 1000, 2000]
+  table_min: [5, 10]
+max_items: 200
+# engine_version: engine-x
+# csc_version: csc-y
