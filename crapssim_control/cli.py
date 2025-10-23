@@ -4,6 +4,7 @@ import argparse
 import csv
 import copy
 import inspect
+import json
 import logging
 import os
 import random
@@ -20,6 +21,8 @@ from .config import (
     normalize_demo_fallbacks,
 )
 from .logging_utils import setup_logging
+from .policy_engine import PolicyEngine
+from .risk_schema import load_risk_policy
 from .spec_validation import VALIDATION_ENGINE_VERSION
 from .spec_loader import load_spec_file
 from .rules_engine.author import RuleBuilder
@@ -569,6 +572,87 @@ def run(args: argparse.Namespace) -> int:
     # Merge CLI flag overrides (before normalization/adapter usage)
     _merge_cli_run_flags(spec, args)
 
+    risk_overrides: Dict[str, Any] = {}
+    run_block = spec.setdefault("run", {}) if isinstance(spec, dict) else {}
+    if not isinstance(run_block, dict):
+        run_block = {}
+        spec["run"] = run_block
+    risk_block = run_block.get("risk")
+    if isinstance(risk_block, dict):
+        current_risk = dict(risk_block)
+    else:
+        current_risk = {}
+
+    policy_path = getattr(args, "risk_policy", None)
+    loaded_risk: Dict[str, Any] | None = None
+    if isinstance(policy_path, str) and policy_path and os.path.exists(policy_path):
+        try:
+            with open(policy_path, "r", encoding="utf-8") as handle:
+                text = handle.read()
+            if policy_path.lower().endswith((".yaml", ".yml")):
+                if yaml is not None:
+                    loaded_any = yaml.safe_load(text) or {}
+                else:
+                    loaded_any = json.loads(text or "{}")
+            else:
+                loaded_any = json.loads(text or "{}")
+            if isinstance(loaded_any, dict):
+                run_risk = loaded_any.get("run") if isinstance(loaded_any.get("run"), dict) else None
+                if isinstance(run_risk, dict) and isinstance(run_risk.get("risk"), dict):
+                    loaded_risk = dict(run_risk.get("risk") or {})
+                else:
+                    loaded_risk = dict(loaded_any)
+        except Exception:
+            loaded_risk = None
+
+    if loaded_risk is not None:
+        merged_risk: Dict[str, Any] = dict(loaded_risk)
+        merged_risk.update(current_risk)
+        current_risk = merged_risk
+        run_block["risk"] = current_risk
+        risk_overrides["from_file"] = policy_path
+    else:
+        run_block["risk"] = current_risk
+
+    if getattr(args, "max_drawdown", None) is not None:
+        current_risk["max_drawdown_pct"] = float(args.max_drawdown)
+        risk_overrides["max_drawdown_pct"] = float(args.max_drawdown)
+
+    if getattr(args, "max_heat", None) is not None:
+        current_risk["max_heat"] = float(args.max_heat)
+        risk_overrides["max_heat"] = float(args.max_heat)
+
+    if getattr(args, "bet_cap", None):
+        bet_caps = current_risk.get("bet_caps")
+        if not isinstance(bet_caps, dict):
+            bet_caps = {}
+        for cap in args.bet_cap or []:
+            if not isinstance(cap, str) or ":" not in cap:
+                continue
+            bet, raw_val = cap.split(":", 1)
+            bet = bet.strip()
+            raw_val = raw_val.strip()
+            if not bet:
+                continue
+            try:
+                amount_val = float(raw_val)
+            except ValueError:
+                continue
+            bet_caps[bet] = amount_val
+            risk_overrides[f"bet_cap_{bet}"] = amount_val
+        if bet_caps:
+            current_risk["bet_caps"] = bet_caps
+
+    if getattr(args, "recovery", None):
+        recovery_choice = str(args.recovery)
+        enabled = recovery_choice != "none"
+        mode = "none"
+        if enabled:
+            mode = f"{recovery_choice}_recovery"
+        rec_block = {"enabled": enabled, "mode": mode}
+        current_risk["recovery"] = rec_block
+        risk_overrides["recovery_mode"] = mode
+
     # spec-level runtime
     spec_run_raw = spec.get("run")
     spec_run = spec_run_raw if isinstance(spec_run_raw, dict) else {}
@@ -646,6 +730,16 @@ def run(args: argparse.Namespace) -> int:
         if not hasattr(adapter, "attach"):
             raise RuntimeError("engine adapter missing attach() implementation")
         attach_result = adapter.attach(spec)
+        risk_policy = load_risk_policy(spec)
+        adapter._risk_policy = risk_policy  # type: ignore[attr-defined]
+        adapter._policy_engine = PolicyEngine(risk_policy)  # type: ignore[attr-defined]
+        adapter._policy_opts = getattr(adapter, "_policy_opts", {"enforce": True})
+        adapter._policy_overrides = dict(risk_overrides)
+        if risk_overrides:
+            try:
+                print(f"Risk policy active: {json.dumps(risk_overrides)}")
+            except Exception:
+                print("Risk policy active: overrides applied")
         if getattr(args, "dsl_trace", False) and hasattr(adapter, "enable_dsl_trace"):
             try:
                 adapter.enable_dsl_trace(True)
@@ -866,6 +960,33 @@ def _build_parser() -> argparse.ArgumentParser:
             "Enable Guardrails (strict validation) for this run. Advisories are the default; "
             "use run.strict=false to remain advisory."
         ),
+    )
+    p_run.add_argument(
+        "--max-drawdown",
+        type=float,
+        help=(
+            "Maximum drawdown percentage before policy stops new bets."
+        ),
+    )
+    p_run.add_argument(
+        "--max-heat",
+        type=float,
+        help="Maximum total exposure per roll.",
+    )
+    p_run.add_argument(
+        "--bet-cap",
+        action="append",
+        help="Bet cap override in form bet:amount (repeatable).",
+    )
+    p_run.add_argument(
+        "--recovery",
+        choices=["none", "flat", "step"],
+        help="Set recovery policy mode.",
+    )
+    p_run.add_argument(
+        "--risk-policy",
+        type=str,
+        help="Path to YAML/JSON risk policy file.",
     )
     p_run.add_argument(
         "--no-embed-analytics",

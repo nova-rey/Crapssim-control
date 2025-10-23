@@ -39,7 +39,7 @@ from .config import (
     coerce_flag,
     normalize_demo_fallbacks,
 )
-from .report_builder import attach_trace_metadata
+from .report_builder import attach_manifest_risk_overrides, attach_trace_metadata
 from .csv_journal import CSVJournal  # Per-event journaling
 from .engine_adapter import NullAdapter, VanillaAdapter
 from .eval import evaluate, EvalError
@@ -2214,6 +2214,7 @@ class ControlStrategy:
                 engine_version=self.engine_version,
                 run_id=self._run_id,
             )
+            attach_manifest_risk_overrides(manifest, getattr(self, "adapter", None))
             with open(manifest_path, "w", encoding="utf-8") as f:
                 json.dump(manifest, f, indent=2)
         except Exception:

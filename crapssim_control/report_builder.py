@@ -29,3 +29,19 @@ def attach_trace_metadata(
         resolved_count = 0
     report["dsl_trace_count"] = int(resolved_count)
     report["trace_schema_version"] = TRACE_SCHEMA_VERSION
+
+
+def attach_manifest_risk_overrides(
+    manifest: Dict[str, Any],
+    adapter: Optional[Any],
+) -> None:
+    """Attach policy override metadata to the manifest."""
+
+    if not isinstance(manifest, dict):
+        return
+    overrides = {}
+    if adapter is not None:
+        overrides_obj = getattr(adapter, "_policy_overrides", {})
+        if isinstance(overrides_obj, dict):
+            overrides = dict(overrides_obj)
+    manifest["risk_overrides"] = overrides
