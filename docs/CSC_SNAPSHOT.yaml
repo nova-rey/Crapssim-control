@@ -1,5 +1,5 @@
-phase: 12
-checkpoint: 6p
-title: Surface Wiring & Parity Fixes
-description: Completed public surface for Phase 12: CLI overrides, early-stop toggles, report/manifest counters, and deterministic parity test.
+phase: 13
+checkpoint: 0
+title: Docs Kickoff & Roadmap Sync
+description: Initialize Phase 13 — Simulation Harness & Reports v2.  Documentation only; no runtime edits.
 status: active

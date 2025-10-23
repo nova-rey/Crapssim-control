@@ -9,6 +9,26 @@ Where the snapshot tracks *state*, the Bible records *story*—why decisions wer
 
 ---
 
+### Phase 13 — Simulation Harness & Reports v2
+
+**Goal:**
+Add batch execution, sweep plans, and richer per-run and aggregate reporting to CSC.
+
+**Planned Checkpoints**
+
+| ID | Title | Description |
+|----|--------|-------------|
+| P13·C0 | Docs Kickoff & Roadmap Sync | Sync docs for new phase start. |
+| P13·C1 | Batch Runner Skeleton | Introduce batch execution with per-run exports. |
+| P13·C2 | Sweep Plans & Aggregation Glue | Implement sweep plan parser and batch index summary. |
+| P13·C3 | Reports v2 (per-run) | Expand report fields: ROI, drawdown, PSO rate, digest. |
+| P13·C4 | Batch Leaderboard & Comparators | Generate leaderboard and comparison outputs. |
+| P13·C5 | Baseline & Tag | Capture seeded mini-batch baseline and tag release. |
+
+Phase 13 opens the door for multi-run analysis and comparative reporting, laying the groundwork for later phases like plugins and orchestration.
+
+---
+
 ## Phase 12 — Bankroll & Risk Policies
 
 **Goal:**  
