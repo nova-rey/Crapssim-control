@@ -3,8 +3,8 @@ import os
 from pathlib import Path
 import zipfile
 
-from csc.comparator import make_leaderboard, make_comparisons
-from csc.aggregator import aggregate
+from crapssim_control.comparator import make_leaderboard, make_comparisons
+from crapssim_control.aggregator import aggregate
 
 
 def _write_json(p, obj):

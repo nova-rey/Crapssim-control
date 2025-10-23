@@ -15,8 +15,8 @@ import shutil
 from datetime import datetime
 from typing import Any
 
-from csc.sweep import expand_plan, run_sweep
-from csc.aggregator import aggregate
+from crapssim_control.sweep import expand_plan, run_sweep
+from crapssim_control.aggregator import aggregate
 
 def _load_json(p: str):
     with open(p, "r", encoding="utf-8") as f:
