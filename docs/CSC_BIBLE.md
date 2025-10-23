@@ -45,6 +45,12 @@ Each plugin is loaded into a unique namespace under `plugins.<name>_<timestamp>`
 Sandbox enforces safe imports, denies filesystem and subprocess access, and applies an init timeout.
 All failures fail-closed with clear exceptions.
 
+### Checkpoint 3 — Runtime Binding (verbs & policies)
+
+Runs can now declare `use_plugins` with capability IDs. At run start we resolve via the manifest registry,
+sandbox-load modules, instantiate classes from `entry` targets, and register them into `VerbRegistry`/`PolicyRegistry`.
+Loaded plugin facts are written into `manifest.json` under `plugins_loaded`. Failures fail-closed without crashing the run.
+
 ### Phase 13 — Simulation Harness & Reports v2
 
 **Goal:**

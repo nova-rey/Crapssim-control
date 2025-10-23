@@ -7,6 +7,7 @@ from typing import List
 from types import ModuleType
 import builtins
 from .registry import PluginSpec
+import types
 
 
 @dataclass
@@ -137,3 +138,85 @@ class PluginLoader:
             raise result["error"]
 
         return result["module"]
+
+    def load_capability(self, spec, kind: str, cap_name: str, version: str) -> types.ModuleType:
+        """
+        Load the module backing the specific capability from a PluginSpec.
+        """
+        # Find capability
+        cap = None
+        for c in spec.capabilities:
+            if c.kind == kind and c.name == cap_name and str(c.version) == str(version):
+                cap = c
+                break
+        if cap is None:
+            raise ImportError(f"Capability {kind}.{cap_name}/{version} not found in {spec.name} {spec.version}")
+
+        # entry looks like "path/to/file.py:ClassName"
+        entry = cap.entry
+        mod_path, _, _ = entry.partition(":")
+        # Reuse sandboxed 'load' logic but load the path we want.
+        # Clone of load() but using this entry path:
+        plugin_name = spec.name.replace(".", "_")
+        unique_name = f"plugins.{plugin_name}_{int(time.time()*1000)}"
+
+        deny_hook = self._deny_import_hook()
+        sys.meta_path.insert(0, deny_hook)
+        sys_modules_before = set(sys.modules.keys())
+        sandbox_builtins = self._sandbox_builtins()
+
+        result = {}
+
+        def _do_import():
+            try:
+                s = importlib.util.spec_from_file_location(unique_name, mod_path)
+                if s is None:
+                    raise ImportError(f"Cannot locate {mod_path}")
+                module = importlib.util.module_from_spec(s)
+                module.__builtins__ = sandbox_builtins
+                sys.modules[unique_name] = module
+                loader = s.loader
+                if loader is None:
+                    raise ImportError(f"No loader for {mod_path}")
+                loader.exec_module(module)
+                result["module"] = module
+            except Exception as e:
+                result["error"] = e
+
+        t = threading.Thread(target=_do_import, daemon=True)
+        t.start()
+        t.join(timeout=self.policy.init_timeout)
+        sys.meta_path.remove(deny_hook)
+        # Cleanup leaked modules if failed
+        for name in list(sys.modules.keys()):
+            if name not in sys_modules_before and name.startswith("plugins."):
+                sys.modules.pop(name, None)
+
+        if t.is_alive():
+            raise TimeoutError(f"Plugin '{spec.name}' init exceeded timeout")
+
+        if "error" in result:
+            raise result["error"]
+        return result["module"]
+
+    def instantiate(self, spec, kind: str, cap_name: str, version: str):
+        """
+        Load and instantiate the class declared in 'entry' for the given capability.
+        """
+        # Find entry
+        cap = None
+        for c in spec.capabilities:
+            if c.kind == kind and c.name == cap_name and str(c.version) == str(version):
+                cap = c
+                break
+        if cap is None:
+            return None
+        entry = cap.entry
+        mod_path, _, cls_name = entry.partition(":")
+        module = self.load_capability(spec, kind, cap_name, version)
+        if not cls_name:
+            raise ImportError(f"Entry '{entry}' missing class name")
+        cls = getattr(module, cls_name, None)
+        if cls is None:
+            raise ImportError(f"Class '{cls_name}' not found in module '{mod_path}'")
+        return cls()  # Construct with no args (deterministic)

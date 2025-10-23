@@ -1,4 +1,4 @@
 current_phase: 14
-current_checkpoint: 2
-checkpoint_title: Safe Loader & Sandbox Lite
-allow_behavior_change: false
+current_checkpoint: 3
+checkpoint_title: Runtime Binding (verbs & policies)
+allow_behavior_change: true

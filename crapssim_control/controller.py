@@ -29,6 +29,9 @@ from crapssim_control.external.http_api import (
 from crapssim_control.integrations.webhooks import WebhookPublisher
 from crapssim_control.rules_engine.actions import ACTIONS, is_legal_timing
 from crapssim_control.report_hook import maybe_enrich_report  # P13·C3: enrich per-run report
+from crapssim_control.plugins.runtime import load_plugins_for_spec, default_sandbox_policy
+from crapssim_control.plugins.registry import PluginRegistry
+from crapssim_control.plugins.loader import PluginLoader
 
 from .actions import make_action  # Action Envelope helper
 from .analytics.tracker import Tracker
@@ -359,6 +362,20 @@ class ControlStrategy:
                 )
             except Exception:
                 logger.exception("Failed to start diagnostics HTTP server")
+
+        # P14·C3: resolve + load requested plugins (if any) for this run
+        self._plugins_loaded_trace: List[Dict[str, Any]] = []
+        if isinstance(spec, dict) and spec.get("use_plugins"):
+            try:
+                registry = PluginRegistry()
+                roots = ["plugins"]
+                registry.discover(roots)
+
+                loader = PluginLoader(default_sandbox_policy())
+                loaded = load_plugins_for_spec(spec, registry, loader)
+                self._plugins_loaded_trace.extend(loaded)
+            except Exception:
+                self._plugins_loaded_trace.append({"status": "error", "detail": "plugin_load_failed"})
 
         # Phase 3 analytics scaffolding
         self._tracker: Optional[Tracker] = None
@@ -2219,6 +2236,8 @@ class ControlStrategy:
                 engine_version=self.engine_version,
                 run_id=self._run_id,
             )
+            if hasattr(self, "_plugins_loaded_trace"):
+                manifest.setdefault("plugins_loaded", []).extend(self._plugins_loaded_trace)
             attach_manifest_risk_overrides(manifest, getattr(self, "adapter", None))
             with open(manifest_path, "w", encoding="utf-8") as f:
                 json.dump(manifest, f, indent=2)
