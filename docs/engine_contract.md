@@ -79,3 +79,17 @@ Summary/Manifest fields:
 - termination_reason (string)
 - rolls_completed (int)
 - rolls_requested (int)
+
+### Policy & Early-Stop Metadata (Surfaced)
+
+**Summary fields**
+- `risk_violations_count` — number of actions blocked by policy enforcement
+- `policy_applied_count` — number of actions modified by a recovery rule
+- `terminated_early` — boolean
+- `termination_reason` — `bankroll_exhausted` or `unactionable_bankroll`
+- `rolls_completed`, `rolls_requested`
+
+**Manifest fields**
+- `risk_policy_version` — version tag (default `"1.0"`)
+- `risk_overrides` — CLI/spec overrides applied for the run
+- Plus the same termination fields as summary

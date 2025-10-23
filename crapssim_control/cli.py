@@ -18,6 +18,8 @@ from .config import (
     EMBED_ANALYTICS_DEFAULT,
     STRICT_DEFAULT,
     coerce_flag,
+    get_policy_options,
+    get_stop_options,
     normalize_demo_fallbacks,
 )
 from .logging_utils import setup_logging
@@ -573,85 +575,90 @@ def run(args: argparse.Namespace) -> int:
     _merge_cli_run_flags(spec, args)
 
     risk_overrides: Dict[str, Any] = {}
-    run_block = spec.setdefault("run", {}) if isinstance(spec, dict) else {}
+    if not isinstance(spec, dict):
+        spec = {}
+    run_block = spec.get("run")
     if not isinstance(run_block, dict):
         run_block = {}
         spec["run"] = run_block
     risk_block = run_block.get("risk")
-    if isinstance(risk_block, dict):
-        current_risk = dict(risk_block)
-    else:
-        current_risk = {}
+    if not isinstance(risk_block, dict):
+        risk_block = {}
+        run_block["risk"] = risk_block
 
     policy_path = getattr(args, "risk_policy", None)
-    loaded_risk: Dict[str, Any] | None = None
     if isinstance(policy_path, str) and policy_path and os.path.exists(policy_path):
+        data: Dict[str, Any] | None = None
         try:
-            with open(policy_path, "r", encoding="utf-8") as handle:
-                text = handle.read()
-            if policy_path.lower().endswith((".yaml", ".yml")):
-                if yaml is not None:
-                    loaded_any = yaml.safe_load(text) or {}
-                else:
-                    loaded_any = json.loads(text or "{}")
+            if policy_path.lower().endswith((".yml", ".yaml")) and yaml is not None:
+                with open(policy_path, "r", encoding="utf-8") as f:
+                    data = yaml.safe_load(f) or {}
             else:
-                loaded_any = json.loads(text or "{}")
-            if isinstance(loaded_any, dict):
-                run_risk = loaded_any.get("run") if isinstance(loaded_any.get("run"), dict) else None
-                if isinstance(run_risk, dict) and isinstance(run_risk.get("risk"), dict):
-                    loaded_risk = dict(run_risk.get("risk") or {})
-                else:
-                    loaded_risk = dict(loaded_any)
+                with open(policy_path, "r", encoding="utf-8") as f:
+                    try:
+                        data = json.load(f)
+                    except Exception:
+                        data = None
         except Exception:
-            loaded_risk = None
+            data = None
+        if isinstance(data, dict) and data:
+            nested = data.get("run") if isinstance(data.get("run"), dict) else None
+            source = nested.get("risk") if isinstance(nested, dict) and isinstance(nested.get("risk"), dict) else data
+            if isinstance(source, dict):
+                risk_block.update(source)
+                risk_overrides["from_file"] = policy_path
 
-    if loaded_risk is not None:
-        merged_risk: Dict[str, Any] = dict(loaded_risk)
-        merged_risk.update(current_risk)
-        current_risk = merged_risk
-        run_block["risk"] = current_risk
-        risk_overrides["from_file"] = policy_path
-    else:
-        run_block["risk"] = current_risk
+    max_drawdown = getattr(args, "max_drawdown", None)
+    if max_drawdown is not None:
+        risk_block["max_drawdown_pct"] = float(max_drawdown)
+        risk_overrides["max_drawdown_pct"] = float(max_drawdown)
 
-    if getattr(args, "max_drawdown", None) is not None:
-        current_risk["max_drawdown_pct"] = float(args.max_drawdown)
-        risk_overrides["max_drawdown_pct"] = float(args.max_drawdown)
+    max_heat = getattr(args, "max_heat", None)
+    if max_heat is not None:
+        risk_block["max_heat"] = float(max_heat)
+        risk_overrides["max_heat"] = float(max_heat)
 
-    if getattr(args, "max_heat", None) is not None:
-        current_risk["max_heat"] = float(args.max_heat)
-        risk_overrides["max_heat"] = float(args.max_heat)
-
-    if getattr(args, "bet_cap", None):
-        bet_caps = current_risk.get("bet_caps")
-        if not isinstance(bet_caps, dict):
-            bet_caps = {}
-        for cap in args.bet_cap or []:
+    bet_caps_cli = getattr(args, "bet_cap", None) or []
+    if bet_caps_cli:
+        caps = risk_block.get("bet_caps")
+        if not isinstance(caps, dict):
+            caps = {}
+        for cap in bet_caps_cli:
             if not isinstance(cap, str) or ":" not in cap:
                 continue
-            bet, raw_val = cap.split(":", 1)
-            bet = bet.strip()
-            raw_val = raw_val.strip()
-            if not bet:
+            key, raw_value = cap.split(":", 1)
+            key = key.strip()
+            raw_value = raw_value.strip()
+            if not key:
                 continue
             try:
-                amount_val = float(raw_val)
+                value = float(raw_value)
             except ValueError:
                 continue
-            bet_caps[bet] = amount_val
-            risk_overrides[f"bet_cap_{bet}"] = amount_val
-        if bet_caps:
-            current_risk["bet_caps"] = bet_caps
+            caps[key] = value
+            risk_overrides[f"bet_cap_{key}"] = value
+        if caps:
+            risk_block["bet_caps"] = caps
 
-    if getattr(args, "recovery", None):
-        recovery_choice = str(args.recovery)
-        enabled = recovery_choice != "none"
-        mode = "none"
-        if enabled:
-            mode = f"{recovery_choice}_recovery"
-        rec_block = {"enabled": enabled, "mode": mode}
-        current_risk["recovery"] = rec_block
+    recovery_mode = getattr(args, "recovery", None)
+    if recovery_mode:
+        mode = "none" if recovery_mode == "none" else (
+            "flat_recovery" if recovery_mode == "flat" else "step_recovery"
+        )
+        risk_block["recovery"] = {"enabled": mode != "none", "mode": mode}
         risk_overrides["recovery_mode"] = mode
+
+    if getattr(args, "no_policy_enforce", False):
+        policy_block = run_block.setdefault("policy", {})
+        policy_block["enforce"] = False
+    if getattr(args, "policy_report", False):
+        policy_block = run_block.setdefault("policy", {})
+        policy_block["report"] = True
+
+    if getattr(args, "no_stop_on_bankrupt", False):
+        run_block["stop_on_bankrupt"] = False
+    if getattr(args, "no_stop_on_unactionable", False):
+        run_block["stop_on_unactionable"] = False
 
     # spec-level runtime
     spec_run_raw = spec.get("run")
@@ -730,22 +737,15 @@ def run(args: argparse.Namespace) -> int:
         if not hasattr(adapter, "attach"):
             raise RuntimeError("engine adapter missing attach() implementation")
         attach_result = adapter.attach(spec)
-        if getattr(args, "no_stop_on_bankrupt", False):
-            if not hasattr(adapter, "_stop_opts"):
-                adapter._stop_opts = {}
-            adapter._stop_opts["stop_on_bankrupt"] = False
-        if getattr(args, "no_stop_on_unactionable", False):
-            if not hasattr(adapter, "_stop_opts"):
-                adapter._stop_opts = {}
-            adapter._stop_opts["stop_on_unactionable"] = False
         risk_policy = load_risk_policy(spec)
         adapter._risk_policy = risk_policy  # type: ignore[attr-defined]
         adapter._policy_engine = PolicyEngine(risk_policy)  # type: ignore[attr-defined]
-        adapter._policy_opts = getattr(adapter, "_policy_opts", {"enforce": True})
+        adapter._policy_opts = get_policy_options(spec)  # type: ignore[attr-defined]
+        adapter._stop_opts = get_stop_options(spec)  # type: ignore[attr-defined]
         adapter._policy_overrides = dict(risk_overrides)
         if risk_overrides:
             try:
-                print(f"Risk policy active: {json.dumps(risk_overrides)}")
+                print(f"Risk policy active: {json.dumps(risk_overrides, separators=(',',':'))}")
             except Exception:
                 print("Risk policy active: overrides applied")
         if getattr(args, "dsl_trace", False) and hasattr(adapter, "enable_dsl_trace"):
@@ -972,39 +972,47 @@ def _build_parser() -> argparse.ArgumentParser:
     p_run.add_argument(
         "--max-drawdown",
         type=float,
-        help=(
-            "Maximum drawdown percentage before policy stops new bets."
-        ),
+        help="Maximum drawdown percentage (0-100).",
     )
     p_run.add_argument(
         "--max-heat",
         type=float,
-        help="Maximum total exposure per roll.",
-    )
-    p_run.add_argument(
-        "--no-stop-on-bankrupt",
-        action="store_true",
-        help="Disable early termination on bankrupt or unactionable bankroll.",
-    )
-    p_run.add_argument(
-        "--no-stop-on-unactionable",
-        action="store_true",
-        help="Disable early termination when no legal bet is possible.",
+        help="Maximum total exposure allowed.",
     )
     p_run.add_argument(
         "--bet-cap",
         action="append",
-        help="Bet cap override in form bet:amount (repeatable).",
+        help="Override cap for a bet type, format: bet:amount (repeatable).",
     )
     p_run.add_argument(
         "--recovery",
         choices=["none", "flat", "step"],
-        help="Set recovery policy mode.",
+        help="Set recovery mode.",
     )
     p_run.add_argument(
         "--risk-policy",
         type=str,
         help="Path to YAML/JSON risk policy file.",
+    )
+    p_run.add_argument(
+        "--no-policy-enforce",
+        action="store_true",
+        help="Disable enforcement (policy logs only).",
+    )
+    p_run.add_argument(
+        "--policy-report",
+        action="store_true",
+        help="Include policy stats in summary.",
+    )
+    p_run.add_argument(
+        "--no-stop-on-bankrupt",
+        action="store_true",
+        help="Disable early termination on bankroll exhaustion.",
+    )
+    p_run.add_argument(
+        "--no-stop-on-unactionable",
+        action="store_true",
+        help="Disable early termination when no legal bet is possible.",
     )
     p_run.add_argument(
         "--no-embed-analytics",

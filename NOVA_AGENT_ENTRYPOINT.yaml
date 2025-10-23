@@ -1,4 +1,4 @@
 current_phase: 12
-current_checkpoint: 6
-checkpoint_title: Validation Baseline & Phase Wrap
-allow_behavior_change: false
+current_checkpoint: 6p
+checkpoint_title: Surface Wiring & Parity Fixes
+allow_behavior_change: true
