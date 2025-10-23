@@ -1,11 +1,13 @@
 from __future__ import annotations
+import json
+import os
 from typing import Dict, Any, List, Tuple
 
-from .registry import PluginRegistry, PluginSpec
+from .registry import PluginRegistry
 from .loader import PluginLoader, SandboxPolicy
 
 
-# Simple in-process registries for bound capabilities
+# Existing registries remain
 class VerbRegistry:
     _verbs: Dict[str, Any] = {}
 
@@ -16,6 +18,10 @@ class VerbRegistry:
     @classmethod
     def get(cls, name: str) -> Any | None:
         return cls._verbs.get(name)
+
+    @classmethod
+    def clear(cls) -> None:
+        cls._verbs.clear()
 
 
 class PolicyRegistry:
@@ -28,6 +34,16 @@ class PolicyRegistry:
     @classmethod
     def get(cls, name: str) -> Any | None:
         return cls._policies.get(name)
+
+    @classmethod
+    def clear(cls) -> None:
+        cls._policies.clear()
+
+
+def clear_registries() -> None:
+    """Hard reset after each run to prevent state bleed."""
+    VerbRegistry.clear()
+    PolicyRegistry.clear()
 
 
 def _parse_capability_id(cap_str: str) -> Tuple[str, str]:
@@ -45,60 +61,98 @@ def load_plugins_for_spec(
     registry: PluginRegistry,
     loader: PluginLoader,
 ) -> List[Dict[str, Any]]:
-    """
-    Reads spec_dict["use_plugins"] and loads/instantiates requested capabilities.
-    Returns a list of dicts to be merged into manifest under 'plugins_loaded'.
-    Each entry: {"name": "...", "version": "...", "capabilities": ["verb.roll_strategy/1.0.0"]}
-    """
     items: List[Dict[str, Any]] = []
     reqs = spec_dict.get("use_plugins") or []
     for req in reqs:
-        if not isinstance(req, dict):
-            items.append({"status": "invalid_entry"})
-            continue
-        cap_id = req.get("capability")
-        version = (req.get("version") or "").strip().lstrip("^")  # minimal support: exact version fallback
-        ref = req.get("ref")  # plugin name e.g. "author.sample"
+        cap_id = req.get("capability") if isinstance(req, dict) else None
+        version = ""
+        ref = None
+        if isinstance(req, dict):
+            version = (req.get("version") or "").strip().lstrip("^")
+            ref = req.get("ref")
         if not (cap_id and version and ref):
-            raise ValueError(f"Malformed use_plugins entry: {req}")
-
-        kind, cap_name = _parse_capability_id(cap_id)
-        spec: PluginSpec | None = registry.resolve(kind, cap_name, version)
-        # If no direct resolve, try by ref name match (plugin name)
-        if spec is None:
-            spec = registry.resolve_by_ref(ref, kind=kind, cap_name=cap_name, version=version)
-
-        if spec is None:
-            # Fail-closed: nothing registered; record attempted request
-            items.append({"name": ref, "version": version, "capabilities": [f"{cap_id}/{version}"], "status": "missing"})
+            items.append({"status": "malformed", "raw": req})
+            continue
+        try:
+            kind, cap_name = _parse_capability_id(cap_id)
+        except ValueError as exc:
+            items.append({"status": "malformed", "raw": req, "error": str(exc)})
             continue
 
-        # Instantiate class for this capability
+        spec = registry.resolve(kind, cap_name, version) or registry.resolve_by_ref(
+            ref, kind=kind, cap_name=cap_name, version=version
+        )
+        if spec is None:
+            items.append({
+                "name": ref,
+                "version": version,
+                "capabilities": [f"{cap_id}/{version}"],
+                "status": "missing",
+            })
+            continue
+
         try:
             inst = loader.instantiate(spec, kind=kind, cap_name=cap_name, version=version)
-        except Exception:
-            inst = None
-        if inst is None:
-            items.append({"name": spec.name, "version": spec.version, "capabilities": [f"{cap_id}/{version}"], "status": "load_error"})
-            continue
-
-        # Register
-        if kind == "verb":
-            VerbRegistry.register(cap_name, inst)
-        elif kind == "policy":
-            PolicyRegistry.register(cap_name, inst)
-        else:
-            items.append({"name": spec.name, "version": spec.version, "capabilities": [f"{cap_id}/{version}"], "status": f"unsupported_kind:{kind}"})
-            continue
-
-        items.append({"name": spec.name, "version": spec.version, "capabilities": [f"{cap_id}/{version}"], "status": "ok"})
+            if inst is None:
+                items.append({
+                    "name": spec.name,
+                    "version": spec.version,
+                    "capabilities": [f"{cap_id}/{version}"],
+                    "status": "load_error",
+                })
+                continue
+            if kind == "verb":
+                VerbRegistry.register(cap_name, inst)
+            elif kind == "policy":
+                PolicyRegistry.register(cap_name, inst)
+            else:
+                items.append({
+                    "name": spec.name,
+                    "version": spec.version,
+                    "capabilities": [f"{cap_id}/{version}"],
+                    "status": f"unsupported_kind:{kind}",
+                })
+                continue
+            items.append({
+                "name": spec.name,
+                "version": spec.version,
+                "capabilities": [f"{cap_id}/{version}"],
+                "status": "ok",
+            })
+        except Exception as e:
+            items.append({
+                "name": spec.name,
+                "version": spec.version,
+                "capabilities": [f"{cap_id}/{version}"],
+                "status": "load_error",
+                "error": str(e),
+            })
     return items
 
 
 def default_sandbox_policy() -> SandboxPolicy:
-    # Conservative defaults; allow 'math' only. Tests adjust as needed.
     return SandboxPolicy(
-        allowed_modules=["math", "time"],  # time allowed for short init where needed; execution still bounded
-        deny_modules=["os", "sys", "subprocess", "socket", "pathlib", "shutil", "tempfile", "http", "urllib"],
+        allowed_modules=["math", "time"],
+        deny_modules=[
+            "os",
+            "sys",
+            "subprocess",
+            "socket",
+            "pathlib",
+            "shutil",
+            "tempfile",
+            "http",
+            "urllib",
+        ],
         init_timeout=1.0
     )
+
+
+def write_plugins_manifest(artifacts_dir: str, loaded_list: List[Dict[str, Any]]) -> str:
+    """Write artifacts/plugins_manifest.json snapshot and return its path."""
+    os.makedirs(os.path.join(artifacts_dir), exist_ok=True)
+    snap = {"plugins_loaded": loaded_list}
+    out_path = os.path.join(artifacts_dir, "plugins_manifest.json")
+    with open(out_path, "w", encoding="utf-8") as f:
+        json.dump(snap, f, indent=2, sort_keys=True)
+    return out_path

@@ -1,5 +1,5 @@
 phase: 14
-checkpoint: 3
-title: Runtime Binding (verbs & policies)
-description: Binds plugin capabilities to the runtime via a sandboxed loader and minimal registries; adds manifest tracing.
+checkpoint: 4
+title: Conveyor Integration & Isolation
+description: Each run discovers plugins from its own /plugins folder, snapshots loaded capabilities, and clears registries after execution.
 status: active

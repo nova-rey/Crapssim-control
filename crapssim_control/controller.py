@@ -29,7 +29,12 @@ from crapssim_control.external.http_api import (
 from crapssim_control.integrations.webhooks import WebhookPublisher
 from crapssim_control.rules_engine.actions import ACTIONS, is_legal_timing
 from crapssim_control.report_hook import maybe_enrich_report  # P13·C3: enrich per-run report
-from crapssim_control.plugins.runtime import load_plugins_for_spec, default_sandbox_policy
+from crapssim_control.plugins.runtime import (
+    load_plugins_for_spec,
+    default_sandbox_policy,
+    write_plugins_manifest,
+    clear_registries,
+)
 from crapssim_control.plugins.registry import PluginRegistry
 from crapssim_control.plugins.loader import PluginLoader
 
@@ -134,6 +139,9 @@ class ControlStrategy:
         self.spec = spec
         self.config = _ConfigAccessor(spec if isinstance(spec, dict) else {})
         self._spec_path: Optional[str] = str(spec_path) if spec_path is not None else None
+        self._run_root: Optional[str] = (
+            os.path.dirname(os.path.abspath(self._spec_path)) if self._spec_path else None
+        )
         self._cli_flags_context: Dict[str, Any] = self._normalize_cli_flags(cli_flags)
         self.engine_version: str = getattr(self, "engine_version", "CrapsSim-Control")
         if self.engine_version == "unknown":
@@ -363,19 +371,24 @@ class ControlStrategy:
             except Exception:
                 logger.exception("Failed to start diagnostics HTTP server")
 
-        # P14·C3: resolve + load requested plugins (if any) for this run
+        # P14·C4: per-run plugin resolution with strict isolation
         self._plugins_loaded_trace: List[Dict[str, Any]] = []
+        clear_registries()
         if isinstance(spec, dict) and spec.get("use_plugins"):
             try:
                 registry = PluginRegistry()
-                roots = ["plugins"]
-                registry.discover(roots)
+                per_run_plugins: List[str] = []
+                if self._run_root and os.path.isdir(os.path.join(self._run_root, "plugins")):
+                    per_run_plugins.append(os.path.join(self._run_root, "plugins"))
+                if os.path.isdir("plugins"):
+                    per_run_plugins.append("plugins")
+
+                registry.discover(per_run_plugins)
 
                 loader = PluginLoader(default_sandbox_policy())
-                loaded = load_plugins_for_spec(spec, registry, loader)
-                self._plugins_loaded_trace.extend(loaded)
+                self._plugins_loaded_trace = load_plugins_for_spec(spec, registry, loader)
             except Exception:
-                self._plugins_loaded_trace.append({"status": "error", "detail": "plugin_load_failed"})
+                self._plugins_loaded_trace = [{"status": "error", "detail": "plugin_load_failed"}]
 
         # Phase 3 analytics scaffolding
         self._tracker: Optional[Tracker] = None
@@ -2227,6 +2240,7 @@ class ControlStrategy:
 
         bridge = EvoBridge(enabled=run_flags.get("evo_enabled", False))
         manifest: Dict[str, Any] | None = None
+        plugins_trace = list(getattr(self, "_plugins_loaded_trace", []))
 
         try:
             manifest = generate_manifest(
@@ -2236,11 +2250,22 @@ class ControlStrategy:
                 engine_version=self.engine_version,
                 run_id=self._run_id,
             )
-            if hasattr(self, "_plugins_loaded_trace"):
-                manifest.setdefault("plugins_loaded", []).extend(self._plugins_loaded_trace)
+            manifest.setdefault("plugins_loaded", [])
+            if plugins_trace:
+                manifest["plugins_loaded"] = list(plugins_trace)
+            else:
+                manifest["plugins_loaded"] = []
             attach_manifest_risk_overrides(manifest, getattr(self, "adapter", None))
             with open(manifest_path, "w", encoding="utf-8") as f:
                 json.dump(manifest, f, indent=2)
+        except Exception:
+            pass
+
+        # P14·C4: Snapshot plugin environment into artifacts
+        try:
+            write_plugins_manifest(str(manifest_path.parent), plugins_trace)
+            if isinstance(manifest, dict) and not manifest.get("plugins_loaded") and plugins_trace:
+                manifest["plugins_loaded"] = list(plugins_trace)
         except Exception:
             pass
 
@@ -2558,79 +2583,82 @@ class ControlStrategy:
         Emit a one-row summary to CSV (if enabled), optionally write meta.json,
         generate a report if auto-report is enabled, and export a bundle if configured.
         """
-        j = self._ensure_journal()  # may be None if CSV disabled
+        try:
+            j = self._ensure_journal()  # may be None if CSV disabled
 
-        identity = {
-            "run_id": getattr(j, "run_id", None),
-            "seed": getattr(j, "seed", None),
-        }
-        summary_event = {
-            "type": "summary",
-            "point": self.point,
-            "roll": 0,
-            "on_comeout": self.on_comeout,
-            "extra": {
-                "summary": True,
-                "identity": identity,
-                "stats": dict(self._stats),
-                "memory": dict(self.memory) if self.memory else {},
-            },
-        }
-
-        if j is not None:
-            try:
-                summary_action = make_action(
-                    "switch_mode",
-                    bet_type=None,
-                    amount=None,
-                    source="rule",
-                    id_="summary:run",
-                    notes="end_of_run",
-                )
-                j.write_actions(
-                    [summary_action],
-                    snapshot=summary_event,
-                    controller=self,
-                )
-            except Exception:
-                pass
-
-        # Optional meta.json dump if configured
-        meta_path = self._read_meta_path_from_spec()
-        if meta_path:
-            try:
-                out = {
+            identity = {
+                "run_id": getattr(j, "run_id", None),
+                "seed": getattr(j, "seed", None),
+            }
+            summary_event = {
+                "type": "summary",
+                "point": self.point,
+                "roll": 0,
+                "on_comeout": self.on_comeout,
+                "extra": {
+                    "summary": True,
                     "identity": identity,
                     "stats": dict(self._stats),
-                    "memory": dict(self.memory),
-                    "mode": getattr(self, "mode", None),
-                    "point": self.point,
-                    "on_comeout": self.on_comeout,
-                }
-                meta_path.parent.mkdir(parents=True, exist_ok=True)
-                meta_path.write_text(
-                    json.dumps(out, ensure_ascii=False, separators=(",", ":"), sort_keys=True),
-                    encoding="utf-8",
-                )
-            except Exception:
-                pass
+                    "memory": dict(self.memory) if self.memory else {},
+                },
+            }
 
-        # P5C3: auto-report if enabled
-        report_path, auto = self._report_cfg_from_spec()
-        if auto and report_path is not None:
-            self.generate_report(report_path)
+            if j is not None:
+                try:
+                    summary_action = make_action(
+                        "switch_mode",
+                        bet_type=None,
+                        amount=None,
+                        source="rule",
+                        id_="summary:run",
+                        notes="end_of_run",
+                    )
+                    j.write_actions(
+                        [summary_action],
+                        snapshot=summary_event,
+                        controller=self,
+                    )
+                except Exception:
+                    pass
 
-        # P5C5: auto-export if configured
-        exp_root, _comp = self._export_cfg_from_spec()
-        if exp_root is not None:
-            try:
-                self.export_bundle(exp_root)  # use configured compress flag by default
-            except Exception:
-                # fail-open: exporting is optional
-                pass
+            # Optional meta.json dump if configured
+            meta_path = self._read_meta_path_from_spec()
+            if meta_path:
+                try:
+                    out = {
+                        "identity": identity,
+                        "stats": dict(self._stats),
+                        "memory": dict(self.memory),
+                        "mode": getattr(self, "mode", None),
+                        "point": self.point,
+                        "on_comeout": self.on_comeout,
+                    }
+                    meta_path.parent.mkdir(parents=True, exist_ok=True)
+                    meta_path.write_text(
+                        json.dumps(out, ensure_ascii=False, separators=(",", ":"), sort_keys=True),
+                        encoding="utf-8",
+                    )
+                except Exception:
+                    pass
 
-        self._stop_http_server()
-        self._analytics_session_end()
+            # P5C3: auto-report if enabled
+            report_path, auto = self._report_cfg_from_spec()
+            if auto and report_path is not None:
+                self.generate_report(report_path)
+
+            # P5C5: auto-export if configured
+            exp_root, _comp = self._export_cfg_from_spec()
+            if exp_root is not None:
+                try:
+                    self.export_bundle(exp_root)  # use configured compress flag by default
+                except Exception:
+                    # fail-open: exporting is optional
+                    pass
+
+            self._stop_http_server()
+            self._analytics_session_end()
+        finally:
+            clear_registries()
 
     def state_snapshot(self) -> Dict[str, Any]:
         return {
