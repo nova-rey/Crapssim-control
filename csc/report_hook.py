@@ -1,7 +1,7 @@
 from __future__ import annotations
 import json
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from .reporting import parse_journal_csv, compute_report_v2
 
@@ -40,7 +40,6 @@ def maybe_enrich_report(artifacts_dir: str) -> bool:
     prior_report = _load_json(report_path) or {}
     manifest = _load_json(manifest_path) or {}
 
-    # Pull identity hints if available
     identity_overrides: Dict[str, Any] = {}
     run_id = prior_report.get("identity", {}).get("run_id") or manifest.get("run_id")
     if run_id:
@@ -54,7 +53,6 @@ def maybe_enrich_report(artifacts_dir: str) -> bool:
     if "summary" in prior_report and "bankroll_start" in prior_report["summary"]:
         bankroll_start = prior_report["summary"]["bankroll_start"]
 
-    # Optional: existing bet-family digest to preserve
     bet_digest = None
     if "by_bet_family" in prior_report and isinstance(prior_report["by_bet_family"], dict):
         raw = prior_report["by_bet_family"].get("digest")
@@ -72,20 +70,17 @@ def maybe_enrich_report(artifacts_dir: str) -> bool:
     if isinstance(prior_report, dict):
         report = dict(prior_report)
 
-    # Identity + schema versions
     identity_existing = report.get("identity") if isinstance(report.get("identity"), dict) else {}
     identity = dict(identity_existing)
     identity.update(v2.get("identity", {}))
     report["identity"] = identity
 
-    # Bubble schema versions to top-level for legacy expectations
     for field in ("journal_schema_version", "summary_schema_version", "report_schema_version"):
         if identity.get(field):
             report[field] = identity[field]
         elif v2.get("identity", {}).get(field):
             report[field] = v2["identity"][field]
 
-    # Summary (preserve existing values when new metric absent)
     summary_existing = report.get("summary") if isinstance(report.get("summary"), dict) else {}
     summary = dict(summary_existing)
     for key, value in v2.get("summary", {}).items():
@@ -93,7 +88,6 @@ def maybe_enrich_report(artifacts_dir: str) -> bool:
             summary[key] = value
     report["summary"] = summary
 
-    # Point cycle / risk / bet digest sections
     for section in ("point_cycle", "risk_series", "by_bet_family"):
         existing = report.get(section) if isinstance(report.get(section), dict) else {}
         merged = dict(existing)
@@ -104,7 +98,6 @@ def maybe_enrich_report(artifacts_dir: str) -> bool:
                     merged[key] = value
         report[section] = merged
 
-    # Flags: merge and ensure defaults from v2
     flags_existing = report.get("flags") if isinstance(report.get("flags"), dict) else {}
     flags = dict(v2.get("flags", {}))
     flags.update(flags_existing)

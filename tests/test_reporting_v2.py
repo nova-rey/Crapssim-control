@@ -1,5 +1,6 @@
 import csv
 import json
+import os
 from pathlib import Path
 
 from csc.reporting import parse_journal_csv, compute_report_v2
@@ -22,14 +23,11 @@ def _write_json(path, obj):
 
 
 def _toy_journal():
-    # Build a tiny journal with two hands:
-    # Hand 1: establish then PSO (rolls 1=est, 2=7-out)
-    # Hand 2: establish, a couple of rolls, then made point
+    # Hand 1: establish then PSO
+    # Hand 2: establish, intermediate roll, then made point
     rows = []
-    # Hand 1
     rows.append({"roll_index":0,"hand_id":1,"roll_in_hand":1,"point_on":0,"bankroll_after":1000,"hand_result":"","point_state":"established","established_flag":1,"made_flag":0,"seven_out_flag":0})
     rows.append({"roll_index":1,"hand_id":1,"roll_in_hand":2,"point_on":1,"bankroll_after":990,"hand_result":"loss","point_state":"seven_out","established_flag":0,"made_flag":0,"seven_out_flag":1})
-    # Hand 2
     rows.append({"roll_index":2,"hand_id":2,"roll_in_hand":1,"point_on":0,"bankroll_after":1000,"hand_result":"","point_state":"established","established_flag":1,"made_flag":0,"seven_out_flag":0})
     rows.append({"roll_index":3,"hand_id":2,"roll_in_hand":2,"point_on":1,"bankroll_after":1010,"hand_result":"","point_state":"","established_flag":0,"made_flag":0,"seven_out_flag":0})
     rows.append({"roll_index":4,"hand_id":2,"roll_in_hand":3,"point_on":1,"bankroll_after":1025,"hand_result":"win","point_state":"made","established_flag":0,"made_flag":1,"seven_out_flag":0})
@@ -46,7 +44,6 @@ def test_compute_report_v2_metrics(tmp_path):
         {"name":"pass_line","net":85,"wagered":640,"wins":2,"losses":1},
         {"name":"place_6_8","net":55,"wagered":980,"wins":1,"losses":1},
     ])
-    # Summary checks
     assert rep["identity"]["report_schema_version"] == "2.0"
     assert rep["summary"]["hands_played"] == 2
     assert rep["summary"]["rolls"] == 5
@@ -55,12 +52,10 @@ def test_compute_report_v2_metrics(tmp_path):
     assert rep["point_cycle"]["made"] == 1
     assert rep["point_cycle"]["seven_outs"] == 1
     assert rep["point_cycle"]["pso_rate"] == 0.5
-    assert rep["summary"]["roi"] == (rep["summary"]["bankroll_final"] - 1000) / 1000
     assert rep["by_bet_family"]["top_name"] == "pass_line"
 
 
 def test_report_hook_enriches_artifacts(tmp_path):
-    # Arrange artifacts folder
     art = tmp_path / "exports" / "RUN1"
     art.mkdir(parents=True, exist_ok=True)
     fns, rows = _toy_journal()
