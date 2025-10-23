@@ -28,6 +28,7 @@ from crapssim_control.external.http_api import (
 )
 from crapssim_control.integrations.webhooks import WebhookPublisher
 from crapssim_control.rules_engine.actions import ACTIONS, is_legal_timing
+from csc.report_hook import maybe_enrich_report  # P13·C3: enrich per-run report
 
 from .actions import make_action  # Action Envelope helper
 from .analytics.tracker import Tracker
@@ -2300,6 +2301,12 @@ class ControlStrategy:
                     encoding="utf-8",
                 )
             except Exception:
+                pass
+            # P13·C3: Enrich report.json with Reports v2 metrics (idempotent; safe if journal exists)
+            try:
+                maybe_enrich_report(str(report_file.parent))
+            except Exception:
+                # Do not fail the run if enrichment has issues; leave original report intact
                 pass
         self._export_paths = dict(resolved_export_paths)
         if "command_tape" in self._export_paths:
