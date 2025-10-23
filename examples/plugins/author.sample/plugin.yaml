@@ -1,0 +1,10 @@
+name: author.sample
+version: 0.1.0
+capabilities:
+  - kind: verb
+    name: roll_strategy
+    version: 1.0.0
+    entry: sample/roll_strategy.py:RollStrategy
+requires:
+  csc_core: ">=0.43,<0.50"
+description: Simple example plugin manifest for CSC plugin registry tests

@@ -1,5 +1,5 @@
 phase: 14
-checkpoint: 0
-title: Plugins: Docs & Guardrails
-description: Establishes Phase 14 scope for the Plugin Extensibility system, defining checkpoints and safety rules.
+checkpoint: 1
+title: Plugin Manifest & Registry
+description: Adds plugin manifest schema and deterministic registry for discovery and validation.
 status: active
