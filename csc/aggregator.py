@@ -5,6 +5,8 @@ import statistics
 import zipfile
 from typing import Any, Dict, List, Optional
 
+from .comparator import make_comparisons, make_leaderboard
+
 
 def _load_json(path: str) -> Any:
     with open(path, "r", encoding="utf-8") as f:
@@ -68,7 +70,7 @@ def _summarize_rows(rows: List[Dict[str, Any]], metric: str, top_k: int = 10) ->
     return agg
 
 
-def aggregate(out_dir: str, leaderboard_metric: str = "ROI", top_k: int = 10) -> Dict[str, Any]:
+def aggregate(out_dir: str, leaderboard_metric: str = "ROI", top_k: int = 10, write_comparisons: bool = False) -> Dict[str, Any]:
     manifest_path = os.path.join(out_dir, "batch_manifest.json")
     batch_manifest = _load_json(manifest_path)
 
@@ -154,16 +156,44 @@ def aggregate(out_dir: str, leaderboard_metric: str = "ROI", top_k: int = 10) ->
         json.dump(aggregates, f, indent=2, sort_keys=True)
 
     # Leaderboard (by chosen metric)
-    successes = [r for r in rows if isinstance(r.get(leaderboard_metric), (int, float))]
-    leaderboard = sorted(successes, key=lambda r: r[leaderboard_metric], reverse=True)[:top_k]
+    leaderboard = make_leaderboard(rows, leaderboard_metric, top_k=top_k)
     leaderboard_path = os.path.join(out_dir, "leaderboard.json")
     with open(leaderboard_path, "w", encoding="utf-8") as f:
         json.dump(leaderboard, f, indent=2, sort_keys=True)
+
+    leaderboard_csv_path = os.path.join(out_dir, "leaderboard.csv")
+    lb_fields = [
+        "run_id",
+        leaderboard_metric,
+        "bankroll_final",
+        "hands",
+        "rolls",
+        "max_drawdown",
+        "pso_count",
+        "points_made",
+        "top_bet_family",
+    ]
+    with open(leaderboard_csv_path, "w", encoding="utf-8", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=lb_fields)
+        w.writeheader()
+        for r in leaderboard:
+            out_row = {k: r.get(k) for k in lb_fields}
+            out_row[leaderboard_metric] = r.get(leaderboard_metric)
+            w.writerow(out_row)
+
+    comparisons_path = None
+    if write_comparisons:
+        comps = make_comparisons(rows, leaderboard_metric)
+        comparisons_path = os.path.join(out_dir, "comparisons.json")
+        with open(comparisons_path, "w", encoding="utf-8") as f:
+            json.dump(comps, f, indent=2, sort_keys=True)
 
     return {
         "index_path": index_path,
         "csv_path": csv_path,
         "aggregates_path": aggregates_path,
         "leaderboard_path": leaderboard_path,
+        "leaderboard_csv_path": leaderboard_csv_path,
+        "comparisons_path": comparisons_path,
         "rows": len(rows),
     }
