@@ -1,4 +1,4 @@
 current_phase: 12
-current_checkpoint: 5a
-checkpoint_title: Early Termination (Bankroll/Unactionable)
-allow_behavior_change: true
+current_checkpoint: 6
+checkpoint_title: Validation Baseline & Phase Wrap
+allow_behavior_change: false

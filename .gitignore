@@ -19,11 +19,15 @@ build/
 baselines/*
 !baselines/.keep
 !baselines/**/
+!baselines/phase12/**
 !baselines/**/*.gitkeep
 
 # Default ignore CSV/JSON…
 *.csv
 *.json
+# Allow committed Phase 12 baselines
+!baselines/phase12/**/*.csv
+!baselines/phase12/**/*.json
 # …but keep example specs and docs reports
 !examples/*.json
 !docs/reports/**/*.json
