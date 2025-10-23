@@ -51,6 +51,12 @@ Runs can now declare `use_plugins` with capability IDs. At run start we resolve 
 sandbox-load modules, instantiate classes from `entry` targets, and register them into `VerbRegistry`/`PolicyRegistry`.
 Loaded plugin facts are written into `manifest.json` under `plugins_loaded`. Failures fail-closed without crashing the run.
 
+### Checkpoint 4 — Conveyor Integration & Per-Run Isolation
+
+- Per-run discovery from `<run_root>/plugins/` (and optional project-local `./plugins`).
+- Loaded capabilities recorded to `artifacts/plugins_manifest.json` and mirrored in `manifest.json`.
+- `VerbRegistry` and `PolicyRegistry` cleared after each run to prevent cross-run state.
+
 ### Phase 13 — Simulation Harness & Reports v2
 
 **Goal:**

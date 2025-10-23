@@ -6,7 +6,7 @@
 | P14·C1 | Plugin Manifest & Registry | ✅ Complete | Manifest schema and registry foundation established |
 | P14·C2 | Safe Loader & Sandbox Lite | ✅ Complete | Restricted loader with deny-lists and timeouts |
 | P14·C3 | Runtime Binding (verbs & policies) | ✅ Complete | Resolve, sandbox-load, register, and manifest-trace plugins declared by a run |
-| P14·C4 | Conveyor Integration & Isolation | ☐ Pending | Per-run plugin roots and artifact snapshots |
+| P14·C4 | Conveyor Integration & Isolation | ✅ Complete | Per-run plugin roots, manifest snapshot, and registry cleanup |
 | P14·C5 | CLI & Example Plugins | ☐ Pending | Plugin tooling and example package |
 | P13·C0 | Docs Kickoff & Roadmap Sync | ✅ Complete | Sync docs and roadmap for new phase start |
 | P13·C1 | Batch Runner Skeleton | ✅ Complete | Add batch execution mode with per-run exports |
