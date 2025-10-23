@@ -70,3 +70,41 @@ def get_journal_options(spec: Dict[str, Any]) -> Dict[str, Any]:
         "explain": explain_enabled,
         "explain_grouping": grouping,
     }
+
+
+def get_policy_options(spec: Dict[str, Any]) -> Dict[str, Any]:
+    run = (spec or {}).get("run") or {}
+    pol = (run.get("policy") or {})
+    return {
+        "enforce": bool(pol.get("enforce", True)),
+        "report": bool(pol.get("report", False)),
+    }
+
+
+def get_stop_options(spec: Dict[str, Any]) -> Dict[str, Any]:
+    run = (spec or {}).get("run") or {}
+    return {
+        "stop_on_bankrupt": bool(run.get("stop_on_bankrupt", True)),
+        "stop_on_unactionable": bool(run.get("stop_on_unactionable", True)),
+    }
+
+
+def get_table_mins(spec: Dict[str, Any]) -> Dict[str, Any]:
+    run = (spec or {}).get("run") or {}
+    mins = (run.get("table_mins") or {})
+    # Defaults
+    place_unit = mins.get("place_unit") or {}
+    return {
+        "line": float(mins.get("line", 5)),
+        "field": float(mins.get("field", 5)),
+        "odds_unit": float(mins.get("odds_unit", 5)),
+        "place_unit": {
+            "default": float(place_unit.get("default", 5)),
+            "4": float(place_unit.get("4", place_unit.get("default", 5))),
+            "5": float(place_unit.get("5", place_unit.get("default", 5))),
+            "6": float(place_unit.get("6", place_unit.get("default", 6))),
+            "8": float(place_unit.get("8", place_unit.get("default", 6))),
+            "9": float(place_unit.get("9", place_unit.get("default", 5))),
+            "10": float(place_unit.get("10", place_unit.get("default", 5))),
+        }
+    }

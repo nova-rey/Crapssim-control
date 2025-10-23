@@ -45,3 +45,42 @@ def attach_manifest_risk_overrides(
         if isinstance(overrides_obj, dict):
             overrides = dict(overrides_obj)
     manifest["risk_overrides"] = overrides
+
+
+def attach_termination_metadata(
+    summary: Optional[Dict[str, Any]],
+    manifest: Optional[Dict[str, Any]],
+    adapter: Optional[Any],
+) -> None:
+    """Attach early termination metadata to summary and manifest outputs."""
+
+    if not isinstance(summary, dict):
+        summary_dict: Dict[str, Any] = {}
+    else:
+        summary_dict = summary
+
+    terminated = bool(getattr(adapter, "_terminated_early", False))
+    reason = getattr(adapter, "_termination_reason", None)
+    try:
+        rolls_completed = int(getattr(adapter, "_rolls_completed", 0))
+    except Exception:
+        rolls_completed = 0
+    try:
+        rolls_requested = int(getattr(adapter, "_rolls_requested", 0))
+    except Exception:
+        rolls_requested = 0
+
+    summary_dict["terminated_early"] = terminated
+    summary_dict["termination_reason"] = reason
+    summary_dict["rolls_completed"] = rolls_completed
+    summary_dict["rolls_requested"] = rolls_requested
+
+    if isinstance(manifest, dict):
+        manifest["terminated_early"] = terminated
+        manifest["termination_reason"] = reason
+        manifest["rolls_completed"] = rolls_completed
+        manifest["rolls_requested"] = rolls_requested
+
+    if summary is not summary_dict and isinstance(summary, dict):
+        summary.clear()
+        summary.update(summary_dict)

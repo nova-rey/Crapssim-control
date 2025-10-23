@@ -1,5 +1,5 @@
 phase: 12
-checkpoint: 4
-title: CLI Flags & Spec Overrides
-description: Added CLI arguments and merge logic for drawdown, heat, bet cap, and recovery overrides; logged risk_overrides in manifest.
+checkpoint: 5a
+title: Early Termination (Bankroll/Unactionable)
+description: Added deterministic early-stop logic when bankroll is exhausted or no legal bet can be placed per table mins and policies.
 status: active

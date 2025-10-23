@@ -8,6 +8,7 @@
 | P12 | C3 | Integration with Runtime | ☐ | Intercept outgoing actions and annotate journal entries with policy outcomes |
 | P12 | C4 | CLI Flags & Spec Overrides | ✅ Complete | Added CLI overrides for drawdown, heat, bet caps, and recovery; manifest logs risk_overrides |
 | P12 | C5 | Validation & Baseline | ☐ | Run seeded scenarios; confirm tagging; tag v0.43.0-phase12-baseline |
+| P12·C5a | Early Termination (Bankroll/Unactionable) | ✅ Complete | Stop the run when bankrupt or no legal bet can be placed; journal & manifest record termination |
 
 ## Future Proposed Phases
 - P13 — Integrated Spec Builder & Chained Runs.

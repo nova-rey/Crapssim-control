@@ -1,4 +1,4 @@
 current_phase: 12
-current_checkpoint: 4
-checkpoint_title: CLI Flags & Spec Overrides
+current_checkpoint: 5a
+checkpoint_title: Early Termination (Bankroll/Unactionable)
 allow_behavior_change: true
