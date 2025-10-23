@@ -1,0 +1,46 @@
+{
+  "table": {
+    "bubble": false,
+    "level": 15,
+    "place_410_increment": 5,
+    "max_odds_multiple": 3.0
+  },
+  "variables": {
+    "units": 10,
+    "mode": "Main"
+  },
+  "modes": {
+    "Main": {
+      "template": {
+        "pass": "units",
+        "place_6": "units * 2",
+        "place_8": "units * 2",
+        "odds_pass": "units"
+      }
+    }
+  },
+  "rules": [],
+  "run": {
+    "rolls": 500,
+    "seed": 20251212,
+    "demo_fallbacks": false,
+    "risk": {
+      "max_drawdown_pct": 40,
+      "max_heat": 300,
+      "bet_caps": {
+        "place_6": 120,
+        "place_8": 120
+      },
+      "recovery": {
+        "enabled": true,
+        "mode": "flat_recovery"
+      }
+    },
+    "csv": {
+      "enabled": true,
+      "path": "export/journal.csv",
+      "append": false,
+      "run_id": "phase12-baseline"
+    }
+  }
+}

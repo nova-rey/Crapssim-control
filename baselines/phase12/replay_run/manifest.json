@@ -1,0 +1,14 @@
+{
+  "run_id": "phase12-baseline-replay",
+  "seed": 20251212,
+  "rolls_requested": 500,
+  "rolls_completed": 21,
+  "bankroll_final": 748.0,
+  "terminated_early": true,
+  "termination_reason": "drawdown_limit",
+  "risk_overrides": {
+    "max_drawdown_pct": 25.0,
+    "max_heat": 200.0,
+    "recovery_mode": "flat_recovery"
+  }
+}
