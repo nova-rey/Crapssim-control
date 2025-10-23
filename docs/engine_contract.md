@@ -62,3 +62,20 @@ Baseline runs for DSL v1 produce:
 Schema tags used:
 - `dsl_schema_version: "1.0"`
 - `trace_schema_version: "1.0"`
+
+### Early Termination (Bankroll / Unactionable)
+
+When enabled, CSC stops the run early if:
+- `bankroll <= 0.01` → `reason: bankroll_exhausted`
+- No legal bet is possible given table minimums and active policies → `reason: unactionable_bankroll`
+
+Journal adds a final event:
+```json
+{"event":"termination","reason":"unactionable_bankroll","roll_index":N,"bankroll":X}
+```
+
+Summary/Manifest fields:
+- terminated_early (bool)
+- termination_reason (string)
+- rolls_completed (int)
+- rolls_requested (int)

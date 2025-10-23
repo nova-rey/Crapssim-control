@@ -730,6 +730,14 @@ def run(args: argparse.Namespace) -> int:
         if not hasattr(adapter, "attach"):
             raise RuntimeError("engine adapter missing attach() implementation")
         attach_result = adapter.attach(spec)
+        if getattr(args, "no_stop_on_bankrupt", False):
+            if not hasattr(adapter, "_stop_opts"):
+                adapter._stop_opts = {}
+            adapter._stop_opts["stop_on_bankrupt"] = False
+        if getattr(args, "no_stop_on_unactionable", False):
+            if not hasattr(adapter, "_stop_opts"):
+                adapter._stop_opts = {}
+            adapter._stop_opts["stop_on_unactionable"] = False
         risk_policy = load_risk_policy(spec)
         adapter._risk_policy = risk_policy  # type: ignore[attr-defined]
         adapter._policy_engine = PolicyEngine(risk_policy)  # type: ignore[attr-defined]
@@ -972,6 +980,16 @@ def _build_parser() -> argparse.ArgumentParser:
         "--max-heat",
         type=float,
         help="Maximum total exposure per roll.",
+    )
+    p_run.add_argument(
+        "--no-stop-on-bankrupt",
+        action="store_true",
+        help="Disable early termination on bankrupt or unactionable bankroll.",
+    )
+    p_run.add_argument(
+        "--no-stop-on-unactionable",
+        action="store_true",
+        help="Disable early termination when no legal bet is possible.",
     )
     p_run.add_argument(
         "--bet-cap",

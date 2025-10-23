@@ -49,9 +49,13 @@ No runtime integration yet — results are returned as structured dictionaries f
 
 ### Checkpoint 4 — CLI Flags & Spec Overrides
 
-Introduced CLI flags for controlling risk limits and policy enforcement.  
-Overrides now merge with loaded RiskPolicy and are logged in manifest as `risk_overrides`.  
+Introduced CLI flags for controlling risk limits and policy enforcement.
+Overrides now merge with loaded RiskPolicy and are logged in manifest as `risk_overrides`.
 Precedence order: file < spec < CLI.  Default behavior unchanged if no flags are provided.
+
+### Checkpoint 5a — Early Termination (Bankroll/Unactionable)
+
+Runs now halt early when either (a) bankroll is exhausted or (b) bankroll is insufficient to make any legal bet, considering table minimums, bet caps, and policy limits. A `termination` event is recorded in the journal, and manifest/summary include `terminated_early`, `termination_reason`, `rolls_completed`, and `rolls_requested`.
 
 ---
 

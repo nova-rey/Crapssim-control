@@ -39,7 +39,11 @@ from .config import (
     coerce_flag,
     normalize_demo_fallbacks,
 )
-from .report_builder import attach_manifest_risk_overrides, attach_trace_metadata
+from .report_builder import (
+    attach_manifest_risk_overrides,
+    attach_termination_metadata,
+    attach_trace_metadata,
+)
 from .csv_journal import CSVJournal  # Per-event journaling
 from .engine_adapter import NullAdapter, VanillaAdapter
 from .eval import evaluate, EvalError
@@ -2219,6 +2223,12 @@ class ControlStrategy:
                 json.dump(manifest, f, indent=2)
         except Exception:
             pass
+
+        attach_termination_metadata(
+            summary_block,
+            manifest,
+            getattr(self, "adapter", None),
+        )
 
         try:
             if manifest is not None:

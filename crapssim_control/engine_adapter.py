@@ -13,7 +13,7 @@ import re
 import warnings
 from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple, Type, TypedDict
 
-from crapssim_control.config import get_journal_options
+from crapssim_control.config import get_journal_options, get_stop_options, get_table_mins
 from crapssim_control.journal import append_effect_summary_line, reset_group_state
 from crapssim_control.transport import EngineTransport, LocalTransport
 from crapssim_control.rule_engine import RuleEngine
@@ -961,6 +961,29 @@ class VanillaAdapter(EngineAdapter):
         self._session_started = True
         self.spec = spec or {}
         self._journal_opts = get_journal_options(self.spec)
+        self._stop_opts = get_stop_options(self.spec)
+        self._table_mins = get_table_mins(self.spec)
+        self._terminated_early = False
+        self._termination_reason: Optional[str] = None
+        run_cfg_for_rolls = (self.spec or {}).get("run") if isinstance(self.spec, dict) else {}
+        try:
+            rolls_requested = int((run_cfg_for_rolls or {}).get("rolls", 0))
+        except Exception:
+            rolls_requested = 0
+        self._rolls_requested = rolls_requested
+        self._rolls_completed = 0
+        if not hasattr(self, "_risk_policy"):
+            self._risk_policy = None  # type: ignore[attr-defined]
+        risk_cfg = {}
+        if isinstance(run_cfg_for_rolls, dict):
+            raw_risk = run_cfg_for_rolls.get("risk")
+            if isinstance(raw_risk, dict):
+                risk_cfg = dict(raw_risk)
+        self._spec_risk_caps = dict(risk_cfg.get("bet_caps", {})) if isinstance(risk_cfg.get("bet_caps"), dict) else {}
+        try:
+            self._spec_max_heat = float(risk_cfg.get("max_heat")) if risk_cfg.get("max_heat") is not None else None
+        except Exception:
+            self._spec_max_heat = None
         reset_group_state()
         run_cfg = self.spec.get("run") if isinstance(self.spec, dict) else {}
         run_seed: Optional[int] = None
@@ -1022,6 +1045,155 @@ class VanillaAdapter(EngineAdapter):
                 self._apply_normalized_snapshot(snapshot)
                 return
             self._engine_reason = reason
+
+    def _resolve_bankroll(self, snapshot: Dict[str, Any]) -> float:
+        raw = snapshot.get("bankroll")
+        if raw is None:
+            raw = snapshot.get("bankroll_after")
+        if raw is None:
+            raw = getattr(self, "bankroll", None)
+        try:
+            return float(raw) if raw is not None else float(getattr(self, "bankroll", 0.0))
+        except Exception:
+            try:
+                return float(getattr(self, "bankroll", 0.0))
+            except Exception:
+                return 0.0
+
+    def _can_any_bet_be_placed(self, snapshot: Dict[str, Any]) -> bool:
+        """Return True if at least one legal bet could be placed now given mins, caps, and policy."""
+
+        bankroll = self._resolve_bankroll(snapshot)
+        if bankroll <= 0.01:
+            return False
+
+        active_sum = float(snapshot.get("active_bets_sum", 0.0))
+        max_heat = None
+        if hasattr(self, "_policy_engine") and getattr(self, "_risk_policy", None) is not None:
+            max_heat = getattr(self._risk_policy, "max_heat", None)
+        if max_heat is None:
+            max_heat = getattr(self, "_spec_max_heat", None)
+        if max_heat is not None:
+            try:
+                if active_sum >= float(max_heat):
+                    return False
+            except Exception:
+                pass
+
+        if getattr(self, "_policy_opts", {}).get("enforce", True) and hasattr(self, "_policy_engine"):
+            probe = {"verb": "probe", "args": {"amount": 0}}
+            try:
+                policy_eval = self._policy_engine.evaluate(probe, snapshot)  # type: ignore[attr-defined]
+            except Exception:
+                policy_eval = {"allowed": True}
+            triggers = policy_eval.get("policy_triggered") or []
+            if not policy_eval.get("allowed", True) and "drawdown_limit" in triggers:
+                return False
+
+        mins = getattr(self, "_table_mins", {}) or {}
+        candidates: List[float] = []
+        try:
+            point_on = bool(snapshot.get("point_on"))
+        except Exception:
+            point_on = False
+
+        line_min = mins.get("line")
+        if not point_on and line_min is not None:
+            try:
+                candidates.append(float(line_min))
+            except Exception:
+                pass
+
+        field_min = mins.get("field")
+        if field_min is not None:
+            try:
+                candidates.append(float(field_min))
+            except Exception:
+                pass
+
+        if point_on:
+            place_unit = mins.get("place_unit") or {}
+            for num in ("4", "5", "6", "8", "9", "10"):
+                unit = place_unit.get(num, place_unit.get("default"))
+                if unit is None:
+                    continue
+                try:
+                    candidates.append(float(unit))
+                except Exception:
+                    continue
+
+        has_flat_line = bool(snapshot.get("line_flat", 0) or snapshot.get("pass_line", 0))
+        if point_on and has_flat_line:
+            odds_min = mins.get("odds_unit")
+            if odds_min is not None:
+                try:
+                    candidates.append(float(odds_min))
+                except Exception:
+                    pass
+
+        if not candidates:
+            return False
+
+        effective_min = min(candidates)
+
+        caps_obj = getattr(getattr(self, "_risk_policy", None), "bet_caps", None)
+        caps: Dict[str, Any] = {}
+        if isinstance(caps_obj, dict):
+            caps = dict(caps_obj)
+        elif isinstance(getattr(self, "_spec_risk_caps", {}), dict):
+            caps = dict(getattr(self, "_spec_risk_caps", {}))
+
+        if caps:
+            meets_cap = False
+            for cap in caps.values():
+                try:
+                    if float(cap) >= effective_min:
+                        meets_cap = True
+                        break
+                except Exception:
+                    continue
+            if not meets_cap:
+                return False
+
+        return bankroll >= effective_min
+
+    def _journal_termination(self, reason: str, snapshot: Dict[str, Any]) -> None:
+        event = {
+            "event": "termination",
+            "reason": reason,
+            "roll_index": int(snapshot.get("roll_in_hand", self._rolls_completed) or 0),
+            "bankroll": self._resolve_bankroll(snapshot),
+        }
+        try:
+            journal = getattr(self, "journal", None)
+            if journal is not None and hasattr(journal, "append"):
+                journal.append(event)
+                return
+            from crapssim_control import journal as journal_mod
+
+            if hasattr(journal_mod, "_write_line"):
+                journal_mod._write_line(event)
+        except Exception:
+            pass
+
+    def _maybe_early_stop(self, snapshot: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        stop_bankrupt = bool(getattr(self, "_stop_opts", {}).get("stop_on_bankrupt", True))
+        stop_unactionable = bool(getattr(self, "_stop_opts", {}).get("stop_on_unactionable", True))
+
+        bankroll = self._resolve_bankroll(snapshot)
+        if stop_bankrupt and bankroll <= 0.01:
+            self._terminated_early = True
+            self._termination_reason = "bankroll_exhausted"
+            self._journal_termination(self._termination_reason, snapshot)
+            return {"status": "terminated", "reason": self._termination_reason}
+
+        if stop_unactionable and not self._can_any_bet_be_placed(snapshot):
+            self._terminated_early = True
+            self._termination_reason = "unactionable_bankroll"
+            self._journal_termination(self._termination_reason, snapshot)
+            return {"status": "terminated", "reason": self._termination_reason}
+
+        return None
 
     def _render_auto_why(
         self, verb: str, args: Dict[str, Any], pre: Dict[str, Any]
@@ -1169,6 +1341,10 @@ class VanillaAdapter(EngineAdapter):
             self.set_seed(seed)
 
         pre_snapshot = self.snapshot_state()
+        early_stop = self._maybe_early_stop(pre_snapshot)
+        if early_stop:
+            return early_stop
+
         trace_enabled = bool(getattr(self, "dsl_trace_enabled", False))
         actions, traces = self.maybe_eval_rules(pre_snapshot, trace_enabled)
 
@@ -1210,11 +1386,15 @@ class VanillaAdapter(EngineAdapter):
             live_result = self._step_roll_live((int(d1), int(d2)), total)
             if live_result is not None:
                 _emit_traces()
-                return self._finalize_prop_cleanup(live_result)
+                finalized = self._finalize_prop_cleanup(live_result)
+                self._rolls_completed += 1
+                return finalized
 
         stub_result = self._step_roll_stub((int(d1), int(d2)), total)
         _emit_traces()
-        return self._finalize_prop_cleanup(stub_result)
+        finalized_stub = self._finalize_prop_cleanup(stub_result)
+        self._rolls_completed += 1
+        return finalized_stub
 
     def _step_roll_live(
         self, dice: Tuple[int, int], total: int
