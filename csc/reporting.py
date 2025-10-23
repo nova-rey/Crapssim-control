@@ -2,27 +2,14 @@ from __future__ import annotations
 import csv
 import math
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 Number = float
 
-# -------------------------------
-# Data model expected from journal
-# -------------------------------
-# Minimal columns used (others ignored if present):
-# - roll_index: int            # 0-based index of the roll across the run
-# - hand_id: int               # integer hand id
-# - roll_in_hand: int          # 1-based index inside the hand
-# - point_on: int              # 0/1 at the time of roll
-# - bankroll_after: float      # bankroll immediately after this roll settles
-# - hand_result: str           # "win" | "loss" | "push" (present on final roll of a hand; empty otherwise)
-# - point_state: str           # "off" | "established" | "made" | "seven_out" (emitted on final roll of a hand or on transitions)
-# - established_flag: int      # 1 on the roll that established a point, else 0
-# - made_flag: int             # 1 on the roll that made the point, else 0
-# - seven_out_flag: int        # 1 on the roll that sevened out while point was on, else 0
-#
-# Bet family digest input (optional; aggregator can skip): a list of dicts
-#   [{"name": "pass_line", "net": 85, "wagered": 640, "wins": 22, "losses": 18}, ...]
+# Minimal journal columns consumed:
+# roll_index, hand_id, roll_in_hand, point_on, bankroll_after,
+# hand_result, point_state, established_flag, made_flag, seven_out_flag
+
 
 @dataclass
 class RollRow:
@@ -31,8 +18,8 @@ class RollRow:
     roll_in_hand: int
     point_on: bool
     bankroll_after: Number
-    hand_result: Optional[str]  # "win"|"loss"|"push"|None
-    point_state: Optional[str]  # "off"|"established"|"made"|"seven_out"|None
+    hand_result: Optional[str]
+    point_state: Optional[str]
     established_flag: int
     made_flag: int
     seven_out_flag: int
@@ -74,12 +61,7 @@ def parse_journal_csv(path: str) -> List[RollRow]:
     return rows
 
 
-# -------------------------------
-# Metric computations (pure)
-# -------------------------------
-
 def compute_bankroll_series(rows: List[RollRow]) -> Tuple[Optional[float], Optional[float], Optional[int], Optional[int], Optional[float], Optional[float]]:
-    """Return (start, final, peak_idx, trough_idx, max_dd_abs, max_dd_pct)."""
     if not rows:
         return None, None, None, None, None, None
     series = [r.bankroll_after for r in rows if not math.isnan(r.bankroll_after)]
@@ -109,23 +91,19 @@ def compute_point_cycle(rows: List[RollRow]) -> Dict[str, Any]:
     established = sum(1 for r in rows if r.established_flag == 1)
     made = sum(1 for r in rows if r.made_flag == 1)
     seven_outs = sum(1 for r in rows if r.seven_out_flag == 1)
-    # PSO: establish then immediate 7-out (roll_in_hand == 2 and seven_out_flag==1)
-    # If journal marks flags, we can derive PSO robustly:
     pso_count = 0
-    # Count by hand: first made_flag/ seven_out_flag after establishment
-    per_hand_rolls: Dict[int, List[RollRow]] = {}
+    per_hand: Dict[int, List[RollRow]] = {}
     for r in rows:
-        per_hand_rolls.setdefault(r.hand_id, []).append(r)
-    for hid, hrows in per_hand_rolls.items():
+        per_hand.setdefault(r.hand_id, []).append(r)
+    for hid, hrows in per_hand.items():
         hrows_sorted = sorted(hrows, key=lambda x: x.roll_in_hand)
         est_idx = next((i for i, x in enumerate(hrows_sorted) if x.established_flag == 1), None)
         if est_idx is not None and est_idx + 1 < len(hrows_sorted):
-            # PSO if very next roll is seven_out
             if hrows_sorted[est_idx + 1].seven_out_flag == 1:
                 pso_count += 1
     avg_rolls_per_hand = None
-    if per_hand_rolls:
-        avg_rolls_per_hand = sum(len(v) for v in per_hand_rolls.values()) / len(per_hand_rolls)
+    if per_hand:
+        avg_rolls_per_hand = sum(len(v) for v in per_hand.values()) / len(per_hand)
     return {
         "established": established,
         "made": made,
@@ -137,15 +115,14 @@ def compute_point_cycle(rows: List[RollRow]) -> Dict[str, Any]:
 
 
 def compute_streaks(rows: List[RollRow]) -> Tuple[int, int]:
-    # Evaluate on final roll of each hand only (hand_result present)
     win_streak = 0
     loss_streak = 0
     win_max = 0
     loss_max = 0
-    last_hand_seen = None
+    seen_hand = set()
     for r in rows:
-        if r.hand_result and (last_hand_seen is None or r.hand_id != last_hand_seen):
-            last_hand_seen = r.hand_id
+        if r.hand_result and r.hand_id not in seen_hand:
+            seen_hand.add(r.hand_id)
             if r.hand_result == "win":
                 win_streak += 1
                 loss_streak = 0
@@ -153,7 +130,6 @@ def compute_streaks(rows: List[RollRow]) -> Tuple[int, int]:
                 loss_streak += 1
                 win_streak = 0
             else:
-                # push breaks both
                 win_streak = 0
                 loss_streak = 0
             win_max = max(win_max, win_streak)
@@ -169,7 +145,6 @@ def compute_point_on_pct(rows: List[RollRow]) -> Optional[float]:
 
 
 def digest_by_bet_family(digest_rows: List[Dict[str, Any]]) -> Dict[str, Any]:
-    # Expect rows with keys: name, net, wagered, wins, losses
     if not digest_rows:
         return {"digest": [], "top_name": None, "top_net": None}
     ordered = sorted(digest_rows, key=lambda d: float(d.get("net", 0.0)), reverse=True)
@@ -222,7 +197,7 @@ def compute_report_v2(
             "avg_rolls_per_hand": point_cycle["avg_rolls_per_hand"],
         },
         "risk_series": {
-            "peak_bankroll": None,  # optional if you track running peak $ explicitly
+            "peak_bankroll": None,
             "trough_bankroll": None,
             "peak_index": peak_idx,
             "trough_index": trough_idx,
