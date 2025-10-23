@@ -6,8 +6,8 @@ import zipfile
 
 import pytest
 
-from csc.sweep import expand_plan, run_sweep
-from csc.aggregator import aggregate
+from crapssim_control.sweep import expand_plan, run_sweep
+from crapssim_control.aggregator import aggregate
 
 
 # --- helpers ---------------------------------------------------------
@@ -167,7 +167,7 @@ def test_sweep_runs_and_index_with_mock_batch(tmp_path, monkeypatch):
         _write_json(out_dir / "batch_manifest.json", manifest)
         return manifest
 
-    from csc import batch_runner as br
+    from crapssim_control import batch_runner as br
     monkeypatch.setattr(br, "run_batch", fake_run_batch)
 
     # Execute sweep (will call our mock)

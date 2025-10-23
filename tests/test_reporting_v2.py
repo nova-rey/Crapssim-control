@@ -3,8 +3,8 @@ import json
 import os
 from pathlib import Path
 
-from csc.reporting import parse_journal_csv, compute_report_v2
-from csc.report_hook import maybe_enrich_report
+from crapssim_control.reporting import parse_journal_csv, compute_report_v2
+from crapssim_control.report_hook import maybe_enrich_report
 
 
 def _write_csv(path, rows, fieldnames):

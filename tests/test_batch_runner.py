@@ -3,8 +3,8 @@ import os
 import zipfile
 from pathlib import Path
 
-from csc.batch_runner import run_batch, run_single_bundle_or_spec
-from csc.utils.dna_conveyor import canonicalize_json, spec_seed_fingerprint
+from crapssim_control.batch_runner import run_batch, run_single_bundle_or_spec
+from crapssim_control.utils.dna_conveyor import canonicalize_json, spec_seed_fingerprint
 
 
 def _write_json(path, obj):

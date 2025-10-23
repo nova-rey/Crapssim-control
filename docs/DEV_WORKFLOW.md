@@ -26,6 +26,7 @@ docs/
   CSC_SNAPSHOT.yaml     ← machine-readable current state
   PHASE_CHECKLIST.md    ← template filled per checkpoint
   DEV_WORKFLOW.md       ← this file
+- Canonical package namespace is `crapssim_control`. Avoid `csc.*` imports.
 baselines/
   phase0/…              ← test artifacts
 

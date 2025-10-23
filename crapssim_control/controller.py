@@ -28,7 +28,7 @@ from crapssim_control.external.http_api import (
 )
 from crapssim_control.integrations.webhooks import WebhookPublisher
 from crapssim_control.rules_engine.actions import ACTIONS, is_legal_timing
-from csc.report_hook import maybe_enrich_report  # P13·C3: enrich per-run report
+from crapssim_control.report_hook import maybe_enrich_report  # P13·C3: enrich per-run report
 
 from .actions import make_action  # Action Envelope helper
 from .analytics.tracker import Tracker
