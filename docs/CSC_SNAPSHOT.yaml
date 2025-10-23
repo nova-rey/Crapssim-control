@@ -1,5 +1,5 @@
 phase: 12
-checkpoint: 6
-title: Validation Baseline & Phase Wrap
-description: Verified deterministic parity of risk policy and early-stop logic across live/replay runs. Baseline artifacts captured and schema stabilized.
+checkpoint: 6p
+title: Surface Wiring & Parity Fixes
+description: Completed public surface for Phase 12: CLI overrides, early-stop toggles, report/manifest counters, and deterministic parity test.
 status: active

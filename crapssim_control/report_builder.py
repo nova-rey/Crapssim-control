@@ -44,6 +44,9 @@ def attach_manifest_risk_overrides(
         overrides_obj = getattr(adapter, "_policy_overrides", {})
         if isinstance(overrides_obj, dict):
             overrides = dict(overrides_obj)
+    risk_policy = getattr(adapter, "_risk_policy", None) if adapter is not None else None
+    version = getattr(risk_policy, "version", "1.0")
+    manifest["risk_policy_version"] = version
     manifest["risk_overrides"] = overrides
 
 
@@ -70,10 +73,14 @@ def attach_termination_metadata(
     except Exception:
         rolls_requested = 0
 
+    summary_dict["risk_violations_count"] = int(getattr(adapter, "_policy_violations", 0))
+    summary_dict["policy_applied_count"] = int(getattr(adapter, "_policy_applied", 0))
     summary_dict["terminated_early"] = terminated
     summary_dict["termination_reason"] = reason
     summary_dict["rolls_completed"] = rolls_completed
     summary_dict["rolls_requested"] = rolls_requested
+    summary_dict.setdefault("dsl_schema_version", "1.0")
+    summary_dict.setdefault("trace_schema_version", "1.0")
 
     if isinstance(manifest, dict):
         manifest["terminated_early"] = terminated

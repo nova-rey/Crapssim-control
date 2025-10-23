@@ -10,6 +10,7 @@
 | P12 | C5 | Validation & Baseline | ☐ | Run seeded scenarios; confirm tagging; tag v0.43.0-phase12-baseline |
 | P12·C6 | Validation Baseline & Phase Wrap | ✅ Complete | Validated early-stop and risk policy parity, captured seeded baseline, tagged v0.44.0-phase12-baseline |
 | P12·C5a | Early Termination (Bankroll/Unactionable) | ✅ Complete | Stop the run when bankrupt or no legal bet can be placed; journal & manifest record termination |
+| P12·C6p | Surface Wiring & Parity Fixes | ✅ Complete | Added missing CLI flags, report/manifest fields, and a parity test for Phase 12 metadata |
 
 ## Future Proposed Phases
 - P13 — Integrated Spec Builder & Chained Runs.

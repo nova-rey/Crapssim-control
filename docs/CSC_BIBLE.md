@@ -57,6 +57,12 @@ Precedence order: file < spec < CLI.  Default behavior unchanged if no flags are
 
 Runs now halt early when either (a) bankroll is exhausted or (b) bankroll is insufficient to make any legal bet, considering table minimums, bet caps, and policy limits. A `termination` event is recorded in the journal, and manifest/summary include `terminated_early`, `termination_reason`, `rolls_completed`, and `rolls_requested`.
 
+### Checkpoint 6p — Surface Wiring & Parity Fixes
+
+- CLI adds risk overrides and early-stop toggles.
+- Reports/manifest now expose policy counters and termination metadata.
+- Parity test confirms identical outcomes (bankroll, termination, rolls) with/without tracing/explain flags.
+
 ---
 
 ### Phase 11 — Strategy DSL v1 (“Sentences”)

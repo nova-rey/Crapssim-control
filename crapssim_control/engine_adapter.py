@@ -13,7 +13,12 @@ import re
 import warnings
 from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple, Type, TypedDict
 
-from crapssim_control.config import get_journal_options, get_stop_options, get_table_mins
+from crapssim_control.config import (
+    get_journal_options,
+    get_policy_options,
+    get_stop_options,
+    get_table_mins,
+)
 from crapssim_control.journal import append_effect_summary_line, reset_group_state
 from crapssim_control.transport import EngineTransport, LocalTransport
 from crapssim_control.rule_engine import RuleEngine
@@ -961,8 +966,11 @@ class VanillaAdapter(EngineAdapter):
         self._session_started = True
         self.spec = spec or {}
         self._journal_opts = get_journal_options(self.spec)
+        self._policy_opts = get_policy_options(self.spec)
         self._stop_opts = get_stop_options(self.spec)
         self._table_mins = get_table_mins(self.spec)
+        self._policy_violations = 0
+        self._policy_applied = 0
         self._terminated_early = False
         self._termination_reason: Optional[str] = None
         run_cfg_for_rolls = (self.spec or {}).get("run") if isinstance(self.spec, dict) else {}
@@ -970,7 +978,10 @@ class VanillaAdapter(EngineAdapter):
             rolls_requested = int((run_cfg_for_rolls or {}).get("rolls", 0))
         except Exception:
             rolls_requested = 0
-        self._rolls_requested = rolls_requested
+        try:
+            self._rolls_requested = int(rolls_requested)
+        except Exception:
+            self._rolls_requested = 0
         self._rolls_completed = 0
         if not hasattr(self, "_risk_policy"):
             self._risk_policy = None  # type: ignore[attr-defined]
@@ -1580,12 +1591,64 @@ class VanillaAdapter(EngineAdapter):
         group_id = args.pop("_why_group", None)
         why = args.pop("_why", None)
         journal_opts = self._journal_opts or {}
-        pre_snapshot: Dict[str, Any] = {}
-        if journal_opts.get("explain"):
+        try:
+            snapshot_before = self.snapshot_state()
+        except Exception:
+            snapshot_before = {}
+        pre_snapshot: Dict[str, Any] = dict(snapshot_before) if journal_opts.get("explain") else {}
+
+        policy_eval: Optional[Dict[str, Any]] = None
+        policy_engine = getattr(self, "_policy_engine", None) if hasattr(self, "_policy_engine") else None
+        risk_policy = getattr(self, "_risk_policy", None)
+        enforce_policy = bool(getattr(self, "_policy_opts", {}).get("enforce", True))
+        report_policy = bool(getattr(self, "_policy_opts", {}).get("report", False))
+        if policy_engine is not None and risk_policy is not None:
+            policy_args = dict(args or {})
+            amt_val = policy_args.get("amount")
+            coerced_amount: Optional[float] = None
+            if isinstance(amt_val, Mapping):
+                candidates = [amt_val.get("value"), amt_val.get("amount"), amt_val]
+                for candidate in candidates:
+                    try:
+                        coerced_amount = float(candidate)  # type: ignore[arg-type]
+                        break
+                    except (TypeError, ValueError):
+                        continue
+            elif amt_val is not None:
+                try:
+                    coerced_amount = float(amt_val)  # type: ignore[arg-type]
+                except (TypeError, ValueError):
+                    coerced_amount = None
+            if coerced_amount is not None:
+                policy_args["amount"] = coerced_amount
             try:
-                pre_snapshot = self.snapshot_state()
+                policy_eval = policy_engine.evaluate({"verb": verb, "args": policy_args}, snapshot_before)  # type: ignore[arg-type]
             except Exception:
-                pre_snapshot = {}
+                policy_eval = None
+            if policy_eval:
+                if not policy_eval.get("allowed", True) and enforce_policy:
+                    self._policy_violations += 1
+                    reason = policy_eval.get("reason") or "policy_rejected"
+                    result = _reject("policy_blocked", str(reason))
+                    if report_policy:
+                        result["policy_eval"] = dict(policy_eval)
+                    return result
+                if policy_eval.get("modified"):
+                    adjusted = policy_eval.get("adjusted_amount")
+                    try:
+                        adjusted_float = float(adjusted)  # type: ignore[arg-type]
+                    except (TypeError, ValueError):
+                        adjusted_float = None
+                    if adjusted_float is not None:
+                        amount_arg = args.get("amount")
+                        if isinstance(amount_arg, Mapping):
+                            amount_dict = dict(amount_arg)
+                            amount_dict["value"] = adjusted_float
+                            amount_dict["amount"] = adjusted_float
+                            args["amount"] = amount_dict
+                        else:
+                            args["amount"] = adjusted_float
+                    self._policy_applied += 1
         if verb == "martingale":
             if not _DEPRECATION_EMITTED:
                 warnings.warn(
@@ -1696,6 +1759,11 @@ class VanillaAdapter(EngineAdapter):
             effect_out["_why"] = why_text
             if group_id:
                 effect_out["_why_group"] = group_id
+        if policy_eval and report_policy:
+            try:
+                effect_out["policy_eval"] = dict(policy_eval)
+            except Exception:
+                effect_out["policy_eval"] = policy_eval
         self.last_effect = effect_out
         return effect_out
 
