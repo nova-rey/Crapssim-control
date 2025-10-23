@@ -39,7 +39,11 @@ from .config import (
     coerce_flag,
     normalize_demo_fallbacks,
 )
-from .report_builder import attach_trace_metadata
+from .report_builder import (
+    attach_trace_metadata,
+    apply_policy_manifest_fields,
+    apply_policy_summary_fields,
+)
 from .csv_journal import CSVJournal  # Per-event journaling
 from .engine_adapter import NullAdapter, VanillaAdapter
 from .eval import evaluate, EvalError
@@ -2153,6 +2157,7 @@ class ControlStrategy:
         summary_block["journal_lines"] = journal_lines
         summary_block["external_executed"] = external_executed
         summary_block["external_rejected"] = external_rejected
+        apply_policy_summary_fields(summary_block, getattr(self, "adapter", None))
         attach_trace_metadata(report, trace_count=dsl_trace_count)
 
         limits_stats = ((report.get("metadata") or {}).get("limits", {}) or {}).get("stats", {})
@@ -2214,6 +2219,7 @@ class ControlStrategy:
                 engine_version=self.engine_version,
                 run_id=self._run_id,
             )
+            apply_policy_manifest_fields(manifest, getattr(self, "adapter", None))
             with open(manifest_path, "w", encoding="utf-8") as f:
                 json.dump(manifest, f, indent=2)
         except Exception:

@@ -1,7 +1,16 @@
 """policy_engine.py — Core risk and bankroll policy evaluation logic."""
 
-from typing import Dict, Any
+from typing import Any, Dict, Mapping
 from crapssim_control.risk_schema import RiskPolicy
+
+
+def _coerce_float(value: Any, default: float = 0.0) -> float:
+    try:
+        if value is None:
+            raise TypeError
+        return float(value)
+    except (TypeError, ValueError):
+        return default
 
 
 class PolicyEngine:
@@ -55,11 +64,30 @@ class PolicyEngine:
             "policy_triggered": [],
         }
 
-        bankroll = float(snapshot.get("bankroll_after", snapshot.get("bankroll", 0)))
-        peak = float(snapshot.get("bankroll_peak", bankroll))
-        active = float(snapshot.get("active_bets_sum", 0))
+        bankroll = _coerce_float(
+            snapshot.get("bankroll_after", snapshot.get("bankroll")), 0.0
+        )
+        peak = _coerce_float(snapshot.get("bankroll_peak"), bankroll)
+        active = _coerce_float(snapshot.get("active_bets_sum"), 0.0)
         bet_type = str(action.get("verb", ""))
-        amount = float(action.get("args", {}).get("amount", 0))
+
+        raw_amount = action.get("args", {}).get("amount", 0)
+        amount = 0.0
+        if isinstance(raw_amount, Mapping):
+            for key in ("value", "amount"):
+                candidate = raw_amount.get(key)
+                if candidate is None:
+                    continue
+                try:
+                    amount = float(candidate)
+                    break
+                except (TypeError, ValueError):
+                    continue
+        else:
+            try:
+                amount = float(raw_amount)
+            except (TypeError, ValueError):
+                amount = 0.0
 
         if not self.check_drawdown(bankroll, peak):
             result["allowed"] = False

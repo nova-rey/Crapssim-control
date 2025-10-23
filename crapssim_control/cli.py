@@ -646,6 +646,14 @@ def run(args: argparse.Namespace) -> int:
         if not hasattr(adapter, "attach"):
             raise RuntimeError("engine adapter missing attach() implementation")
         attach_result = adapter.attach(spec)
+        if getattr(args, "no_policy_enforce", False):
+            if not hasattr(adapter, "_policy_opts"):
+                adapter._policy_opts = {}
+            adapter._policy_opts["enforce"] = False
+        if getattr(args, "policy_report", False):
+            if not hasattr(adapter, "_policy_opts"):
+                adapter._policy_opts = {}
+            adapter._policy_opts["report"] = True
         if getattr(args, "dsl_trace", False) and hasattr(adapter, "enable_dsl_trace"):
             try:
                 adapter.enable_dsl_trace(True)
@@ -849,6 +857,16 @@ def _build_parser() -> argparse.ArgumentParser:
         "--dsl-trace",
         action="store_true",
         help="Enable DSL rule evaluation tracing in journal.",
+    )
+    p_run.add_argument(
+        "--no-policy-enforce",
+        action="store_true",
+        help="Disable policy enforcement (passive mode).",
+    )
+    p_run.add_argument(
+        "--policy-report",
+        action="store_true",
+        help="Enable policy reporting in summary.",
     )
     # runtime flag overrides
     p_run.add_argument(

@@ -72,6 +72,8 @@ def _build_manifest_base(
     payload.setdefault("capabilities_schema_version", "1.1")
     engine_info = getattr(adapter, "get_engine_info", lambda: {})()
     payload["engine_info"] = engine_info
+    risk_policy = getattr(adapter, "_risk_policy", None)
+    payload["risk_policy_version"] = getattr(risk_policy, "version", "1.0")
     if hasattr(adapter, "transport") and isinstance(getattr(adapter, "transport"), object):
         transport = getattr(adapter, "transport")
         base_url = getattr(transport, "base_url", "")

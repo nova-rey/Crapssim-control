@@ -21,7 +21,7 @@ Introduce a safety layer between strategy logic and bankroll management. CSC wil
 | P12·C0 | Docs Kickoff & Roadmap Sync | Sync docs and roadmap for new phase start. |
 | P12·C1 | Risk Policy Schema & Loader | Define schema, defaults, and loader for risk settings. |
 | P12·C2 | Policy Engine Core | Implement logic for evaluating caps, drawdown, heat, and recovery gates. |
-| P12·C3 | Integration with Runtime | Intercept outgoing actions and annotate journal entries with policy outcomes. |
+| P12·C3 | Integration with Runtime | All actions are evaluated against the PolicyEngine with enforcement toggles and policy journaling. |
 | P12·C4 | CLI Flags & Spec Overrides | Add CLI overrides and risk policy injection. |
 | P12·C5 | Validation & Baseline | Run seeded scenarios; confirm tagging; tag `v0.43.0-phase12-baseline`. |
 
@@ -44,6 +44,12 @@ No enforcement logic added yet — this establishes configuration groundwork for
 Added `policy_engine.py` implementing the PolicyEngine class.
 This module evaluates drawdown, heat, and bet caps deterministically, and applies recovery adjustments.
 No runtime integration yet — results are returned as structured dictionaries for testing.
+
+### Checkpoint 3 — Integration with Runtime
+
+All actions now pass through the PolicyEngine. Enforcement is controlled by `run.policy.enforce` (default true).
+Journal records a `policy_eval` row per evaluated action with `policy_triggered`, `risk_violation_reason`, and optional `adjusted_amount`.
+Summary includes `risk_violations_count` and `policy_applied_count`. Manifest tags `risk_policy_version: "1.0"`.
 
 ---
 

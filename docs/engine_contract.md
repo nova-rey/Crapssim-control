@@ -51,6 +51,17 @@ Universal alias to remove or turn off existing bets between rolls.
   - `ditto`: first row carries the text; subsequent show `〃`.
   - `aggregate_line`: a synthetic `group_explain` row carries the text; action rows omit `why`.
 
+### Policy Journal Fields
+
+When policies are evaluated, CSC appends a `policy_eval` row to the journal with these additional fields:
+
+- `policy_triggered`: comma-separated list (e.g., `drawdown_limit,bet_cap`)
+- `risk_violation_reason`: short code when `allowed=false` under enforcement
+- `adjusted_amount`: number, present when recovery modifies the bet
+- `enforce`: true|false — whether enforcement was active this run
+
+These rows are informational; actual bet effect rows remain unchanged except when a policy blocks an action (which returns a `status: rejected` result to the caller).
+
 ### Baseline Artifacts (Phase 11)
 
 Baseline runs for DSL v1 produce:

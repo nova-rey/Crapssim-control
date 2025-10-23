@@ -13,11 +13,13 @@ import re
 import warnings
 from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple, Type, TypedDict
 
-from crapssim_control.config import get_journal_options
+from crapssim_control.config import get_journal_options, get_policy_options
 from crapssim_control.journal import append_effect_summary_line, reset_group_state
 from crapssim_control.transport import EngineTransport, LocalTransport
 from crapssim_control.rule_engine import RuleEngine
 from crapssim_control.dsl_parser import parse_file, compile_rules
+from crapssim_control.risk_schema import load_risk_policy
+from crapssim_control.policy_engine import PolicyEngine
 
 __all__ = [
     "EngineAdapter",
@@ -822,6 +824,11 @@ class VanillaAdapter(EngineAdapter):
         self._reset_stub_state()
         self._journal_opts: Dict[str, Any] = get_journal_options({})
         self.rule_engine: Optional[RuleEngine] = None
+        self._policy_opts: Dict[str, Any] = get_policy_options({})
+        self._risk_policy = load_risk_policy({})
+        self._policy_engine = PolicyEngine(self._risk_policy)
+        self._policy_violations = 0
+        self._policy_applied = 0
 
     def load_ruleset(self, text_or_path: str) -> None:
         """Load and compile DSL rules from a file path or raw text."""
@@ -961,6 +968,11 @@ class VanillaAdapter(EngineAdapter):
         self._session_started = True
         self.spec = spec or {}
         self._journal_opts = get_journal_options(self.spec)
+        self._policy_opts = get_policy_options(self.spec)
+        self._risk_policy = load_risk_policy(self.spec)
+        self._policy_engine = PolicyEngine(self._risk_policy)
+        self._policy_violations = 0
+        self._policy_applied = 0
         reset_group_state()
         run_cfg = self.spec.get("run") if isinstance(self.spec, dict) else {}
         run_seed: Optional[int] = None
@@ -1022,6 +1034,44 @@ class VanillaAdapter(EngineAdapter):
                 self._apply_normalized_snapshot(snapshot)
                 return
             self._engine_reason = reason
+
+    def _snapshot_for_policy(self) -> Dict[str, Any]:
+        snap = self.snapshot_state() or {}
+        peak_value = snap.get("bankroll_peak")
+        if not isinstance(peak_value, (int, float)):
+            snap["bankroll_peak"] = snap.get("bankroll")
+        bets = snap.get("bets", {})
+        active_sum = 0.0
+        if isinstance(bets, dict):
+            place_section = bets.get("place") if isinstance(bets.get("place"), dict) else None
+            values = place_section.values() if place_section else bets.values()
+            for value in values:
+                try:
+                    active_sum += float(value or 0)
+                except Exception:
+                    continue
+        snap.setdefault("active_bets_sum", active_sum)
+        snap.setdefault("previous_loss", 0)
+        return snap
+
+    def _journal_policy_outcome(self, base_row: Dict[str, Any], pe_result: Dict[str, Any]) -> None:
+        row = dict(base_row)
+        triggers = pe_result.get("policy_triggered", []) or []
+        row["policy_triggered"] = ",".join(triggers)
+        row["risk_violation_reason"] = pe_result.get("reason") or ""
+        if pe_result.get("modified") and pe_result.get("adjusted_amount") is not None:
+            row["adjusted_amount"] = pe_result.get("adjusted_amount")
+        row["enforce"] = bool(self._policy_opts.get("enforce", True))
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", DeprecationWarning)
+                append_effect_summary_line(
+                    row,
+                    path=None,
+                    explain_opts=self._journal_opts,
+                )
+        except Exception:
+            pass
 
     def _render_auto_why(
         self, verb: str, args: Dict[str, Any], pre: Dict[str, Any]
@@ -1396,7 +1446,61 @@ class VanillaAdapter(EngineAdapter):
 
     def apply_action(self, verb: str, args: Dict[str, Any]) -> Dict[str, Any]:
         global _DEPRECATION_EMITTED
-        args = dict(args or {})
+        action_args = dict(args or {})
+        orig_group = action_args.get("_why_group")
+        orig_why = action_args.get("_why")
+
+        policy_engine = getattr(self, "_policy_engine", None)
+        if policy_engine is None:
+            self._risk_policy = load_risk_policy(self.spec)
+            self._policy_engine = PolicyEngine(self._risk_policy)
+            policy_engine = self._policy_engine
+
+        pre_policy = self._snapshot_for_policy() if policy_engine is not None else {}
+        action = {"verb": verb, "args": dict(action_args)}
+        if policy_engine is not None:
+            pe_result = policy_engine.evaluate(action, pre_policy)
+        else:  # pragma: no cover - defensive fallback
+            pe_result = {"allowed": True, "modified": False, "policy_triggered": [], "reason": None}
+        pe_result.setdefault("allowed", True)
+        pe_result.setdefault("modified", False)
+        pe_result.setdefault("policy_triggered", [])
+        enforce = bool(self._policy_opts.get("enforce", True))
+
+        patched_args = dict(action["args"])
+        if pe_result.get("modified") and pe_result.get("adjusted_amount") is not None:
+            patched_args["amount"] = pe_result.get("adjusted_amount")
+
+        policy_row = {
+            "event": "policy_eval",
+            "verb": verb,
+            "args": action["args"],
+            "allowed": pe_result.get("allowed", True) if enforce else True,
+            "enforce": enforce,
+        }
+
+        allowed = bool(pe_result.get("allowed", True))
+        if not allowed and enforce:
+            self._policy_violations += 1
+            self._journal_policy_outcome(policy_row, pe_result)
+            rejected = {
+                "status": "rejected",
+                "reason": pe_result.get("reason", "policy_reject"),
+                "policy_triggered": pe_result.get("policy_triggered", []),
+                "args": action["args"],
+                "verb": verb,
+            }
+            if orig_why is not None:
+                rejected["_why"] = orig_why
+            if orig_group is not None:
+                rejected["_why_group"] = orig_group
+            return rejected
+
+        if pe_result.get("modified"):
+            self._policy_applied += 1
+        self._journal_policy_outcome(policy_row, pe_result)
+
+        args = dict(patched_args)
         group_id = args.pop("_why_group", None)
         why = args.pop("_why", None)
         journal_opts = self._journal_opts or {}

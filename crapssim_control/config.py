@@ -70,3 +70,12 @@ def get_journal_options(spec: Dict[str, Any]) -> Dict[str, Any]:
         "explain": explain_enabled,
         "explain_grouping": grouping,
     }
+
+
+def get_policy_options(spec: Dict[str, Any]) -> Dict[str, Any]:
+    run = (spec or {}).get("run") or {}
+    pol = (run.get("policy") or {})
+    return {
+        "enforce": bool(pol.get("enforce", True)),
+        "report": bool(pol.get("report", False)),
+    }
