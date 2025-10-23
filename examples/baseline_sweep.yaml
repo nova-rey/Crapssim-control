@@ -1,0 +1,11 @@
+# Tiny deterministic sweep for baseline capture (edit paths as needed)
+mode: explicit
+out_dir: exports/
+items:
+  - path: specs/iron_cross.json
+  - path: specs/three_point_molly.json
+# You can also include zip bundles if available:
+#  - path: inputs/gen1/sample_bundle.zip
+# Optional:
+# engine_version: engine-x
+# csc_version: csc-y

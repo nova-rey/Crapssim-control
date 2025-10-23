@@ -1,5 +1,5 @@
 phase: 13
-checkpoint: 0
-title: Docs Kickoff & Roadmap Sync
-description: Initialize Phase 13 — Simulation Harness & Reports v2.  Documentation only; no runtime edits.
-status: active
+checkpoint: 5
+title: Baseline & Tag
+description: Capture seeded batch baseline and tag repo for end of Phase 13.
+status: complete

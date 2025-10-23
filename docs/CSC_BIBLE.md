@@ -27,6 +27,18 @@ Add batch execution, sweep plans, and richer per-run and aggregate reporting to 
 
 Phase 13 opens the door for multi-run analysis and comparative reporting, laying the groundwork for later phases like plugins and orchestration.
 
+### Phase 13 — Simulation Harness & Reports v2 (Closure)
+
+**Outcome:**  
+- Batch runner executes specs and `.zip` bundles deterministically; artifacts re-packed under `artifacts/`.
+- Sweep plans (explicit + grid) expand to stable item sets; aggregator produces `batch_index`, `aggregates`, `leaderboard` (+ CSV), and optional `comparisons`.
+- Reports v2 adds ROI, drawdown, PSO/streak/point-cycle metrics with schema `report=2.0`, `summary=1.2`, `journal=1.2`.
+
+**Baseline:**  
+Captured via `tools/capture_phase13_baseline.py` using `examples/baseline_sweep.yaml`.  
+Artifacts archived under `baselines/phase13/`.  
+Suggested tag: `v0.43.0-phase13-baseline`.
+
 ---
 
 ## Phase 12 — Bankroll & Risk Policies
