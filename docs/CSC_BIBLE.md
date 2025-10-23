@@ -9,6 +9,29 @@ Where the snapshot tracks *state*, the Bible records *story*—why decisions wer
 
 ---
 
+### Phase 14 — Plugin Extensibility System
+
+**Purpose:**  
+Introduce a controlled mechanism for loading external verbs, policies, and other runtime capabilities as plugins.  
+This phase builds internal plumbing — discovery, manifests, sandboxing, and runtime binding — without altering core behavior.
+
+**Scope & Checkpoints:**  
+1. **C0 — Docs Kickoff & Guardrails:** establish scope and safety policy.  
+2. **C1 — Plugin Manifest & Registry:** define manifest schema, registry, validation, and semver matching.  
+3. **C2 — Safe Loader & Sandbox Lite:** implement restricted loader and capability ABCs.  
+4. **C3 — Runtime Binding (verbs & policies):** attach plugin verbs/policies into CSC control surface.  
+5. **C4 — Conveyor Integration & Isolation:** handle per-run plugin bundles and artifact snapshots.  
+6. **C5 — CLI & Example Plugins:** add plugin tooling and a reference example.
+
+**Guardrails:**  
+- All plugin discovery and registration are inert until explicitly enabled by a spec or CLI flag.  
+- Loader sandbox forbids OS/network calls; failure mode is safe-off.  
+- Determinism preserved — plugin execution cannot access time or randomness unless passed through CSC’s seeded RNG.  
+- Each checkpoint self-contained and reversible; tests green before merge.
+
+**Expected Outcome:**  
+CSC can safely discover and register plugin capabilities for use in later orchestration (Node-RED, Evo, etc.), paving the way for real-time extensibility.
+
 ### Phase 13 — Simulation Harness & Reports v2
 
 **Goal:**
