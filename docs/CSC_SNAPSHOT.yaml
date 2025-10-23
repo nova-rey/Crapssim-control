@@ -1,5 +1,5 @@
 phase: 14
-checkpoint: 2
-title: Safe Loader & Sandbox Lite
-description: Introduces sandboxed plugin loader with restricted builtins, import deny-list, and init timeouts.
+checkpoint: 3
+title: Runtime Binding (verbs & policies)
+description: Binds plugin capabilities to the runtime via a sandboxed loader and minimal registries; adds manifest tracing.
 status: active

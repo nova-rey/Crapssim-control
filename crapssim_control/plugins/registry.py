@@ -142,6 +142,22 @@ class PluginRegistry:
 
         return self._registry.get((kind, name, version))
 
+    def resolve_by_ref(self, ref_name: str, kind: str, cap_name: str, version: str) -> PluginSpec | None:
+        """
+        Try resolving by plugin package name (e.g., 'author.sample') + desired capability tuple.
+        Returns the first spec that matches (name==ref_name and provides capability with version).
+        """
+        for spec in self._registry.values():
+            if spec.name != ref_name:
+                continue
+            for cap in spec.capabilities:
+                if cap.kind == kind and cap.name == cap_name and str(cap.version) == str(version):
+                    return spec
+        return None
+
+    def capabilities_of(self, spec: PluginSpec) -> list[tuple[str, str, str]]:
+        return [(c.kind, c.name, str(c.version)) for c in spec.capabilities]
+
     def all_specs(self) -> List[PluginSpec]:
         """Return all registered :class:`PluginSpec` objects."""
 
