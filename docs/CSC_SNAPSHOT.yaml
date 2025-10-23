@@ -1,5 +1,5 @@
 phase: 14
-checkpoint: 1
-title: Plugin Manifest & Registry
-description: Adds plugin manifest schema and deterministic registry for discovery and validation.
+checkpoint: 2
+title: Safe Loader & Sandbox Lite
+description: Introduces sandboxed plugin loader with restricted builtins, import deny-list, and init timeouts.
 status: active

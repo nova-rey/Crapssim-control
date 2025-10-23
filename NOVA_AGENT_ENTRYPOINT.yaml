@@ -1,4 +1,4 @@
 current_phase: 14
-current_checkpoint: 1
-checkpoint_title: Plugin Manifest & Registry
+current_checkpoint: 2
+checkpoint_title: Safe Loader & Sandbox Lite
 allow_behavior_change: false

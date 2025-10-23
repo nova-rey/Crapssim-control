@@ -4,7 +4,7 @@
 |--------|-------------|-------|---|----------|
 | P14·C0 | Docs Kickoff & Guardrails | ✅ Active | Initialize Phase 14 docs and guardrails |
 | P14·C1 | Plugin Manifest & Registry | ✅ Complete | Manifest schema and registry foundation established |
-| P14·C2 | Safe Loader & Sandbox Lite | ☐ Pending | Controlled import and restricted exec |
+| P14·C2 | Safe Loader & Sandbox Lite | ✅ Complete | Restricted loader with deny-lists and timeouts |
 | P14·C3 | Runtime Binding (verbs & policies) | ☐ Pending | Integrate registry with controller |
 | P14·C4 | Conveyor Integration & Isolation | ☐ Pending | Per-run plugin roots and artifact snapshots |
 | P14·C5 | CLI & Example Plugins | ☐ Pending | Plugin tooling and example package |

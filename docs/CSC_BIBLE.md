@@ -38,6 +38,13 @@ Introduced the core plugin manifest schema and `PluginRegistry` for deterministi
 Manifests define plugin metadata, capabilities, and requirements without executing any code.
 Registry tracks plugins by `(kind, name, version)` tuples and supports conflict resolution and semver validation.
 
+### Checkpoint 2 — Safe Loader & Sandbox Lite
+
+Implemented `SandboxPolicy` and `PluginLoader`, providing controlled plugin import with restricted builtins and denied modules.
+Each plugin is loaded into a unique namespace under `plugins.<name>_<timestamp>`.
+Sandbox enforces safe imports, denies filesystem and subprocess access, and applies an init timeout.
+All failures fail-closed with clear exceptions.
+
 ### Phase 13 — Simulation Harness & Reports v2
 
 **Goal:**
