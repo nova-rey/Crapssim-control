@@ -1,4 +1,4 @@
-current_phase: 12
-current_checkpoint: 6p
-checkpoint_title: Surface Wiring & Parity Fixes
-allow_behavior_change: true
+current_phase: 13
+current_checkpoint: 0
+checkpoint_title: Docs Kickoff & Roadmap Sync
+allow_behavior_change: false
