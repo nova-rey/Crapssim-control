@@ -29,8 +29,14 @@ This phase builds internal plumbing — discovery, manifests, sandboxing, and ru
 - Determinism preserved — plugin execution cannot access time or randomness unless passed through CSC’s seeded RNG.  
 - Each checkpoint self-contained and reversible; tests green before merge.
 
-**Expected Outcome:**  
+**Expected Outcome:**
 CSC can safely discover and register plugin capabilities for use in later orchestration (Node-RED, Evo, etc.), paving the way for real-time extensibility.
+
+### Checkpoint 1 — Plugin Manifest & Registry
+
+Introduced the core plugin manifest schema and `PluginRegistry` for deterministic discovery, parsing, and validation.
+Manifests define plugin metadata, capabilities, and requirements without executing any code.
+Registry tracks plugins by `(kind, name, version)` tuples and supports conflict resolution and semver validation.
 
 ### Phase 13 — Simulation Harness & Reports v2
 
