@@ -1,5 +1,5 @@
-phase: 13
-checkpoint: 5
-title: Baseline & Tag
-description: Capture seeded batch baseline and tag repo for end of Phase 13.
-status: complete
+phase: 14
+checkpoint: 0
+title: Plugins: Docs & Guardrails
+description: Establishes Phase 14 scope for the Plugin Extensibility system, defining checkpoints and safety rules.
+status: active
