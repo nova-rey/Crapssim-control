@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from queue import Empty
 from typing import Any, Dict
 from urllib.parse import parse_qs, urlparse
 
@@ -59,7 +60,14 @@ class _Handler(BaseHTTPRequestHandler):
             self.end_headers()
             try:
                 while True:
-                    event = queue.get()
+                    if getattr(self.server, "_BaseServer__shutdown_request", False):
+                        break
+                    try:
+                        event = queue.get(timeout=0.25)
+                    except Empty:
+                        if getattr(self.wfile, "closed", False):
+                            break
+                        continue
                     try:
                         self.wfile.write(self.bus.to_sse(event))  # type: ignore[union-attr]
                         self.wfile.flush()
