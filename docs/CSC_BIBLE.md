@@ -75,6 +75,33 @@ Loaded plugin facts are written into `manifest.json` under `plugins_loaded`. Fai
 **Baseline:**  
 - `tools/capture_phase15_baseline.py` writes a minimal baseline under `baselines/phase15/` and a `TAG` file with `v0.44.0-phase15-baseline`.
 
+#### Quickstart (local bridge)
+
+```python
+from crapssim_control.orchestration.event_bus import EventBus
+from crapssim_control.orchestration.control_surface import ControlSurface
+from crapssim_control.orchestration.http_bridge import serve
+
+
+def dummy_runner(spec, run_root, event_cb, stop_flag):
+    event_cb({"type": "PING"})
+    return "artifacts_demo"
+
+
+bus = EventBus()
+surf = ControlSurface(dummy_runner, bus)  # preload_plugins=False by default
+srv = serve("127.0.0.1", 8088, surf, bus)
+print("Serving on http://127.0.0.1:8088")
+```
+
+- SSE: connect to `/events` (SSE, single-line JSON).
+- Start: POST `/run/start` → returns `{ "run_id": ... }` and sets `Location: /status?id=<run_id>`.
+- Status: GET `/status?id=<run_id>`.
+- Stop: POST `/run/stop` with `{ "run_id": ... }`.
+- CORS (optional): set `CSC_ORCH_CORS="*"` (or an origin) to enable CORS on all endpoints.
+- Plugins: the controller path already loads plugins per run; `ControlSurface(preload_plugins=False)` prevents double-load. Use `preload_plugins=True` only for bare runners.
+
+
 ### Phase 13 — Simulation Harness & Reports v2
 
 **Goal:**

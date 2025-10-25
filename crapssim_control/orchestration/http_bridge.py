@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from queue import Empty
 from typing import Any, Dict
@@ -9,6 +11,15 @@ from urllib.parse import parse_qs, urlparse
 
 from .control_surface import ControlSurface, RunStatus
 from .event_bus import EventBus
+
+
+def _maybe_cors(handler: BaseHTTPRequestHandler) -> None:
+    origin = os.environ.get("CSC_ORCH_CORS")
+    if origin:
+        handler.send_header("Access-Control-Allow-Origin", origin)
+        handler.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+        handler.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        handler.send_header("Vary", "Origin")
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -19,13 +30,27 @@ class _Handler(BaseHTTPRequestHandler):
         # Silence default stderr logging to keep bridge quiet by default.
         pass
 
-    def _json(self, code: int, payload: Dict[str, Any]) -> None:
+    def _json(
+        self,
+        code: int,
+        payload: Dict[str, Any],
+        extra_headers: Dict[str, str] | None = None,
+    ) -> None:
         data = json.dumps(payload).encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(data)))
+        if extra_headers:
+            for key, value in extra_headers.items():
+                self.send_header(key, value)
+        _maybe_cors(self)
         self.end_headers()
         self.wfile.write(data)
+
+    def do_OPTIONS(self) -> None:  # noqa: N802
+        self.send_response(204)
+        _maybe_cors(self)
+        self.end_headers()
 
     def do_GET(self) -> None:  # noqa: N802
         parsed = urlparse(self.path)
@@ -52,25 +77,40 @@ class _Handler(BaseHTTPRequestHandler):
                 },
             )
         elif parsed.path == "/events":
-            sid, queue = self.bus.subscribe()  # type: ignore[union-attr]
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
             self.send_header("Cache-Control", "no-cache")
             self.send_header("Connection", "keep-alive")
+            self.send_header("Retry", "5000")
+            _maybe_cors(self)
             self.end_headers()
+            sid, queue = self.bus.subscribe()  # type: ignore[union-attr]
+            heartbeat_interval = 20.0
+            last_emit = time.time()
             try:
                 while True:
                     if getattr(self.server, "_BaseServer__shutdown_request", False):
                         break
                     try:
-                        event = queue.get(timeout=0.25)
+                        event = queue.get(timeout=1.0)
                     except Empty:
+                        now = time.time()
+                        if now - last_emit >= heartbeat_interval:
+                            try:
+                                self.wfile.write(b'data: {"type":"HEARTBEAT"}\n\n')
+                                self.wfile.flush()
+                            except BrokenPipeError:
+                                break
+                            last_emit = now
+                        if getattr(self.server, "_BaseServer__shutdown_request", False):
+                            break
                         if getattr(self.wfile, "closed", False):
                             break
                         continue
                     try:
                         self.wfile.write(self.bus.to_sse(event))  # type: ignore[union-attr]
                         self.wfile.flush()
+                        last_emit = time.time()
                     except BrokenPipeError:
                         break
             finally:
@@ -92,7 +132,8 @@ class _Handler(BaseHTTPRequestHandler):
             spec = payload.get("spec") or {}
             run_root = payload.get("run_root") or ""
             run_id = self.surface.launch(spec, run_root)  # type: ignore[union-attr]
-            self._json(200, {"run_id": run_id})
+            location = f"/status?id={run_id}"
+            self._json(200, {"run_id": run_id}, extra_headers={"Location": location})
         elif parsed.path == "/run/stop":
             run_id = payload.get("run_id")
             if not run_id:

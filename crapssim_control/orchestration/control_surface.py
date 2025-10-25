@@ -32,10 +32,18 @@ class RunStatus:
 class ControlSurface:
     """Thin orchestration wrapper that manages run lifecycle."""
 
-    def __init__(self, runner: Callable[..., str], bus: EventBus) -> None:
+    def __init__(
+        self,
+        runner: Callable[..., str],
+        bus: EventBus,
+        *,
+        preload_plugins: bool = False,
+    ) -> None:
         self._runner = runner
         self._bus = bus
+        self._preload_plugins = preload_plugins
         self._runs: Dict[str, RunStatus] = {}
+        self._locks: Dict[str, threading.Lock] = {}
         self._stop_flags: Dict[str, threading.Event] = {}
 
     def launch(self, spec: Dict[str, Any], run_root: str) -> str:
@@ -53,19 +61,20 @@ class ControlSurface:
             }
         )
 
-        plugins_loaded = []
-        try:
-            registry = PluginRegistry()
-            candidate_roots = []
-            if run_root and os.path.isdir(os.path.join(run_root, "plugins")):
-                candidate_roots.append(os.path.join(run_root, "plugins"))
-            if os.path.isdir("plugins"):
-                candidate_roots.append("plugins")
-            registry.discover(candidate_roots)
-            loader = PluginLoader(default_sandbox_policy())
-            plugins_loaded = load_plugins_for_spec(spec, registry, loader)
-        except Exception as exc:  # pragma: no cover - defensive
-            plugins_loaded = [{"status": "error", "detail": f"plugin_load_failed:{exc}"}]
+        plugins_loaded: list[dict[str, Any]] = []
+        if self._preload_plugins:
+            try:
+                registry = PluginRegistry()
+                candidate_roots = []
+                if run_root and os.path.isdir(os.path.join(run_root, "plugins")):
+                    candidate_roots.append(os.path.join(run_root, "plugins"))
+                if os.path.isdir("plugins"):
+                    candidate_roots.append("plugins")
+                registry.discover(candidate_roots)
+                loader = PluginLoader(default_sandbox_policy())
+                plugins_loaded = load_plugins_for_spec(spec, registry, loader)
+            except Exception as exc:  # pragma: no cover - defensive
+                plugins_loaded = [{"status": "error", "detail": f"plugin_load_failed:{exc}"}]
 
         def event_cb(event: Dict[str, Any]) -> None:
             event["run_id"] = run_id
@@ -78,7 +87,11 @@ class ControlSurface:
                 status.artifacts_dir = artifacts_dir
                 if artifacts_dir:
                     try:
-                        write_plugins_manifest(artifacts_dir, plugins_loaded)
+                        manifest_path = os.path.join(artifacts_dir, "plugins_manifest.json")
+                        if self._preload_plugins:
+                            write_plugins_manifest(artifacts_dir, plugins_loaded)
+                        elif not os.path.isfile(manifest_path):
+                            write_plugins_manifest(artifacts_dir, [])
                     except Exception:  # pragma: no cover - best effort
                         pass
                 status.state = "finished"
