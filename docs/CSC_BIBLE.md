@@ -57,6 +57,24 @@ Loaded plugin facts are written into `manifest.json` under `plugins_loaded`. Fai
 - Loaded capabilities recorded to `artifacts/plugins_manifest.json` and mirrored in `manifest.json`.
 - `VerbRegistry` and `PolicyRegistry` cleared after each run to prevent cross-run state.
 
+### Phase 15 — Orchestration & UI
+
+**Outcome:**  
+- CSC exposes a local, stdlib-only orchestration layer:
+  - Control surface to start/stop runs, track status, and publish events.
+  - HTTP bridge (threaded `http.server`) with `/run/start`, `/run/stop`, `/status`, and `/events` (SSE).
+  - Event bus (queue fanout) for in-process and SSE consumers.
+  - UI stub (`examples/ui_stub/index.html`) for live monitoring.
+- No engine timing changes. All features are optional and off by default.
+
+**Integration Notes:**  
+- Node-RED can POST to `/run/start` and subscribe to `/events`.
+- SSE payloads are single-line JSON objects (`data: {...}`).
+- Per-run plugin isolation from Phase 14 is preserved; runs publish `RUN_STARTED` / `RUN_FINISHED` events.
+
+**Baseline:**  
+- `tools/capture_phase15_baseline.py` writes a minimal baseline under `baselines/phase15/` and a `TAG` file with `v0.44.0-phase15-baseline`.
+
 ### Phase 13 — Simulation Harness & Reports v2
 
 **Goal:**

@@ -1,5 +1,5 @@
-phase: 14
-checkpoint: 4
-title: Conveyor Integration & Isolation
-description: Each run discovers plugins from its own /plugins folder, snapshots loaded capabilities, and clears registries after execution.
-status: active
+phase: 15
+checkpoint: 5
+title: Orchestration & UI — Baseline & Tag
+description: Adds a stdlib-only control surface, HTTP bridge with SSE, and a UI stub; completes Phase 15 with a baseline capture and tag.
+status: complete
