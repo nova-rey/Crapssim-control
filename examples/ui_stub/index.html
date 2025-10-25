@@ -1,0 +1,65 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <title>CSC Live Monitor (Stub)</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 20px; }
+    .row { margin: 8px 0; }
+    pre { background: #f6f6f6; padding: 10px; border-radius: 6px; }
+  </style>
+</head>
+<body>
+  <h2>CSC Live Monitor (Stub)</h2>
+  <div class="row">
+    <button id="start">Start Dummy Run</button>
+    <input id="runid" placeholder="run id" style="width: 280px;" />
+  </div>
+  <div class="row">
+    <button id="status">Get Status</button>
+    <button id="stop">Stop</button>
+  </div>
+  <div class="row"><strong>Events:</strong></div>
+  <pre id="events"></pre>
+  <div class="row"><strong>Status:</strong></div>
+  <pre id="statusOut"></pre>
+
+<script>
+const eventsEl = document.getElementById("events");
+const statusEl = document.getElementById("statusOut");
+const runEl = document.getElementById("runid");
+
+const es = new EventSource("/events");
+es.onmessage = e => {
+  eventsEl.textContent += e.data + "\n";
+  try {
+    const obj = JSON.parse(e.data);
+    if (obj.run_id) runEl.value = obj.run_id;
+  } catch {}
+};
+
+document.getElementById("start").onclick = async () => {
+  const resp = await fetch("/run/start", {
+    method: "POST",
+    headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({spec: {name: "demo"}, run_root: ""})
+  });
+  const j = await resp.json();
+  runEl.value = j.run_id || "";
+};
+
+document.getElementById("status").onclick = async () => {
+  const id = runEl.value.trim();
+  if (!id) return;
+  const resp = await fetch("/status?id="+encodeURIComponent(id));
+  statusEl.textContent = JSON.stringify(await resp.json(), null, 2);
+};
+
+document.getElementById("stop").onclick = async () => {
+  const id = runEl.value.trim();
+  if (!id) return;
+  await fetch("/run/stop", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({run_id: id})});
+};
+</script>
+</body>
+</html>

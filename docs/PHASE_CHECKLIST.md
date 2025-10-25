@@ -2,6 +2,12 @@
 
 | Phase | Checkpoint | Title | ✅ | Summary |
 |--------|-------------|-------|---|----------|
+| P15·C0 | Docs Kickoff & Guardrails | ✅ Complete | Activate Phase 15 and define orchestration scope and safety rules |
+| P15·C1 | Control Surface Adapter | ✅ Complete | In-process start/stop/status wrapper and event publishing hooks |
+| P15·C2 | Node-RED Webhook Bridge | ✅ Complete | HTTP endpoints (`/run/start`, `/run/stop`, `/status`) with SSE stream (`/events`) |
+| P15·C3 | Live Event Stream Bus | ✅ Complete | Thread-safe queue-based event bus and SSE encoder |
+| P15·C4 | Local UI Stub + Manifest View | ✅ Complete | Minimal HTML stub to watch events and query status |
+| P15·C5 | Baseline & Tag | ✅ Complete | Capture Phase 15 baseline and write tag `v0.44.0-phase15-baseline` |
 | P14·C0 | Docs Kickoff & Guardrails | ✅ Active | Initialize Phase 14 docs and guardrails |
 | P14·C1 | Plugin Manifest & Registry | ✅ Complete | Manifest schema and registry foundation established |
 | P14·C2 | Safe Loader & Sandbox Lite | ✅ Complete | Restricted loader with deny-lists and timeouts |
@@ -16,4 +22,3 @@
 | P13·C5 | Baseline & Tag | ✅ Complete | Capture seeded baseline and tag release |
 
 ## Future Proposed Phases
-- P15 — TBD.
