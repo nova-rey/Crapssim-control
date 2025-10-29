@@ -1,0 +1,46 @@
+Docs & Metadata
+Pass/Fail Table:
+1) docs/CSC_SNAPSHOT.yaml lists phase 16, checkpoint 5, status complete, title Hardening & LTS Cut – PASS
+2) docs/PHASE_CHECKLIST.md documents Phase 16 checkpoints – PASS
+3) docs/CSC_BIBLE.md includes a Phase 16 section – PASS
+4) NOVA_AGENT_ENTRYPOINT.yaml marks current_phase 16 and checkpoint 5 – PASS
+5) crapssim_control/__init__.py defines __version__ = "1.0.0-lts" – PASS
+
+Schema Freeze
+Pass/Fail Table:
+1) crapssim_control/schemas.py defines JOURNAL_SCHEMA_VERSION = "1.1" and SUMMARY_SCHEMA_VERSION = "1.1", re-exported by controller – PASS
+2) tests/test_schema_freeze.py asserts JOURNAL_SCHEMA_VERSION == "1.1", SUMMARY_SCHEMA_VERSION == "1.1", and __version__.startswith("1.0.") – PASS
+Missing or mismatched constants: none observed.
+
+CLI & Runtime
+Pass/Fail Table:
+1) crapssim_control/cli.py prints both schema versions during run startup and echoes CSC version – PASS
+
+Tooling
+Pass/Fail Table:
+1) tools/profile_run.py exists and profiles runs, but it calls the CLI parser instead of invoking controller.run(spec) directly – FAIL
+2) tools/memory_audit.py uses gc.get_objects() with sys.getsizeof and prints the largest entries – PASS
+
+Lint & Hygiene
+Pass/Fail Table:
+1) pyproject.toml contains [tool.ruff] configuration – PASS
+2) pyproject.toml contains [tool.black] configuration – PASS
+3) TODO comments remain in crapssim_control/batch_runner.py and crapssim_control/spec_loader.py – FAIL
+4) Risky runtime calls (eval/exec) remain within crapssim_control/eval.py and scripts/release_check.py – FAIL
+TODO/FIXME count: 2 TODO comments, 0 FIXME comments.
+Risky function calls identified: eval() and exec() in crapssim_control/eval.py; exec() in scripts/release_check.py.
+
+Integrity & Orchestration
+Pass/Fail Table:
+1) crapssim_control/orchestration/event_bus.py present and syntactically valid – PASS
+2) crapssim_control/orchestration/control_surface.py present and syntactically valid – PASS
+3) crapssim_control/orchestration/http_bridge.py present and syntactically valid – PASS
+4) Baselines directory present with expected contents; no corrupted artifacts detected – PASS
+
+Confirmed version string(s): crapssim_control.__version__ = 1.0.0-lts.
+
+Overall Rating: B
+Recommended micro-fixes:
+• Update tools/profile_run.py to import the controller module and call controller.run(spec) directly before reporting profiling statistics.
+• Remove or resolve the remaining TODO comments in batch_runner.py and spec_loader.py.
+• Replace or further sandbox the eval() and exec() usage in eval.py and scripts/release_check.py, or document why they are safe within the LTS scope.
