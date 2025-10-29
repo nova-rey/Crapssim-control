@@ -9,24 +9,39 @@ SPEC = {
     "modes": {
         "Aggressive": {
             "template": {
-                "pass": "units*2",                # $10 pass
-                "place": {"6": "units*2", "8": "units*2", "5": "units"},  # raw 10s → legal 6/6 and 5
+                "pass": "units*2",  # $10 pass
+                "place": {
+                    "6": "units*2",
+                    "8": "units*2",
+                    "5": "units",
+                },  # raw 10s → legal 6/6 and 5
             }
         },
         "Regressed": {
             "template": {
-                "pass": "units*2",                # keep line bet
-                "place": {"6": "units", "8": "units"},                   # raw 5s → legal 0 on 6/8? rounds down to 0? No, 5→0; test expects set to 0 absent
+                "pass": "units*2",  # keep line bet
+                "place": {
+                    "6": "units",
+                    "8": "units",
+                },  # raw 5s → legal 0 on 6/8? rounds down to 0? No, 5→0; test expects set to 0 absent
             }
         },
     },
     "rules": [
-        {"on": {"event": "point_established"}, "do": ["rolls_since_point = 0", "apply_template('Aggressive')"]},
+        {
+            "on": {"event": "point_established"},
+            "do": ["rolls_since_point = 0", "apply_template('Aggressive')"],
+        },
         {"on": {"event": "roll"}, "do": ["rolls_since_point += 1"]},
-        {"on": {"event": "roll"}, "if": "rolls_since_point >= 3", "do": ["mode = 'Regressed'", "apply_template(mode)"]},
+        {
+            "on": {"event": "roll"},
+            "if": "rolls_since_point >= 3",
+            "do": ["mode = 'Regressed'", "apply_template(mode)"],
+        },
     ],
     "run": {"demo_fallbacks": True},
 }
+
 
 def _current_bets_from_plan(plan):
     # naive materializer for testing: apply plan to a dict
@@ -50,7 +65,11 @@ def test_end_to_end_regress_after_three_rolls():
 
     plan = cs.handle_event({"type": "point_established", "point": 6}, current)
     # should apply Aggressive template
-    assert any(a for a in plan if a["action"] == "set" and a["bet_type"] == "pass_line" and a["amount"] == 10)
+    assert any(
+        a
+        for a in plan
+        if a["action"] == "set" and a["bet_type"] == "pass_line" and a["amount"] == 10
+    )
     current = _current_bets_from_plan(plan)
 
     # 1st roll after point
@@ -81,6 +100,7 @@ def test_end_to_end_regress_after_three_rolls():
     assert snap["rolls_since_point"] >= 3
     assert snap["point"] == 6
     assert snap["on_comeout"] is False
+
 
 def test_resets_on_seven_out():
     cs = ControlStrategy(SPEC)

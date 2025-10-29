@@ -16,7 +16,9 @@ def test_ats_tolerant_resolution(monkeypatch):
     monkeypatch.setitem(importlib.sys.modules, "crapssim.bet", fake_bet)
 
     adapter = engine_adapter.VanillaAdapter()
-    adapter.start_session({"run": {"adapter": {"live_engine": False}}})  # stub mode ok for resolution test
+    adapter.start_session(
+        {"run": {"adapter": {"live_engine": False}}}
+    )  # stub mode ok for resolution test
     # Just ensure the handler does not raise on class lookup (placement may no-op in stub path)
     res = adapter.apply_action("ats_all_bet", {"amount": {"mode": "dollars", "value": 10}})
     assert isinstance(res, dict) and ("rejected" in res or "result" in res)

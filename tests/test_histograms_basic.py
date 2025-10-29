@@ -2,12 +2,14 @@
 from crapssim_control.tracker import Tracker
 from crapssim_control.tracker_histograms import attach_histograms
 
+
 def make_tracker():
     t = Tracker()
     # ensure a known shooter id so we can detect changes
     t.shooter_id = 1
     attach_histograms(t, enabled=True)
     return t
+
 
 def test_hand_and_shooter_histograms_increment_and_reset():
     t = make_tracker()
@@ -35,7 +37,9 @@ def test_hand_and_shooter_histograms_increment_and_reset():
 
     snap2 = t.snapshot()
     hist2 = snap2["history"]
-    assert all(v == 0 for v in hist2["hand_hits"].values()), "hand histogram should reset on seven-out"
+    assert all(
+        v == 0 for v in hist2["hand_hits"].values()
+    ), "hand histogram should reset on seven-out"
 
     # shooter change should reset shooter histogram
     t.shooter_id = 2
@@ -43,6 +47,7 @@ def test_hand_and_shooter_histograms_increment_and_reset():
     snap3 = t.snapshot()
     hist3 = snap3["history"]
     assert sum(hist3["shooter_hits"].values()) == 1  # only the 9 after shooter change
+
 
 def test_inside_outside_mirrors_present():
     t = make_tracker()

@@ -14,9 +14,30 @@ def _write_json(p, obj):
 
 def test_make_leaderboard_sorted_and_tiebreak():
     rows = [
-        {"run_id": "B", "ROI": 0.10, "bankroll_final": 1100, "max_drawdown": 80, "hands": 50, "rolls": 250},
-        {"run_id": "A", "ROI": 0.10, "bankroll_final": 1110, "max_drawdown": 70, "hands": 51, "rolls": 252},
-        {"run_id": "C", "ROI": -0.05, "bankroll_final": 950, "max_drawdown": 150, "hands": 48, "rolls": 240},
+        {
+            "run_id": "B",
+            "ROI": 0.10,
+            "bankroll_final": 1100,
+            "max_drawdown": 80,
+            "hands": 50,
+            "rolls": 250,
+        },
+        {
+            "run_id": "A",
+            "ROI": 0.10,
+            "bankroll_final": 1110,
+            "max_drawdown": 70,
+            "hands": 51,
+            "rolls": 252,
+        },
+        {
+            "run_id": "C",
+            "ROI": -0.05,
+            "bankroll_final": 950,
+            "max_drawdown": 150,
+            "hands": 48,
+            "rolls": 240,
+        },
         {"run_id": "D", "ROI": None},
     ]
     lb = make_leaderboard(rows, "ROI", top_k=3)
@@ -173,6 +194,8 @@ def test_cli_metric_switch_integration(tmp_path, monkeypatch):
     _write_json(out_dir / "batch_manifest.json", manifest)
 
     # Call aggregator directly with metric switch
-    out = aggregate(str(out_dir), leaderboard_metric="bankroll_final", top_k=2, write_comparisons=False)
+    out = aggregate(
+        str(out_dir), leaderboard_metric="bankroll_final", top_k=2, write_comparisons=False
+    )
     lb = json.loads(Path(out["leaderboard_path"]).read_text("utf-8"))
     assert [r["run_id"] for r in lb] == ["R2", "R1"]

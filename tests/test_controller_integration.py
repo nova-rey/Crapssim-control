@@ -15,8 +15,15 @@ def _get_amount(actions, bet_type):
 
 
 def _all_have_envelope(actions, *, source="template", source_id_prefix="template:"):
-    return all(("source" in a and "id" in a and a["source"] == source and str(a["id"]).startswith(source_id_prefix))
-               for a in actions)
+    return all(
+        (
+            "source" in a
+            and "id" in a
+            and a["source"] == source
+            and str(a["id"]).startswith(source_id_prefix)
+        )
+        for a in actions
+    )
 
 
 def test_controller_renders_template_with_expressions_and_sets_bets():

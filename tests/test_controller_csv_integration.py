@@ -28,7 +28,7 @@ def test_controller_writes_csv_rows_per_event_when_enabled():
             "modes": {
                 "Main": {
                     "template": {
-                        "pass": "units",                     # pass line 5
+                        "pass": "units",  # pass line 5
                         "place": {"6": "units*2", "8": "units*2"},  # 10 each (legalizer may round)
                     }
                 }
@@ -42,7 +42,7 @@ def test_controller_writes_csv_rows_per_event_when_enabled():
                     "append": True,
                     "run_id": "t-ci",
                     "seed": 42,
-                }
+                },
             },
         }
 
@@ -50,7 +50,9 @@ def test_controller_writes_csv_rows_per_event_when_enabled():
 
         # 1) Establish a point -> expect template diff actions (set pass_line, place_6, place_8)
         a_point = ctrl.handle_event({"type": "point_established", "point": 6}, current_bets={})
-        assert isinstance(a_point, list) and len(a_point) >= 2  # at least place_6/8; pass_line may be present too
+        assert (
+            isinstance(a_point, list) and len(a_point) >= 2
+        )  # at least place_6/8; pass_line may be present too
 
         # 2) Two rolls (no regression yet)
         a_roll1 = ctrl.handle_event({"type": "roll"}, current_bets={})
@@ -83,7 +85,9 @@ def test_controller_writes_csv_rows_per_event_when_enabled():
             "bet_type",
             "amount",
         }
-        assert headers is not None and required_cols.issubset(set(headers)), f"Missing columns in CSV: {required_cols - set(headers)}"
+        assert headers is not None and required_cols.issubset(
+            set(headers)
+        ), f"Missing columns in CSV: {required_cols - set(headers)}"
 
         # Row count matches total emitted actions across events
         assert len(rows) == expected_rows
@@ -97,5 +101,7 @@ def test_controller_writes_csv_rows_per_event_when_enabled():
 
         # Spot-check regression rows include notes/id as stamped in controller
         # (id should be "template:regress_roll3" for regression clears)
-        any_regress = any(r.get("id") == "template:regress_roll3" and r.get("action") == "clear" for r in rows)
+        any_regress = any(
+            r.get("id") == "template:regress_roll3" and r.get("action") == "clear" for r in rows
+        )
         assert any_regress, "Expected regression clear rows with id=template:regress_roll3"

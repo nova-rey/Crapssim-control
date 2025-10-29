@@ -57,7 +57,9 @@ def _extract_amount(val: Any) -> float:
         return 0.0
 
 
-def _normalize_template_output_to_intents(bets_obj: Any) -> List[Tuple[str | None, int | None, str, float]]:
+def _normalize_template_output_to_intents(
+    bets_obj: Any,
+) -> List[Tuple[str | None, int | None, str, float]]:
     """
     Accept either:
       • dict {bet_type: amount} OR {bet_type: {'amount': X}}
@@ -126,7 +128,7 @@ def _template_to_intents(spec: Dict[str, Any], vs: Any, mode_name: str) -> List[
     # If the renderer produced nothing (e.g., minimal spec like {"pass": "units"}),
     # evaluate the short-form entries directly and convert to intents.
     fallback: Dict[str, float] = {}
-    for k, v in (tmpl.items() if isinstance(tmpl, dict) else []):
+    for k, v in tmpl.items() if isinstance(tmpl, dict) else []:
         try:
             amt = evaluate(str(v), state)
         except Exception:
@@ -186,7 +188,9 @@ def run_rules_for_event(
                 if rest.startswith("(") and rest.endswith(")"):
                     inner = rest[1:-1].strip()
                     if inner:
-                        if (inner.startswith("'") and inner.endswith("'")) or (inner.startswith('"') and inner.endswith('"')):
+                        if (inner.startswith("'") and inner.endswith("'")) or (
+                            inner.startswith('"') and inner.endswith('"')
+                        ):
                             inner = inner[1:-1]
                         _apply_template(inner)
                     else:

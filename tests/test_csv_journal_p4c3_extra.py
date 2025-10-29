@@ -4,6 +4,7 @@ from pathlib import Path
 from crapssim_control.csv_journal import CSVJournal
 from tests import skip_csv_preamble
 
+
 def test_csv_extra_enrichment(tmp_path: Path):
     p = tmp_path / "journal.csv"
     j = CSVJournal(str(p), append=True, run_id="t1", seed=123)
@@ -22,8 +23,24 @@ def test_csv_extra_enrichment(tmp_path: Path):
     }
 
     actions = [
-        {"source": "rule", "id": "rule:#1", "action": "set", "bet_type": "place_8", "amount": 12, "notes": "x", "seq": 1},
-        {"source": "template", "id": "template:Main", "action": "clear", "bet_type": "place_6", "amount": None, "notes": "", "seq": 2},
+        {
+            "source": "rule",
+            "id": "rule:#1",
+            "action": "set",
+            "bet_type": "place_8",
+            "amount": 12,
+            "notes": "x",
+            "seq": 1,
+        },
+        {
+            "source": "template",
+            "id": "template:Main",
+            "action": "clear",
+            "bet_type": "place_6",
+            "amount": None,
+            "notes": "",
+            "seq": 2,
+        },
     ]
 
     n = j.write_actions(actions, snapshot=snapshot)
@@ -35,11 +52,30 @@ def test_csv_extra_enrichment(tmp_path: Path):
         rows = list(csv.DictReader(fh))
     assert len(rows) == 2
     # schema columns still present
-    for col in ["ts","run_id","seed","event_type","point","rolls_since_point","on_comeout","mode","units","bankroll","source","id","action","bet_type","amount","notes","extra"]:
+    for col in [
+        "ts",
+        "run_id",
+        "seed",
+        "event_type",
+        "point",
+        "rolls_since_point",
+        "on_comeout",
+        "mode",
+        "units",
+        "bankroll",
+        "source",
+        "id",
+        "action",
+        "bet_type",
+        "amount",
+        "notes",
+        "extra",
+    ]:
         assert col in rows[0]
 
     # extra contains merged info
     import json
+
     e0 = json.loads(rows[0]["extra"])
     assert e0.get("hint") == "ok"
     assert e0.get("roll") == 8

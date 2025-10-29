@@ -8,6 +8,7 @@ from typing import Any, Dict, Tuple
 
 # --- Timing Guards -----------------------------------------------------------
 
+
 def is_legal_timing(state: Dict[str, Any], action: Dict[str, Any]) -> Tuple[bool, str]:
     """
     Enforce basic table-safe timing rules.

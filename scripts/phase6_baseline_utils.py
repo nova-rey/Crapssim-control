@@ -6,6 +6,7 @@ import random
 from dataclasses import dataclass
 from typing import Dict, Iterable, List
 
+
 @dataclass(frozen=True)
 class BaselineEvent:
     """Represents a normalized craps event used for baseline playback."""

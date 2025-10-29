@@ -484,7 +484,7 @@
     }
   ],
   "schema": {
-    "journal": "1.2",
-    "summary": "1.2"
+    "journal": "1.1",
+    "summary": "1.1"
   }
 }

@@ -8,16 +8,19 @@ from typing import Any, Dict, List
 # Models and presets (for future enforcement; today we only emit notes)
 # =============================================================================
 
+
 @dataclass(frozen=True)
 class OddsPolicy:
     """Max odds as a multiple of the flat line bet (generic cap)."""
-    type: str                 # "flat-multiple" or "three-four-five" (future)
+
+    type: str  # "flat-multiple" or "three-four-five" (future)
     max_multiple: float = 0.0
 
 
 @dataclass(frozen=True)
 class Increments:
     """Minimum increments per betting area."""
+
     pass_line: int
     field: int
     place_4_10: int
@@ -28,6 +31,7 @@ class Increments:
 @dataclass(frozen=True)
 class TableLimits:
     """Overall and per-area maximums."""
+
     min_bet: int
     max_bet: int
     max_place: int | None = None
@@ -38,6 +42,7 @@ class TableLimits:
 @dataclass(frozen=True)
 class GuardrailConfig:
     """Bundle of policies that define a table's constraints."""
+
     name: str
     odds: OddsPolicy
     increments: Increments
@@ -48,18 +53,26 @@ LIVE_DEFAULTS = GuardrailConfig(
     name="live-defaults",
     odds=OddsPolicy(type="flat-multiple", max_multiple=5.0),
     increments=Increments(
-        pass_line=5, field=5,
-        place_4_10=5, place_5_9=5, place_6_8=6,
+        pass_line=5,
+        field=5,
+        place_4_10=5,
+        place_5_9=5,
+        place_6_8=6,
     ),
-    limits=TableLimits(min_bet=5, max_bet=1000, max_place=1500, max_field=1000, max_odds_multiple=5.0),
+    limits=TableLimits(
+        min_bet=5, max_bet=1000, max_place=1500, max_field=1000, max_odds_multiple=5.0
+    ),
 )
 
 BUBBLE_DEFAULTS = GuardrailConfig(
     name="bubble-defaults",
     odds=OddsPolicy(type="flat-multiple", max_multiple=5.0),
     increments=Increments(
-        pass_line=1, field=1,
-        place_4_10=1, place_5_9=1, place_6_8=1,
+        pass_line=1,
+        field=1,
+        place_4_10=1,
+        place_5_9=1,
+        place_6_8=1,
     ),
     limits=TableLimits(min_bet=1, max_bet=300, max_place=300, max_field=300, max_odds_multiple=5.0),
 )
@@ -68,10 +81,15 @@ HOT_DEFAULTS = GuardrailConfig(
     name="hot-defaults",
     odds=OddsPolicy(type="flat-multiple", max_multiple=10.0),
     increments=Increments(
-        pass_line=5, field=5,
-        place_4_10=5, place_5_9=5, place_6_8=6,
+        pass_line=5,
+        field=5,
+        place_4_10=5,
+        place_5_9=5,
+        place_6_8=6,
     ),
-    limits=TableLimits(min_bet=5, max_bet=5000, max_place=5000, max_field=2000, max_odds_multiple=10.0),
+    limits=TableLimits(
+        min_bet=5, max_bet=5000, max_place=5000, max_field=2000, max_odds_multiple=10.0
+    ),
 )
 
 
@@ -85,11 +103,8 @@ def _select_defaults(*, bubble: bool, hot_table: bool) -> GuardrailConfig:
 # Public API (dual-mode) -- compatible with both tests and CLI
 # =============================================================================
 
-def apply_guardrails(
-    spec: Dict[str, Any],
-    *args,
-    **kwargs
-):
+
+def apply_guardrails(spec: Dict[str, Any], *args, **kwargs):
     """
     Dual-mode helper.
 
@@ -127,7 +142,9 @@ def apply_guardrails(
     cfg = _select_defaults(bubble=bubble, hot_table=hot_table)
 
     notes.append(f"guardrails: using preset '{cfg.name}' (bubble={bubble}, hot_table={hot_table})")
-    notes.append(f"guardrails: odds policy -> type={cfg.odds.type}, max_multiple={_fmt_mult(cfg.odds.max_multiple)}")
+    notes.append(
+        f"guardrails: odds policy -> type={cfg.odds.type}, max_multiple={_fmt_mult(cfg.odds.max_multiple)}"
+    )
     notes.append(
         "guardrails: increments -> "
         f"PL={cfg.increments.pass_line}, Field={cfg.increments.field}, "
@@ -143,11 +160,7 @@ def apply_guardrails(
 
 
 def scale_bets_if_hot(
-    spec: Dict[str, Any],
-    vs: object,
-    intents: List[Dict[str, Any]],
-    *args,
-    **kwargs
+    spec: Dict[str, Any], vs: object, intents: List[Dict[str, Any]], *args, **kwargs
 ) -> List[Dict[str, Any]]:
     """
     Placeholder for a future scaling processor used when --hot-table is passed.
@@ -160,6 +173,7 @@ def scale_bets_if_hot(
 # =============================================================================
 # Helpers
 # =============================================================================
+
 
 def _fmt_mult(x: float) -> str:
     # Show 10x not 10.0x

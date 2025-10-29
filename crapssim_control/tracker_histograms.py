@@ -5,6 +5,7 @@ from typing import Any, Dict, Optional
 INSIDE_SET = {5, 6, 8, 9}
 OUTSIDE_SET = {4, 10, 6, 8}  # maintained for parity with prior language; 6/8 overlap by design
 
+
 def _read_total_from_args(*args, **kwargs) -> Optional[int]:
     """
     Be liberal in what we accept:
@@ -26,9 +27,11 @@ def _read_total_from_args(*args, **kwargs) -> Optional[int]:
                 return None
     return None
 
+
 def _new_hist_dict() -> Dict[int, int]:
     # 2..12 inclusive
     return {n: 0 for n in range(2, 13)}
+
 
 def attach_histograms(tracker: Any, enabled: Optional[bool] = None) -> None:
     """
@@ -128,12 +131,15 @@ def attach_histograms(tracker: Any, enabled: Optional[bool] = None) -> None:
     for seven_hook_name in ("on_seven_out", "on_point_seven_out", "on_hand_end"):
         prev = getattr(tracker, seven_hook_name, None)
         if callable(prev):
+
             def make_wrapper(prev_func):
                 def _wrap(*a, **k):
                     if tracker._hist_enabled:
                         _reset_hand_layer()
                     return prev_func(*a, **k)
+
                 return _wrap
+
             setattr(tracker, seven_hook_name, make_wrapper(prev))
 
     # ---- snapshot wrapper ---------------------------------------------------
@@ -145,15 +151,17 @@ def attach_histograms(tracker: Any, enabled: Optional[bool] = None) -> None:
             # choose the best session dict to display
             session_hits = tracker.hits if hasattr(tracker, "hits") else tracker._session_hits
             snap.setdefault("history", {})
-            snap["history"].update({
-                "hand_hits": {str(k): int(v) for k, v in tracker._hand_hits.items()},
-                "shooter_hits": {str(k): int(v) for k, v in tracker._shooter_hits.items()},
-                "session_hits": {str(k): int(v) for k, v in session_hits.items()},
-                "hand_inside_hits": int(tracker._hand_inside_hits),
-                "hand_outside_hits": int(tracker._hand_outside_hits),
-                "shooter_inside_hits": int(tracker._shooter_inside_hits),
-                "shooter_outside_hits": int(tracker._shooter_outside_hits),
-            })
+            snap["history"].update(
+                {
+                    "hand_hits": {str(k): int(v) for k, v in tracker._hand_hits.items()},
+                    "shooter_hits": {str(k): int(v) for k, v in tracker._shooter_hits.items()},
+                    "session_hits": {str(k): int(v) for k, v in session_hits.items()},
+                    "hand_inside_hits": int(tracker._hand_inside_hits),
+                    "hand_outside_hits": int(tracker._hand_outside_hits),
+                    "shooter_inside_hits": int(tracker._shooter_inside_hits),
+                    "shooter_outside_hits": int(tracker._shooter_outside_hits),
+                }
+            )
         return snap
 
     setattr(tracker, "snapshot", snapshot_with_hist)

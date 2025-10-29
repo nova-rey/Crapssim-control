@@ -25,9 +25,7 @@ class EvoBridge:
                 "event": event,
                 "payload": payload,
             }
-            with open(
-                os.path.join(self.log_dir, "evo_stub.log"), "a", encoding="utf-8"
-            ) as f:
+            with open(os.path.join(self.log_dir, "evo_stub.log"), "a", encoding="utf-8") as f:
                 f.write(json.dumps(entry) + "\n")
         except Exception:
             pass

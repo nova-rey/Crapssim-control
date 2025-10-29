@@ -12,6 +12,7 @@ __all__ = [
     "repack_with_artifacts",
 ]
 
+
 def canonicalize_json(obj: Any) -> str:
     """
     Deterministic JSON representation: UTF-8, sorted keys, no whitespace variance.
@@ -37,7 +38,9 @@ def spec_seed_fingerprint(
     """
     spec_s = canonicalize_json(spec)
     seed_s = canonicalize_json(seed or {})
-    payload = (spec_s + "|" + seed_s + "|" + str(engine_version) + "|" + str(csc_version)).encode("utf-8")
+    payload = (spec_s + "|" + seed_s + "|" + str(engine_version) + "|" + str(csc_version)).encode(
+        "utf-8"
+    )
     return _sha256_bytes(payload)
 
 

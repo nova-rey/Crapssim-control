@@ -8,12 +8,14 @@ import importlib
 
 import pytest
 
+
 def _engine_available() -> bool:
     try:
         importlib.import_module("craps")  # the CrapsSim engine (pip install crapssim)
         return True
     except Exception:
         return False
+
 
 @pytest.mark.skipif(not _engine_available(), reason="crapssim engine not installed in CI")
 def test_cli_runs_and_exits_zero():
@@ -22,7 +24,7 @@ def test_cli_runs_and_exits_zero():
         "table": {"bubble": False, "level": 10},
         "variables": {"units": 10},
         "modes": {"Main": {"template": {"pass": "units"}}},
-        "rules": []
+        "rules": [],
     }
 
     with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:

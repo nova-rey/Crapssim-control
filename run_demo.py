@@ -141,6 +141,7 @@ class _DemoStrategyProxy:
             except TypeError:
                 pass
 
+
 def main(spec_path: str | None = None):
     if Table is None:
         _print_engine_hint()
@@ -175,6 +176,7 @@ def main(spec_path: str | None = None):
             print(f" - {kind} {num or ''} = ${amt}")
     else:
         print("No active bets at end.")
+
 
 if __name__ == "__main__":
     main(sys.argv[1] if len(sys.argv) > 1 else None)

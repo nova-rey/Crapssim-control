@@ -35,4 +35,3 @@ def test_invalid_values_fallback():
     p = load_risk_policy(spec)
     assert p.max_drawdown_pct is None
     assert p.max_heat is None
-

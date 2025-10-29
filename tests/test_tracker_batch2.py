@@ -2,6 +2,7 @@
 
 from crapssim_control.tracker import Tracker
 
+
 def test_batch2_comeout_and_pso_and_bankroll():
     tr = Tracker({"enabled": True})
 

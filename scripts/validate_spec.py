@@ -11,6 +11,7 @@ from pathlib import Path
 
 from crapssim_control.spec_validation import validate_spec
 
+
 def main(argv):
     if len(argv) != 2:
         print("Usage: python scripts/validate_spec.py <path-to-spec.json>")

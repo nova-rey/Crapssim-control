@@ -59,12 +59,14 @@ def _replay_spec(seed: int) -> Dict[str, object]:
     run_cfg["rolls"] = 60
 
     csv_cfg = dict(run_cfg.get("csv", {}))
-    csv_cfg.update({
-        "enabled": True,
-        "path": str(CSV_JOURNAL_PATH),
-        "append": False,
-        "run_id": RUN_ID,
-    })
+    csv_cfg.update(
+        {
+            "enabled": True,
+            "path": str(CSV_JOURNAL_PATH),
+            "append": False,
+            "run_id": RUN_ID,
+        }
+    )
     run_cfg["csv"] = csv_cfg
 
     report_cfg = dict(run_cfg.get("report", {}))
@@ -72,10 +74,12 @@ def _replay_spec(seed: int) -> Dict[str, object]:
     run_cfg["report"] = report_cfg
 
     external_cfg = dict(run_cfg.get("external", {}))
-    external_cfg.update({
-        "mode": "replay",
-        "tape_path": str(LIVE_COMMAND_TAPE),
-    })
+    external_cfg.update(
+        {
+            "mode": "replay",
+            "tape_path": str(LIVE_COMMAND_TAPE),
+        }
+    )
     run_cfg["external"] = external_cfg
 
     spec["run"] = run_cfg
@@ -150,8 +154,7 @@ def main() -> int:
             except Exception:
                 live_report = {}
             live_limits = (
-                live_report.get("metadata", {})
-                .get("limits", {})
+                live_report.get("metadata", {}).get("limits", {})
                 if isinstance(live_report, dict)
                 else {}
             )
@@ -183,9 +186,13 @@ def main() -> int:
 
         REPORT_PATH.write_text(json.dumps(report, indent=2), encoding="utf-8")
 
-    manifest = json.loads(MANIFEST_PATH.read_text(encoding="utf-8")) if MANIFEST_PATH.exists() else {}
+    manifest = (
+        json.loads(MANIFEST_PATH.read_text(encoding="utf-8")) if MANIFEST_PATH.exists() else {}
+    )
     manifest.setdefault("run_id", RUN_ID)
-    manifest["spec_file"] = str((ROOT / "examples" / "internal_brain_demo" / "spec.yaml").relative_to(ROOT))
+    manifest["spec_file"] = str(
+        (ROOT / "examples" / "internal_brain_demo" / "spec.yaml").relative_to(ROOT)
+    )
     manifest.setdefault("cli_flags", {})
     manifest["cli_flags"].update(
         {
@@ -218,7 +225,10 @@ def main() -> int:
     manifest.setdefault("schema", {})
     manifest["schema"].setdefault("journal", report.get("journal_schema_version", "1.2"))
     manifest["schema"].setdefault("summary", report.get("summary_schema_version", "1.2"))
-    manifest.setdefault("engine_version", report.get("metadata", {}).get("engine", {}).get("version", "CrapsSim-Control"))
+    manifest.setdefault(
+        "engine_version",
+        report.get("metadata", {}).get("engine", {}).get("version", "CrapsSim-Control"),
+    )
     MANIFEST_PATH.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
     print("Replay captured →", REPLAY_DIR)

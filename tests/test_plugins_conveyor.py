@@ -38,13 +38,13 @@ def _make_plugin(root: Path, pkg: str, delta: int, ver: str = "1.0.0"):
         ],
     }
     manifest_text = (
-        f"name: \"{pkg}\"\n"
+        f'name: "{pkg}"\n'
         "version: 0.1.0\n"
         "capabilities:\n"
         "  - kind: verb\n"
         "    name: roll_strategy\n"
         f"    version: {ver}\n"
-        f"    entry: \"{mod}:RollStrategy\"\n"
+        f'    entry: "{mod}:RollStrategy"\n'
     )
     (plugdir / "plugin.yaml").write_text(manifest_text, encoding="utf-8")
     return plugdir
@@ -54,7 +54,9 @@ def test_isolated_registries_between_runs(tmp_path):
     _make_plugin(tmp_path, "author.sample", delta=2)
     reg_a = PluginRegistry()
     reg_a.discover([str(tmp_path / "plugins")])
-    loader = PluginLoader(SandboxPolicy(["math", "time"], ["os", "sys", "subprocess"], init_timeout=1.0))
+    loader = PluginLoader(
+        SandboxPolicy(["math", "time"], ["os", "sys", "subprocess"], init_timeout=1.0)
+    )
     spec = {
         "use_plugins": [
             {

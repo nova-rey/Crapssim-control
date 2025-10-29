@@ -13,9 +13,18 @@ def _write_journal(path: Path, rows):
     path.parent.mkdir(parents=True, exist_ok=True)
     # Ensure consistent field order for readability; DictWriter will add any extras
     fieldnames = [
-        "timestamp", "run_id", "event_type", "mode",
-        "point", "rolls_since_point", "on_comeout",
-        "source", "id", "action", "bet_type", "amount"
+        "timestamp",
+        "run_id",
+        "event_type",
+        "mode",
+        "point",
+        "rolls_since_point",
+        "on_comeout",
+        "source",
+        "id",
+        "action",
+        "bet_type",
+        "amount",
     ]
     with path.open("w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=fieldnames)

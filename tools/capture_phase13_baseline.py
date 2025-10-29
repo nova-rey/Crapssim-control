@@ -7,6 +7,7 @@
 Usage:
   python tools/capture_phase13_baseline.py --plan examples/baseline_sweep.yaml --tag v0.43.0-phase13-baseline --compare
 """
+
 from __future__ import annotations
 import argparse
 import json
@@ -18,23 +19,29 @@ from typing import Any
 from crapssim_control.sweep import expand_plan, run_sweep
 from crapssim_control.aggregator import aggregate
 
+
 def _load_json(p: str):
     with open(p, "r", encoding="utf-8") as f:
         return json.load(f)
+
 
 def _dump_json(p: str, obj: Any):
     os.makedirs(os.path.dirname(p), exist_ok=True)
     with open(p, "w", encoding="utf-8") as f:
         json.dump(obj, f, indent=2, sort_keys=True)
 
+
 def _copy_if_exists(src: str, dst: str):
     if os.path.isfile(src):
         shutil.copy2(src, dst)
 
+
 def main():
     ap = argparse.ArgumentParser(description="Capture Phase 13 baseline")
     ap.add_argument("--plan", required=True, help="Sweep plan file (YAML or JSON)")
-    ap.add_argument("--tag", required=True, help="Version tag string, e.g., v0.43.0-phase13-baseline")
+    ap.add_argument(
+        "--tag", required=True, help="Version tag string, e.g., v0.43.0-phase13-baseline"
+    )
     ap.add_argument("--compare", action="store_true", help="Write comparisons.json via aggregator")
     args = ap.parse_args()
 
@@ -48,14 +55,28 @@ def main():
     os.makedirs(base_dir, exist_ok=True)
 
     # 3) Copy core batch artifacts
-    _copy_if_exists(os.path.join(out_dir, "batch_manifest.json"), os.path.join(base_dir, "batch_manifest.json"))
-    _copy_if_exists(os.path.join(out_dir, "batch_index.json"),   os.path.join(base_dir, "batch_index.json"))
-    _copy_if_exists(os.path.join(out_dir, "batch_index.csv"),    os.path.join(base_dir, "batch_index.csv"))
-    _copy_if_exists(os.path.join(out_dir, "aggregates.json"),    os.path.join(base_dir, "aggregates.json"))
-    _copy_if_exists(os.path.join(out_dir, "leaderboard.json"),   os.path.join(base_dir, "leaderboard.json"))
-    _copy_if_exists(os.path.join(out_dir, "leaderboard.csv"),    os.path.join(base_dir, "leaderboard.csv"))
+    _copy_if_exists(
+        os.path.join(out_dir, "batch_manifest.json"), os.path.join(base_dir, "batch_manifest.json")
+    )
+    _copy_if_exists(
+        os.path.join(out_dir, "batch_index.json"), os.path.join(base_dir, "batch_index.json")
+    )
+    _copy_if_exists(
+        os.path.join(out_dir, "batch_index.csv"), os.path.join(base_dir, "batch_index.csv")
+    )
+    _copy_if_exists(
+        os.path.join(out_dir, "aggregates.json"), os.path.join(base_dir, "aggregates.json")
+    )
+    _copy_if_exists(
+        os.path.join(out_dir, "leaderboard.json"), os.path.join(base_dir, "leaderboard.json")
+    )
+    _copy_if_exists(
+        os.path.join(out_dir, "leaderboard.csv"), os.path.join(base_dir, "leaderboard.csv")
+    )
     if args.compare:
-        _copy_if_exists(os.path.join(out_dir, "comparisons.json"), os.path.join(base_dir, "comparisons.json"))
+        _copy_if_exists(
+            os.path.join(out_dir, "comparisons.json"), os.path.join(base_dir, "comparisons.json")
+        )
 
     # 4) Copy a few sample per-run reports (if present)
     samples_dir = os.path.join(base_dir, "sample_reports")
@@ -80,11 +101,7 @@ def main():
     baseline_manifest = {
         "tag": args.tag,
         "captured_at": datetime.utcnow().isoformat() + "Z",
-        "schema": {
-            "journal": "1.2",
-            "summary": "1.2",
-            "report": "2.0"
-        },
+        "schema": {"journal": "1.2", "summary": "1.2", "report": "2.0"},
         "runs": {
             "total": aggregates.get("total_runs"),
             "successes": aggregates.get("successes"),
@@ -93,8 +110,8 @@ def main():
         "roi": {
             "mean": (metrics.get("ROI") or {}).get("mean"),
             "min": (metrics.get("ROI") or {}).get("min"),
-            "max": (metrics.get("ROI") or {}).get("max")
-        }
+            "max": (metrics.get("ROI") or {}).get("max"),
+        },
     }
     _dump_json(os.path.join(base_dir, "baseline_manifest.json"), baseline_manifest)
 
@@ -104,6 +121,7 @@ def main():
 
     print(f"Baseline captured to {base_dir}")
     print(f"Suggested tag: {args.tag}")
+
 
 if __name__ == "__main__":
     main()

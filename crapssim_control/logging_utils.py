@@ -8,7 +8,7 @@ from typing import Optional
 _LEVELS_BY_VERBOSE = {
     0: logging.WARNING,  # default
     1: logging.INFO,
-    2: logging.DEBUG,    # 2 or more → DEBUG
+    2: logging.DEBUG,  # 2 or more → DEBUG
 }
 
 

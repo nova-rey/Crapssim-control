@@ -120,9 +120,7 @@ class PluginRegistry:
         """Perform static checks on :class:`PluginSpec`."""
 
         if "." not in spec.name:
-            raise ValueError(
-                f"Plugin name '{spec.name}' must be in 'author.plugin' format"
-            )
+            raise ValueError(f"Plugin name '{spec.name}' must be in 'author.plugin' format")
 
         existing = {(s.name, s.version) for s in self._registry.values()}
         if (spec.name, spec.version) in existing:
@@ -142,7 +140,9 @@ class PluginRegistry:
 
         return self._registry.get((kind, name, version))
 
-    def resolve_by_ref(self, ref_name: str, kind: str, cap_name: str, version: str) -> PluginSpec | None:
+    def resolve_by_ref(
+        self, ref_name: str, kind: str, cap_name: str, version: str
+    ) -> PluginSpec | None:
         """
         Try resolving by plugin package name (e.g., 'author.sample') + desired capability tuple.
         Returns the first spec that matches (name==ref_name and provides capability with version).

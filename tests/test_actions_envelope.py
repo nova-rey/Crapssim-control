@@ -9,7 +9,9 @@ from crapssim_control.controller import ControlStrategy
 from crapssim_control.templates import diff_bets, render_template
 
 
-def _all_have_envelope(actions: List[Dict[str, Any]], *, source="template", id_prefix="template:") -> bool:
+def _all_have_envelope(
+    actions: List[Dict[str, Any]], *, source="template", id_prefix="template:"
+) -> bool:
     required = {"source", "id", "action", "bet_type", "amount", "notes"}
     for a in actions:
         if not required.issubset(a.keys()):
@@ -80,7 +82,7 @@ def test_diff_bets_legacy_mode_returns_minimal_dicts():
     event = {"on_comeout": True}
     cfg = {"level": 10, "bubble": False}
     template = {
-        "pass": "units*2",                   # 10
+        "pass": "units*2",  # 10
         "place": {"6": "units*2", "8": "units*2"},
         "field": "units",
     }

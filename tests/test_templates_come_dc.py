@@ -1,5 +1,6 @@
 from crapssim_control.templates_legacy import render_template
 
+
 def _triples(intents):
     out = []
     for it in intents:
@@ -10,11 +11,9 @@ def _triples(intents):
         out.append((k, n, a))
     return out
 
+
 def test_template_supports_come_and_dont_come():
-    tpl = {
-        "come": {"amount": "units", "working": True},
-        "dont_come": "units"
-    }
+    tpl = {"come": {"amount": "units", "working": True}, "dont_come": "units"}
     names = {"units": 10}
     out = render_template(tpl, names, bubble=False, table_level=10)
     triples = _triples(out)

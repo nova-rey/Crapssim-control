@@ -5,7 +5,12 @@ from crapssim_control.controller import ControlStrategy
 from crapssim_control.events import COMEOUT, POINT_ESTABLISHED
 
 
-def _spec(csv_path: Path, meta_path: Path | None = None, report_path: Path | None = None, auto_report: bool = False):
+def _spec(
+    csv_path: Path,
+    meta_path: Path | None = None,
+    report_path: Path | None = None,
+    auto_report: bool = False,
+):
     spec = {
         "table": {},
         "variables": {"units": 10},
@@ -44,7 +49,9 @@ def test_generate_report_manual_with_meta_and_csv(tmp_path):
     meta_path = tmp_path / "meta.json"
     report_path = tmp_path / "report.json"
 
-    c = ControlStrategy(_spec(csv_path, meta_path=meta_path, report_path=report_path, auto_report=False))
+    c = ControlStrategy(
+        _spec(csv_path, meta_path=meta_path, report_path=report_path, auto_report=False)
+    )
 
     # Drive: comeout (no actions), then point_established (template diff → actions)
     assert c.handle_event({"type": COMEOUT}, current_bets={}) == []

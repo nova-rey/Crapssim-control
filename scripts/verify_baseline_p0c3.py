@@ -7,19 +7,22 @@ import sys
 BASE = pathlib.Path("baselines/p0c3")
 MANIFEST = BASE / "manifest.json"
 REPORT = BASE / "report.json"
-JOURNAL = BASE / "journal.csv"   # optional
+JOURNAL = BASE / "journal.csv"  # optional
+
 
 def sha256(p: pathlib.Path) -> str:
     h = hashlib.sha256()
     with p.open("rb") as f:
-        for chunk in iter(lambda: f.read(1<<20), b""):
+        for chunk in iter(lambda: f.read(1 << 20), b""):
             h.update(chunk)
     return h.hexdigest()
+
 
 def must(p: pathlib.Path, note=""):
     if not p.exists():
         print(f"ERROR: missing {p}{(' ('+note+')') if note else ''}")
         sys.exit(1)
+
 
 def main():
     must(MANIFEST, "committed baseline manifest")
@@ -53,6 +56,7 @@ def main():
 
     print("✅ Baseline matches manifest.")
     sys.exit(0)
+
 
 if __name__ == "__main__":
     main()

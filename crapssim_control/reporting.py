@@ -4,6 +4,8 @@ import math
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
+from .schemas import JOURNAL_SCHEMA_VERSION, SUMMARY_SCHEMA_VERSION
+
 Number = float
 
 # Minimal journal columns consumed:
@@ -61,7 +63,11 @@ def parse_journal_csv(path: str) -> List[RollRow]:
     return rows
 
 
-def compute_bankroll_series(rows: List[RollRow]) -> Tuple[Optional[float], Optional[float], Optional[int], Optional[int], Optional[float], Optional[float]]:
+def compute_bankroll_series(
+    rows: List[RollRow],
+) -> Tuple[
+    Optional[float], Optional[float], Optional[int], Optional[int], Optional[float], Optional[float]
+]:
     if not rows:
         return None, None, None, None, None, None
     series = [r.bankroll_after for r in rows if not math.isnan(r.bankroll_after)]
@@ -171,8 +177,8 @@ def compute_report_v2(
 
     report = {
         "identity": {
-            "journal_schema_version": "1.2",
-            "summary_schema_version": "1.2",
+            "journal_schema_version": JOURNAL_SCHEMA_VERSION,
+            "summary_schema_version": SUMMARY_SCHEMA_VERSION,
             "report_schema_version": "2.0",
         },
         "summary": {

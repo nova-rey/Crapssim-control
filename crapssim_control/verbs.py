@@ -185,12 +185,14 @@ def verb_remove_come(snapshot: Dict[str, Any], args: Dict[str, Any]) -> Dict[str
     refund = 0.0
     come_flat = snapshot.get("come_flat") if isinstance(snapshot.get("come_flat"), dict) else {}
     odds_info = (
-        snapshot.get("odds", {}).get("come", {})
-        if isinstance(snapshot.get("odds"), dict)
-        else {}
+        snapshot.get("odds", {}).get("come", {}) if isinstance(snapshot.get("odds"), dict) else {}
     )
     for p in ("4", "5", "6", "8", "9", "10"):
-        cur = float(come_flat.get(p, 0.0)) if come_flat else float(snapshot.get("bets", {}).get(p, 0.0))
+        cur = (
+            float(come_flat.get(p, 0.0))
+            if come_flat
+            else float(snapshot.get("bets", {}).get(p, 0.0))
+        )
         if cur > 0:
             bets[p] = f"-{int(cur)}"
             refund += cur
@@ -212,9 +214,7 @@ def verb_remove_dont_come(snapshot: Dict[str, Any], args: Dict[str, Any]) -> Dic
     refund = 0.0
     dc_flat = snapshot.get("dc_flat") if isinstance(snapshot.get("dc_flat"), dict) else {}
     odds_info = (
-        snapshot.get("odds", {}).get("dc", {})
-        if isinstance(snapshot.get("odds"), dict)
-        else {}
+        snapshot.get("odds", {}).get("dc", {}) if isinstance(snapshot.get("odds"), dict) else {}
     )
     for p in ("4", "5", "6", "8", "9", "10"):
         cur = float(dc_flat.get(p, 0.0)) if dc_flat else 0.0

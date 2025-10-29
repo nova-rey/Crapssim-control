@@ -58,10 +58,7 @@ class PluginLoader:
             module = builtin_module.__import__(name, globals, locals, fromlist, level)
             # After import, ensure that full module path is not denied
             full_name = module.__name__
-            if any(
-                full_name == dm or full_name.startswith(f"{dm}.")
-                for dm in denied_modules
-            ):
+            if any(full_name == dm or full_name.startswith(f"{dm}.") for dm in denied_modules):
                 raise ImportError(f"Import of '{full_name}' denied by sandbox policy")
             return module
 
@@ -76,9 +73,7 @@ class PluginLoader:
             def find_spec(self, fullname, path, target=None):
                 for mod in policy.deny_modules:
                     if fullname == mod or fullname.startswith(mod + "."):
-                        raise ImportError(
-                            f"Import of '{fullname}' denied by sandbox policy"
-                        )
+                        raise ImportError(f"Import of '{fullname}' denied by sandbox policy")
                 return None
 
         return DenyImporter()
@@ -150,7 +145,9 @@ class PluginLoader:
                 cap = c
                 break
         if cap is None:
-            raise ImportError(f"Capability {kind}.{cap_name}/{version} not found in {spec.name} {spec.version}")
+            raise ImportError(
+                f"Capability {kind}.{cap_name}/{version} not found in {spec.name} {spec.version}"
+            )
 
         # entry looks like "path/to/file.py:ClassName"
         entry = cap.entry

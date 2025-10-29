@@ -24,7 +24,9 @@ def test_webhook_retry_attempts(monkeypatch):
     monkeypatch.setattr(webhooks.random, "uniform", fake_uniform)
     monkeypatch.setattr(webhooks.log, "warning", fake_warning)
 
-    publisher = webhooks.WebhookPublisher(targets=["http://example.test"], enabled=True, timeout=0.1)
+    publisher = webhooks.WebhookPublisher(
+        targets=["http://example.test"], enabled=True, timeout=0.1
+    )
     publisher._post("http://example.test", "event.test", "{}")
 
     assert len(attempts) == 3  # initial attempt + 2 retries

@@ -17,7 +17,10 @@ def test_press_regress_live_engine_snapshot_normalized():
         }
     }
     adapter.start_session(spec)
-    if not getattr(adapter, "live_engine", False) or getattr(adapter, "_engine_adapter", None) is None:
+    if (
+        not getattr(adapter, "live_engine", False)
+        or getattr(adapter, "_engine_adapter", None) is None
+    ):
         pytest.skip("CrapsSim adapter unavailable in environment")
 
     def _sum_bets(snapshot: Dict[str, float]) -> float:

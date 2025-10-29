@@ -58,7 +58,9 @@ def test_run_id_determinism(tmp_path):
     run_id2 = spec_seed_fingerprint(spec, seed, "engine-x", "csc-y")
     assert run_id1 == run_id2
     # small variation changes hash
-    run_id3 = spec_seed_fingerprint(dict(spec, bankroll=spec["bankroll"]+1), seed, "engine-x", "csc-y")
+    run_id3 = spec_seed_fingerprint(
+        dict(spec, bankroll=spec["bankroll"] + 1), seed, "engine-x", "csc-y"
+    )
     assert run_id3 != run_id1
 
 
@@ -92,7 +94,9 @@ def test_zip_passthrough_preserves_bytes(tmp_path):
     out_root = tmp_path / "exports"
     os.makedirs(out_root, exist_ok=True)
 
-    rec = run_single_bundle_or_spec(str(bundle_zip), str(out_root), engine_version="e", csc_version="c")
+    rec = run_single_bundle_or_spec(
+        str(bundle_zip), str(out_root), engine_version="e", csc_version="c"
+    )
     assert rec["status"] == "success"
     out_zip = rec["output_zip"]
     assert os.path.isfile(out_zip)

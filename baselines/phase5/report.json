@@ -1,7 +1,7 @@
 {
   "run_id": "phase5-ittt-demo",
   "seed": 12345,
-  "journal_schema_version": "1.2",
+  "journal_schema_version": "1.1",
   "journal": "baselines/phase5/decision_journal.jsonl",
   "csv": "baselines/phase5/journal.csv",
   "records": 12,
@@ -12,7 +12,7 @@
     "box_trigger_002"
   ],
   "timing_enforced": true,
-  "summary_schema_version": "1.2",
+  "summary_schema_version": "1.1",
   "manifest_path": "baselines/phase5/manifest.json",
   "metadata": {
     "demo_fallbacks_default": false,

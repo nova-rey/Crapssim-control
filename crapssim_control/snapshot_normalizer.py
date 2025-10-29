@@ -40,6 +40,7 @@ class SnapshotNormalizer:
             if strategy is not None:
                 candidates.append(strategy)
             candidates.append(source)
+
         for candidate in candidates:
             if candidate is None:
                 continue

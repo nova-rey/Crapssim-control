@@ -2,10 +2,12 @@
 from crapssim_control.tracker import Tracker
 from crapssim_control.tracker_ledger_shim import wire_ledger
 
+
 def make_tracker():
     t = Tracker()
     wire_ledger(t)
     return t
+
 
 def test_intent_create_match_and_cancel():
     t = make_tracker()
@@ -27,6 +29,7 @@ def test_intent_create_match_and_cancel():
     snap2 = t.snapshot()
     intents2 = snap2["ledger"]["intents"]
     assert intents2["canceled_count"] == 1
+
 
 def test_intent_with_explicit_id_passthrough():
     t = make_tracker()

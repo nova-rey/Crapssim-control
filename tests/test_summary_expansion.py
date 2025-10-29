@@ -1,4 +1,5 @@
 from crapssim_control.controller import ControlStrategy
+from crapssim_control.schemas import SUMMARY_SCHEMA_VERSION
 
 
 def _spec(embed_analytics=True):
@@ -25,9 +26,21 @@ def test_summary_contains_expected_keys():
     ctrl = ControlStrategy(_spec(embed_analytics=True))
     events = [
         {"type": "comeout", "roll": 7, "bankroll_before": 1000, "bankroll_after": 1010},
-        {"type": "point_established", "point": 6, "roll": 6, "bankroll_before": 1010, "bankroll_after": 1000},
+        {
+            "type": "point_established",
+            "point": 6,
+            "roll": 6,
+            "bankroll_before": 1010,
+            "bankroll_after": 1000,
+        },
         {"type": "roll", "roll": 8, "point": 6, "bankroll_before": 1000, "bankroll_after": 1020},
-        {"type": "seven_out", "roll": 7, "point": 6, "bankroll_before": 1020, "bankroll_after": 980},
+        {
+            "type": "seven_out",
+            "roll": 7,
+            "point": 6,
+            "bankroll_before": 1020,
+            "bankroll_after": 980,
+        },
     ]
 
     report = _run_session(ctrl, events)
@@ -43,14 +56,20 @@ def test_summary_contains_expected_keys():
         "max_drawdown",
     ):
         assert key in summary
-    assert report.get("summary_schema_version") == "1.2"
+    assert report.get("summary_schema_version") == SUMMARY_SCHEMA_VERSION
 
 
 def test_bankroll_peak_low_consistency():
     ctrl = ControlStrategy(_spec(embed_analytics=True))
     events = [
         {"type": "comeout", "roll": 7, "bankroll_before": 1000, "bankroll_after": 1000},
-        {"type": "point_established", "point": 6, "roll": 6, "bankroll_before": 1000, "bankroll_after": 980},
+        {
+            "type": "point_established",
+            "point": 6,
+            "roll": 6,
+            "bankroll_before": 1000,
+            "bankroll_after": 980,
+        },
         {"type": "roll", "roll": 9, "point": 6, "bankroll_before": 980, "bankroll_after": 1010},
         {"type": "roll", "roll": 5, "point": 6, "bankroll_before": 1010, "bankroll_after": 995},
         {"type": "seven_out", "roll": 7, "point": 6, "bankroll_before": 995, "bankroll_after": 950},
@@ -72,9 +91,21 @@ def test_counts_reasonable():
     ctrl = ControlStrategy(_spec(embed_analytics=True))
     events = [
         {"type": "comeout", "roll": 7, "bankroll_before": 1000, "bankroll_after": 1000},
-        {"type": "point_established", "point": 5, "roll": 5, "bankroll_before": 1000, "bankroll_after": 990},
+        {
+            "type": "point_established",
+            "point": 5,
+            "roll": 5,
+            "bankroll_before": 1000,
+            "bankroll_after": 990,
+        },
         {"type": "roll", "roll": 9, "point": 5, "bankroll_before": 990, "bankroll_after": 1010},
-        {"type": "seven_out", "roll": 7, "point": 5, "bankroll_before": 1010, "bankroll_after": 980},
+        {
+            "type": "seven_out",
+            "roll": 7,
+            "point": 5,
+            "bankroll_before": 1010,
+            "bankroll_after": 980,
+        },
     ]
 
     report = _run_session(ctrl, events)
@@ -89,7 +120,7 @@ def test_summary_flag_off_schema_version():
     ctrl.finalize_run()
     report = ctrl.generate_report()
 
-    assert report.get("summary_schema_version") == "1.2"
+    assert report.get("summary_schema_version") == SUMMARY_SCHEMA_VERSION
     summary = report.get("summary")
     assert isinstance(summary, dict)
     # analytics fields may be missing or zero when tracker disabled

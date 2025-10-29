@@ -1,4 +1,5 @@
 """Test helpers providing lightweight snapshot dataclasses used across regression tests."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -42,4 +43,3 @@ class GameState:
     just_made_point: bool = False
     just_seven_out: bool = False
     is_new_shooter: bool = False
-

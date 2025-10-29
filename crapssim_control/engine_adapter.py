@@ -148,7 +148,9 @@ def _try_import_crapssim() -> Tuple[Optional[EngineAdapter], Optional[str]]:
         return None, f"instantiate_failed:{exc}"
 
 
-def _normalize_snapshot(table_or_snapshot: Optional[Any], player: Optional[Any] = None) -> Dict[str, Any]:
+def _normalize_snapshot(
+    table_or_snapshot: Optional[Any], player: Optional[Any] = None
+) -> Dict[str, Any]:
     """Normalize arbitrary engine snapshots into CSC's canonical shape."""
 
     def _get_prop_intents(source_player: Optional[Any]) -> List[Mapping[str, Any]]:
@@ -371,9 +373,11 @@ def _normalize_snapshot(table_or_snapshot: Optional[Any], player: Optional[Any] 
             "hand_id": hand_id_norm,
             "roll_in_hand": roll_norm,
             "rng_seed": rng_seed_norm,
-            "on_comeout": bool(raw_snapshot.get("on_comeout"))
-            if "on_comeout" in raw_snapshot
-            else point_val_norm in (None, 0),
+            "on_comeout": (
+                bool(raw_snapshot.get("on_comeout"))
+                if "on_comeout" in raw_snapshot
+                else point_val_norm in (None, 0)
+            ),
             "come_flat": come_flat,
             "dc_flat": dc_flat,
             "odds": odds_norm,
@@ -397,9 +401,7 @@ def _normalize_snapshot(table_or_snapshot: Optional[Any], player: Optional[Any] 
         bankroll_after = raw_snapshot.get("bankroll_after")
         try:
             normalized["bankroll_after"] = (
-                float(bankroll_after)
-                if bankroll_after is not None
-                else bankroll_val
+                float(bankroll_after) if bankroll_after is not None else bankroll_val
             )
         except (TypeError, ValueError):
             normalized["bankroll_after"] = bankroll_val
@@ -537,7 +539,12 @@ def _normalize_snapshot(table_or_snapshot: Optional[Any], player: Optional[Any] 
                         meta_types[key] = "lay"
                     elif "place" in cls_name:
                         meta_types[key] = "place"
-            if "come" in name and "dont" not in name and "odds" not in name and _is_box_number(number):
+            if (
+                "come" in name
+                and "dont" not in name
+                and "odds" not in name
+                and _is_box_number(number)
+            ):
                 come_flat[str(int(number))] += amt
             elif "dont come" in name and "odds" not in name and _is_box_number(number):
                 dc_flat[str(int(number))] += amt
@@ -545,7 +552,9 @@ def _normalize_snapshot(table_or_snapshot: Optional[Any], player: Optional[Any] 
                 odds_map["pass"] += amt
             elif "odds" in name and "dont pass" in name:
                 odds_map["dont_pass"] += amt
-            elif "odds" in name and "come" in name and "dont" not in name and _is_box_number(number):
+            elif (
+                "odds" in name and "come" in name and "dont" not in name and _is_box_number(number)
+            ):
                 odds_map["come"][str(int(number))] += amt
             elif "odds" in name and "dont" in name and _is_box_number(number):
                 odds_map["dc"][str(int(number))] += amt
@@ -690,6 +699,7 @@ except ModuleNotFoundError:  # pragma: no cover - engine not installed
 
 try:  # pragma: no cover - exercised in engine-present workflows
     import crapssim.players as cs_players  # type: ignore
+
     _HAS_LEGACY_PLAYERS = True
 except ModuleNotFoundError:  # pragma: no cover - engine not installed
     cs_players = None  # type: ignore
@@ -860,8 +870,12 @@ class VanillaAdapter(EngineAdapter):
             ver_info = self.transport.version()
             caps_info = self.transport.capabilities()
             self._engine_info = {
-                "engine": ver_info.get("engine", "unknown") if isinstance(ver_info, dict) else "unknown",
-                "version": ver_info.get("version", "unknown") if isinstance(ver_info, dict) else "unknown",
+                "engine": (
+                    ver_info.get("engine", "unknown") if isinstance(ver_info, dict) else "unknown"
+                ),
+                "version": (
+                    ver_info.get("version", "unknown") if isinstance(ver_info, dict) else "unknown"
+                ),
                 "capabilities": caps_info if isinstance(caps_info, dict) else {},
             }
         except Exception as exc:  # pragma: no cover - defensive handshake guard
@@ -896,6 +910,7 @@ class VanillaAdapter(EngineAdapter):
         for side in ("come", "dc"):
             for n in _BOX_NUMBERS:
                 self.bets[f"odds_{side}_{n}"] = 0.0
+
         def _zero_point_map() -> Dict[str, float]:
             return {str(n): 0.0 for n in _BOX_NUMBERS}
 
@@ -990,9 +1005,13 @@ class VanillaAdapter(EngineAdapter):
             raw_risk = run_cfg_for_rolls.get("risk")
             if isinstance(raw_risk, dict):
                 risk_cfg = dict(raw_risk)
-        self._spec_risk_caps = dict(risk_cfg.get("bet_caps", {})) if isinstance(risk_cfg.get("bet_caps"), dict) else {}
+        self._spec_risk_caps = (
+            dict(risk_cfg.get("bet_caps", {})) if isinstance(risk_cfg.get("bet_caps"), dict) else {}
+        )
         try:
-            self._spec_max_heat = float(risk_cfg.get("max_heat")) if risk_cfg.get("max_heat") is not None else None
+            self._spec_max_heat = (
+                float(risk_cfg.get("max_heat")) if risk_cfg.get("max_heat") is not None else None
+            )
         except Exception:
             self._spec_max_heat = None
         reset_group_state()
@@ -1011,7 +1030,9 @@ class VanillaAdapter(EngineAdapter):
             self.dsl_trace_enabled = False
         self._reset_stub_state()
         adapter_cfg = run_cfg.get("adapter") if isinstance(run_cfg, dict) else {}
-        live_requested = bool(adapter_cfg.get("live_engine")) if isinstance(adapter_cfg, dict) else False
+        live_requested = (
+            bool(adapter_cfg.get("live_engine")) if isinstance(adapter_cfg, dict) else False
+        )
 
         self.live_engine = False
         self._engine_adapter = None
@@ -1091,7 +1112,9 @@ class VanillaAdapter(EngineAdapter):
             except Exception:
                 pass
 
-        if getattr(self, "_policy_opts", {}).get("enforce", True) and hasattr(self, "_policy_engine"):
+        if getattr(self, "_policy_opts", {}).get("enforce", True) and hasattr(
+            self, "_policy_engine"
+        ):
             probe = {"verb": "probe", "args": {"amount": 0}}
             try:
                 policy_eval = self._policy_engine.evaluate(probe, snapshot)  # type: ignore[attr-defined]
@@ -1206,10 +1229,9 @@ class VanillaAdapter(EngineAdapter):
 
         return None
 
-    def _render_auto_why(
-        self, verb: str, args: Dict[str, Any], pre: Dict[str, Any]
-    ) -> str:
+    def _render_auto_why(self, verb: str, args: Dict[str, Any], pre: Dict[str, Any]) -> str:
         try:
+
             def _amt(value: Any) -> Any:
                 raw = value
                 if isinstance(raw, dict):
@@ -1238,9 +1260,7 @@ class VanillaAdapter(EngineAdapter):
                 side = args.get("on")
                 point_val = args.get("point")
                 amount = _amt(args.get("amount"))
-                return (
-                    f"Set ${amount} {side} odds on {point_val} because flat is established."
-                )
+                return f"Set ${amount} {side} odds on {point_val} because flat is established."
             if verb == "cancel_bet":
                 family = args.get("family")
                 target = args.get("target")
@@ -1362,8 +1382,7 @@ class VanillaAdapter(EngineAdapter):
         for act in actions:
             verb = act.get("verb", "")
             reason = (
-                f"{verb} was triggered because WHEN ({act.get('_when', '')}) "
-                "evaluated True."
+                f"{verb} was triggered because WHEN ({act.get('_when', '')}) " "evaluated True."
             )
             args = dict(act.get("args", {}))
             args.setdefault("_why", reason)
@@ -1407,9 +1426,7 @@ class VanillaAdapter(EngineAdapter):
         self._rolls_completed += 1
         return finalized_stub
 
-    def _step_roll_live(
-        self, dice: Tuple[int, int], total: int
-    ) -> Optional[Dict[str, Any]]:
+    def _step_roll_live(self, dice: Tuple[int, int], total: int) -> Optional[Dict[str, Any]]:
         table = self._table or getattr(self._engine_adapter, "table", None)
         if table is None:
             return None
@@ -1423,7 +1440,9 @@ class VanillaAdapter(EngineAdapter):
             except Exception:
                 player = None
         if player is None:
-            controller = self._controller or getattr(self._engine_adapter, "controller_player", None)
+            controller = self._controller or getattr(
+                self._engine_adapter, "controller_player", None
+            )
             candidate = getattr(controller, "player", None) if controller is not None else None
             if candidate is not None:
                 player = candidate
@@ -1500,7 +1519,9 @@ class VanillaAdapter(EngineAdapter):
                     break
                 except Exception:
                     continue
-        post_snapshot["bankroll_after"] = bankroll_val if bankroll_val is not None else post_snapshot.get("bankroll", 0.0)
+        post_snapshot["bankroll_after"] = (
+            bankroll_val if bankroll_val is not None else post_snapshot.get("bankroll", 0.0)
+        )
 
         if pso:
             post_snapshot["point_value"] = None
@@ -1519,9 +1540,7 @@ class VanillaAdapter(EngineAdapter):
             "pso": pso,
         }
 
-    def _step_roll_stub(
-        self, dice: Tuple[int, int], total: int
-    ) -> Dict[str, Any]:
+    def _step_roll_stub(self, dice: Tuple[int, int], total: int) -> Dict[str, Any]:
         prev_snapshot = dict(self._snapshot_cache or self._last_snapshot or {})
         if not prev_snapshot:
             prev_snapshot = dict(self._last_snapshot or {})
@@ -1598,7 +1617,9 @@ class VanillaAdapter(EngineAdapter):
         pre_snapshot: Dict[str, Any] = dict(snapshot_before) if journal_opts.get("explain") else {}
 
         policy_eval: Optional[Dict[str, Any]] = None
-        policy_engine = getattr(self, "_policy_engine", None) if hasattr(self, "_policy_engine") else None
+        policy_engine = (
+            getattr(self, "_policy_engine", None) if hasattr(self, "_policy_engine") else None
+        )
         risk_policy = getattr(self, "_risk_policy", None)
         enforce_policy = bool(getattr(self, "_policy_opts", {}).get("enforce", True))
         report_policy = bool(getattr(self, "_policy_opts", {}).get("report", False))
@@ -1716,9 +1737,7 @@ class VanillaAdapter(EngineAdapter):
                 self.last_effect = effect
                 return effect
             except Exception:  # pragma: no cover - fail open to stub
-                warnings.warn(
-                    f"live_engine_{verb}_failed:fallback_to_stub", RuntimeWarning
-                )
+                warnings.warn(f"live_engine_{verb}_failed:fallback_to_stub", RuntimeWarning)
 
         try:
             handler = VerbRegistry.get(verb)
@@ -1979,7 +1998,10 @@ class VanillaAdapter(EngineAdapter):
         def _make_bet(kind: str, number: int, amt: float):
             bet_obj = None
             if kind == "buy" and callable(Buy):
-                for kwargs in ({"number": number, "amount": amt}, {"amount": amt, "number": number}):
+                for kwargs in (
+                    {"number": number, "amount": amt},
+                    {"amount": amt, "number": number},
+                ):
                     try:
                         return Buy(**kwargs)
                     except Exception:
@@ -1990,7 +2012,10 @@ class VanillaAdapter(EngineAdapter):
                     except Exception:
                         continue
             elif kind == "lay" and callable(Lay):
-                for kwargs in ({"number": number, "amount": amt}, {"amount": amt, "number": number}):
+                for kwargs in (
+                    {"number": number, "amount": amt},
+                    {"amount": amt, "number": number},
+                ):
                     try:
                         return Lay(**kwargs)
                     except Exception:
@@ -2001,7 +2026,10 @@ class VanillaAdapter(EngineAdapter):
                     except Exception:
                         continue
             elif callable(Place):
-                for kwargs in ({"number": number, "amount": amt}, {"amount": amt, "number": number}):
+                for kwargs in (
+                    {"number": number, "amount": amt},
+                    {"amount": amt, "number": number},
+                ):
                     try:
                         return Place(**kwargs)
                     except Exception:
@@ -2053,7 +2081,7 @@ class VanillaAdapter(EngineAdapter):
                     bets_delta[dst] = f"+{int(amt)}"
 
         elif verb == "line_bet":
-            side = (args.get("side") or target.get("side") or "pass")
+            side = args.get("side") or target.get("side") or "pass"
             amt = float((args.get("amount") or {}).get("value", 0.0))
             bankroll_before = self._snap_bankroll()
             PL = getattr(cs_bet, "PassLine", None)
@@ -2079,7 +2107,7 @@ class VanillaAdapter(EngineAdapter):
                 key = "pass" if side == "pass" else "dont_pass"
                 bets_delta[key] = f"+{int(amt)}"
             bankroll_after = self._snap_bankroll()
-            bankroll_delta += (bankroll_after - bankroll_before)
+            bankroll_delta += bankroll_after - bankroll_before
 
         elif verb in ("come_bet", "dont_come_bet"):
             amt = float((args.get("amount") or {}).get("value", 0.0))
@@ -2106,7 +2134,7 @@ class VanillaAdapter(EngineAdapter):
             if bet_obj and self._cs_add_bet(bet_obj):
                 bets_delta["come" if verb == "come_bet" else "dc"] = f"+{int(amt)}"
             bankroll_after = self._snap_bankroll()
-            bankroll_delta += (bankroll_after - bankroll_before)
+            bankroll_delta += bankroll_after - bankroll_before
 
         elif verb in ("set_odds", "take_odds"):
             on_raw = (
@@ -2203,7 +2231,10 @@ class VanillaAdapter(EngineAdapter):
                         except Exception:
                             bet_obj = None
                     if bet_obj is None:
-                        for kwargs in ({"base_type": base_type, "number": number, "amount": amount}, {"base_type": base_type, "point": number, "amount": amount}):
+                        for kwargs in (
+                            {"base_type": base_type, "number": number, "amount": amount},
+                            {"base_type": base_type, "point": number, "amount": amount},
+                        ):
                             try:
                                 bet_obj = OddsGeneric(**kwargs)
                                 break
@@ -2227,7 +2258,11 @@ class VanillaAdapter(EngineAdapter):
                         point_val = int(table_point)
                     removed_total = 0.0
                     if direction > 0:
-                        bet_obj = _make_odds_bet(base_type, point_val, amt) if point_val is not None else None
+                        bet_obj = (
+                            _make_odds_bet(base_type, point_val, amt)
+                            if point_val is not None
+                            else None
+                        )
                         placed = self._cs_add_bet(bet_obj) if bet_obj is not None else False
                     else:
                         odds_type = OddsGeneric
@@ -2235,8 +2270,12 @@ class VanillaAdapter(EngineAdapter):
                         for bet_obj, num_val, amt_val, _ in list(_iter_player_bets()):
                             if odds_type is not None and isinstance(bet_obj, odds_type):
                                 base = getattr(bet_obj, "base_type", None)
-                                target_num = getattr(bet_obj, "number", getattr(bet_obj, "point", None))
-                                if base is base_type and (point_val is None or target_num == point_val):
+                                target_num = getattr(
+                                    bet_obj, "number", getattr(bet_obj, "point", None)
+                                )
+                                if base is base_type and (
+                                    point_val is None or target_num == point_val
+                                ):
                                     take = min(remaining, amt_val)
                                     if take <= 0:
                                         continue
@@ -2271,7 +2310,9 @@ class VanillaAdapter(EngineAdapter):
                             for bet_obj, num_val, amt_val, _ in list(_iter_player_bets()):
                                 if odds_type is not None and isinstance(bet_obj, odds_type):
                                     base = getattr(bet_obj, "base_type", None)
-                                    target_num = getattr(bet_obj, "number", getattr(bet_obj, "point", None))
+                                    target_num = getattr(
+                                        bet_obj, "number", getattr(bet_obj, "point", None)
+                                    )
                                     if base is base_type and target_num == point_val:
                                         take = min(remaining, amt_val)
                                         if take <= 0:
@@ -2291,7 +2332,7 @@ class VanillaAdapter(EngineAdapter):
                 placed = False
 
             bankroll_after = self._snap_bankroll()
-            bankroll_delta += (bankroll_after - bankroll_before)
+            bankroll_delta += bankroll_after - bankroll_before
 
             if amt_value > 0 and not bets_delta:
                 raise RuntimeError("engine_odds_unavailable")
@@ -2299,7 +2340,11 @@ class VanillaAdapter(EngineAdapter):
         elif verb == "field_bet":
             amount_arg = args.get("amount")
             try:
-                amount_val = float(amount_arg if not isinstance(amount_arg, Mapping) else amount_arg.get("value", amount_arg.get("amount", 0.0)))
+                amount_val = float(
+                    amount_arg
+                    if not isinstance(amount_arg, Mapping)
+                    else amount_arg.get("value", amount_arg.get("amount", 0.0))
+                )
             except (TypeError, ValueError):
                 amount_val = 0.0
             Field = getattr(cs_bet, "Field", None)
@@ -2323,7 +2368,7 @@ class VanillaAdapter(EngineAdapter):
                 bets_delta["field"] = f"+{int(amount_val)}"
                 placed = True
             bankroll_after = self._snap_bankroll()
-            bankroll_delta += (bankroll_after - bankroll_before)
+            bankroll_delta += bankroll_after - bankroll_before
             if amount_val > 0 and not placed:
                 raise RuntimeError("engine_field_unavailable")
 
@@ -2335,7 +2380,11 @@ class VanillaAdapter(EngineAdapter):
                 number_val = 0
             amount_arg = args.get("amount")
             try:
-                amount_val = float(amount_arg if not isinstance(amount_arg, Mapping) else amount_arg.get("value", amount_arg.get("amount", 0.0)))
+                amount_val = float(
+                    amount_arg
+                    if not isinstance(amount_arg, Mapping)
+                    else amount_arg.get("value", amount_arg.get("amount", 0.0))
+                )
             except (TypeError, ValueError):
                 amount_val = 0.0
             HardWay = getattr(cs_bet, "HardWay", None)
@@ -2359,7 +2408,7 @@ class VanillaAdapter(EngineAdapter):
                 bets_delta[f"hardway_{number_val}"] = f"+{int(amount_val)}"
                 placed = True
             bankroll_after = self._snap_bankroll()
-            bankroll_delta += (bankroll_after - bankroll_before)
+            bankroll_delta += bankroll_after - bankroll_before
             if amount_val > 0 and number_val in (4, 6, 8, 10) and not placed:
                 raise RuntimeError("engine_hardway_unavailable")
 
@@ -2391,25 +2440,39 @@ class VanillaAdapter(EngineAdapter):
             bet_obj = None
 
             if verb == "any7_bet":
-                bet_obj = _mk(getattr(cs_bet, "Any7", None), amount=amount) or _mk(getattr(cs_bet, "Any7", None), amount)
+                bet_obj = _mk(getattr(cs_bet, "Any7", None), amount=amount) or _mk(
+                    getattr(cs_bet, "Any7", None), amount
+                )
                 meta_note = {"prop_family": "any7"}
             elif verb == "anycraps_bet":
-                bet_obj = _mk(getattr(cs_bet, "AnyCraps", None), amount=amount) or _mk(getattr(cs_bet, "AnyCraps", None), amount)
+                bet_obj = _mk(getattr(cs_bet, "AnyCraps", None), amount=amount) or _mk(
+                    getattr(cs_bet, "AnyCraps", None), amount
+                )
                 meta_note = {"prop_family": "any_craps"}
             elif verb == "yo_bet":
-                bet_obj = _mk(getattr(cs_bet, "Yo", None), amount=amount) or _mk(getattr(cs_bet, "Yo", None), amount)
+                bet_obj = _mk(getattr(cs_bet, "Yo", None), amount=amount) or _mk(
+                    getattr(cs_bet, "Yo", None), amount
+                )
                 meta_note = {"prop_family": "yo"}
             elif verb == "craps2_bet":
-                bet_obj = _mk(getattr(cs_bet, "Two", None), amount=amount) or _mk(getattr(cs_bet, "Two", None), amount)
+                bet_obj = _mk(getattr(cs_bet, "Two", None), amount=amount) or _mk(
+                    getattr(cs_bet, "Two", None), amount
+                )
                 meta_note = {"prop_family": "two"}
             elif verb == "craps3_bet":
-                bet_obj = _mk(getattr(cs_bet, "Three", None), amount=amount) or _mk(getattr(cs_bet, "Three", None), amount)
+                bet_obj = _mk(getattr(cs_bet, "Three", None), amount=amount) or _mk(
+                    getattr(cs_bet, "Three", None), amount
+                )
                 meta_note = {"prop_family": "three"}
             elif verb == "craps12_bet":
-                bet_obj = _mk(getattr(cs_bet, "Boxcars", None), amount=amount) or _mk(getattr(cs_bet, "Boxcars", None), amount)
+                bet_obj = _mk(getattr(cs_bet, "Boxcars", None), amount=amount) or _mk(
+                    getattr(cs_bet, "Boxcars", None), amount
+                )
                 meta_note = {"prop_family": "twelve"}
             elif verb == "ce_bet":
-                bet_obj = _mk(getattr(cs_bet, "CAndE", None), amount=amount) or _mk(getattr(cs_bet, "CAndE", None), amount)
+                bet_obj = _mk(getattr(cs_bet, "CAndE", None), amount=amount) or _mk(
+                    getattr(cs_bet, "CAndE", None), amount
+                )
                 meta_note = {"prop_family": "c_and_e"}
             elif verb == "hop_bet":
                 d1_raw = args.get("d1", args.get("die1", 0))
@@ -2422,7 +2485,9 @@ class VanillaAdapter(EngineAdapter):
                 if not (_is_die(d1) and _is_die(d2)):
                     raise ValueError("prop_bet_invalid_dice")
                 hop_cls = getattr(cs_bet, "Hop", None)
-                bet_obj = _mk(hop_cls, result=(d1, d2), amount=amount) or _mk(hop_cls, (d1, d2), amount)
+                bet_obj = _mk(hop_cls, result=(d1, d2), amount=amount) or _mk(
+                    hop_cls, (d1, d2), amount
+                )
                 meta_note = {"prop_family": "hop", "combo": f"{d1}-{d2}"}
 
             if bet_obj and self._add_prop_bet(bet_obj):
@@ -2559,7 +2624,7 @@ class VanillaAdapter(EngineAdapter):
                     if oamt > 0:
                         bets_delta[f"odds_{k}"] = f"-{int(oamt)}"
                 bankroll_after = self._snap_bankroll()
-                bankroll_delta += (bankroll_after - bankroll_before)
+                bankroll_delta += bankroll_after - bankroll_before
             else:
                 families = {
                     "remove_come": (come_cls, "come", "come_flat"),
@@ -2697,7 +2762,9 @@ class VanillaAdapter(EngineAdapter):
                 if bet_key == "odds_pass":
                     self.odds_state["pass"] = max(0.0, self.odds_state.get("pass", 0.0) + delta)
                 elif bet_key == "odds_dont_pass":
-                    self.odds_state["dont_pass"] = max(0.0, self.odds_state.get("dont_pass", 0.0) + delta)
+                    self.odds_state["dont_pass"] = max(
+                        0.0, self.odds_state.get("dont_pass", 0.0) + delta
+                    )
                 elif bet_key.startswith("odds_come_"):
                     point = bet_key.split("_", 2)[-1]
                     if _is_box_number(point):
@@ -2782,11 +2849,7 @@ class VanillaAdapter(EngineAdapter):
 
         try:
             engine_caps_raw = self.transport.capabilities()
-            engine_caps = (
-                dict(engine_caps_raw)
-                if isinstance(engine_caps_raw, Mapping)
-                else {}
-            )
+            engine_caps = dict(engine_caps_raw) if isinstance(engine_caps_raw, Mapping) else {}
 
             if engine_caps:
                 merged["source"] = "merged"
@@ -3041,12 +3104,23 @@ class VanillaAdapter(EngineAdapter):
                         filtered_bets[key_str] = val
                 for key, val in bets_combined.items():
                     key_str = str(key)
-                    if key_str not in filtered_bets and key_str.lower() not in {"place", "buy", "lay"}:
+                    if key_str not in filtered_bets and key_str.lower() not in {
+                        "place",
+                        "buy",
+                        "lay",
+                    }:
                         filtered_bets[key_str] = val
                 merged["bets"] = filtered_bets
                 if overlay.get("bet_types"):
                     merged["bet_types"] = dict(overlay.get("bet_types") or {})
-                for key in ("bankroll", "point_on", "point_value", "hand_id", "roll_in_hand", "rng_seed"):
+                for key in (
+                    "bankroll",
+                    "point_on",
+                    "point_value",
+                    "hand_id",
+                    "roll_in_hand",
+                    "rng_seed",
+                ):
                     if key in overlay and overlay[key] is not None:
                         merged[key] = overlay[key]
                 overlay_props = overlay.get("props")
@@ -3217,8 +3291,8 @@ def verb_regress(snapshot: Dict[str, Any], args: Dict[str, Any]) -> Effect:
 
 
 def verb_place_bet(snapshot: Dict[str, Any], args: Dict[str, Any]) -> Effect:
-    target = (args.get("target") or {})
-    amount = (args.get("amount") or {})
+    target = args.get("target") or {}
+    amount = args.get("amount") or {}
     bet = str(target.get("bet", ""))
     val = float(amount.get("value", 0.0))
     if not _is_box_number(bet) or val <= 0:
@@ -3234,8 +3308,8 @@ def verb_place_bet(snapshot: Dict[str, Any], args: Dict[str, Any]) -> Effect:
 
 
 def verb_buy_bet(snapshot: Dict[str, Any], args: Dict[str, Any]) -> Effect:
-    target = (args.get("target") or {})
-    amount = (args.get("amount") or {})
+    target = args.get("target") or {}
+    amount = args.get("amount") or {}
     bet = str(target.get("bet", ""))
     val = float(amount.get("value", 0.0))
     if not _is_box_number(bet) or val <= 0:
@@ -3251,8 +3325,8 @@ def verb_buy_bet(snapshot: Dict[str, Any], args: Dict[str, Any]) -> Effect:
 
 
 def verb_lay_bet(snapshot: Dict[str, Any], args: Dict[str, Any]) -> Effect:
-    target = (args.get("target") or {})
-    amount = (args.get("amount") or {})
+    target = args.get("target") or {}
+    amount = args.get("amount") or {}
     bet = str(target.get("bet", ""))
     val = float(amount.get("value", 0.0))
     if not _is_box_number(bet) or val <= 0:
@@ -3288,7 +3362,7 @@ def verb_take_down(snapshot: Dict[str, Any], args: Dict[str, Any]) -> Effect:
 
 
 def verb_move_bet(snapshot: Dict[str, Any], args: Dict[str, Any]) -> Effect:
-    target = (args.get("target") or {})
+    target = args.get("target") or {}
     src = str(target.get("from", ""))
     dst = str(target.get("to", ""))
     current = float(snapshot.get("bets", {}).get(src, 0.0))
@@ -3388,6 +3462,7 @@ PolicyRegistry.register("martingale_v1", pol_martingale_v1)
 # CrapsSim bridge (ported from legacy adapter, refit for EngineAdapter ABC)
 # --------------------------------------------------------------------------------------
 
+
 def check_engine_ready() -> Tuple[bool, Optional[str]]:
     """Return (ok, reason) indicating whether the CrapsSim engine is usable."""
 
@@ -3435,7 +3510,9 @@ def check_engine_ready() -> Tuple[bool, Optional[str]]:
 def _resolve_modern_strategy_base() -> Tuple[Optional[type], Optional[type]]:
     if cs_strategy is None:
         return None, None
-    StrategyBase = getattr(cs_strategy, "Strategy", None) or getattr(cs_strategy, "BaseStrategy", None)
+    StrategyBase = getattr(cs_strategy, "Strategy", None) or getattr(
+        cs_strategy, "BaseStrategy", None
+    )
     SimplePass = getattr(cs_strategy, "PassLineStrategy", None)
     return StrategyBase, SimplePass
 
@@ -3748,6 +3825,7 @@ def attach_engine(spec: Dict[str, Any]) -> EngineAttachResult:
         except TypeError:
             table = _CsTable()  # type: ignore[call-arg]
     else:  # pragma: no cover - defensive fallback
+
         class _ShimTable:
             def __init__(self):
                 self.players = []
@@ -3915,7 +3993,11 @@ class CrapsSimAdapter(EngineAdapter):
         point = getattr(table, "point", None)
         point_value = None
         if point is not None:
-            point_value = point if isinstance(point, int) else getattr(point, "value", getattr(point, "number", None))
+            point_value = (
+                point
+                if isinstance(point, int)
+                else getattr(point, "value", getattr(point, "number", None))
+            )
         point_on = bool(point_value)
 
         bets: Dict[str, Any] = {}
@@ -3924,7 +4006,10 @@ class CrapsSimAdapter(EngineAdapter):
             for idx, bet in enumerate(bet_list):
                 amount = getattr(bet, "amount", None)
                 name = getattr(bet, "name", None) or getattr(bet, "__class__", type(bet)).__name__
-                bets[str(idx)] = {"name": str(name), "amount": float(amount) if amount is not None else None}
+                bets[str(idx)] = {
+                    "name": str(name),
+                    "amount": float(amount) if amount is not None else None,
+                }
 
         hand_id = getattr(table, "hand_id", 0)
         roll_in_hand = getattr(table, "roll_in_hand", 0)
@@ -4062,4 +4147,3 @@ def resolve_engine_adapter() -> Tuple[Optional[Type[EngineAdapter]], Optional[st
     if ok:
         return CrapsSimAdapter, None
     return None, reason
-

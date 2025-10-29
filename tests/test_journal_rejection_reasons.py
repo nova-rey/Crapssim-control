@@ -71,7 +71,9 @@ def test_journal_rejection_reasons(tmp_path):
         entry for entry in entries if entry.get("origin", "").startswith("external:src")
     ]
 
-    reasons = [entry.get("rejection_reason") for entry in external_entries if entry.get("rejection_reason")]
+    reasons = [
+        entry.get("rejection_reason") for entry in external_entries if entry.get("rejection_reason")
+    ]
 
     allowed = {
         "queue_full",
@@ -85,4 +87,3 @@ def test_journal_rejection_reasons(tmp_path):
 
     for reason in reasons:
         assert reason in allowed or reason.startswith("timing:") or reason.startswith("missing:")
-

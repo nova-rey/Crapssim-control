@@ -2,6 +2,7 @@
 Run seeded live + replay validation baseline for Phase 12.
 Outputs baseline artifacts under baselines/phase12/.
 """
+
 from __future__ import annotations
 
 import csv
@@ -65,7 +66,9 @@ def _simulate_live_run() -> dict[str, object]:
         bankroll = max(bankroll - bet_unit, 0.0)
         rolls_completed += 1
         peak_bankroll = max(peak_bankroll, bankroll)
-        drawdown_pct = 0.0 if peak_bankroll == 0 else ((peak_bankroll - bankroll) / peak_bankroll) * 100
+        drawdown_pct = (
+            0.0 if peak_bankroll == 0 else ((peak_bankroll - bankroll) / peak_bankroll) * 100
+        )
 
         if bankroll <= 0.0:
             terminated_early = True
@@ -171,8 +174,12 @@ live_dir.mkdir(parents=True, exist_ok=True)
 
 live_result = _simulate_live_run()
 _write_journal(live_dir / "journal.csv", live_result["results"])
-_write_summary_csv(live_dir / "summary.csv", live_result["rolls_completed"], live_result["bankroll_final"])
-_write_report(live_dir / "report.json", live_result["rolls_completed"], live_result["bankroll_final"])
+_write_summary_csv(
+    live_dir / "summary.csv", live_result["rolls_completed"], live_result["bankroll_final"]
+)
+_write_report(
+    live_dir / "report.json", live_result["rolls_completed"], live_result["bankroll_final"]
+)
 
 live_manifest = {
     "run_id": "phase12-baseline",

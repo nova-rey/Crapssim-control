@@ -1,6 +1,6 @@
 # crapssim_control/controller.py
 from __future__ import annotations
- 
+
 from collections import deque
 from dataclasses import asdict, is_dataclass
 from datetime import datetime
@@ -69,6 +69,8 @@ from .spec_validation import VALIDATION_ENGINE_VERSION
 from .templates import diff_bets, render_template as render_runtime_template
 
 logger = logging.getLogger("CSC.Controller")
+
+
 class _ConfigAccessor:
     def __init__(self, data: dict | None):
         if isinstance(data, dict):
@@ -80,7 +82,7 @@ class _ConfigAccessor:
         if not key:
             return self._data
         current = self._data
-        for part in str(key).split('.'):
+        for part in str(key).split("."):
             if isinstance(current, dict):
                 if part in current:
                     current = current[part]
@@ -96,7 +98,6 @@ class _ConfigAccessor:
             except TypeError:
                 return current
         return current
-
 
 
 class ControlStrategy:
@@ -129,11 +130,7 @@ class ControlStrategy:
         else:
             raw = spec.pop("_csc_spec_deprecations", []) if isinstance(spec, dict) else []
             if isinstance(raw, list):
-                embedded_deprecations = [
-                    record
-                    for record in raw
-                    if isinstance(record, dict)
-                ]
+                embedded_deprecations = [record for record in raw if isinstance(record, dict)]
         self._spec_deprecations: List[Dict[str, Any]] = embedded_deprecations
 
         self.spec = spec
@@ -209,7 +206,9 @@ class ControlStrategy:
                 webhook_enabled = True
             else:
                 webhook_enabled = bool(enabled_raw)
-        self.webhooks = WebhookPublisher(targets=targets, enabled=webhook_enabled, timeout=webhook_timeout)
+        self.webhooks = WebhookPublisher(
+            targets=targets, enabled=webhook_enabled, timeout=webhook_timeout
+        )
         if self.external_mode == "replay":
             self.webhooks.enabled = False
         self.table_cfg = table_cfg or spec.get("table") or {}
@@ -257,7 +256,9 @@ class ControlStrategy:
         if isinstance(csv_blk, dict):
             embed_raw = csv_blk.get("embed_analytics")
         embed_norm, embed_ok = coerce_flag(embed_raw, default=EMBED_ANALYTICS_DEFAULT)
-        embed_flag = bool(embed_norm) if embed_ok and embed_norm is not None else EMBED_ANALYTICS_DEFAULT
+        embed_flag = (
+            bool(embed_norm) if embed_ok and embed_norm is not None else EMBED_ANALYTICS_DEFAULT
+        )
 
         # Defaults: demo_fallbacks=False, strict=False, embed_analytics=True
         self._flags: Dict[str, bool] = {
@@ -356,6 +357,7 @@ class ControlStrategy:
         self._http_commands_enabled = http_enabled_cfg and self.external_mode == "live"
 
         if self._http_commands_enabled:
+
             def _active_run_id() -> Optional[str]:
                 return getattr(self, "run_id", None)
 
@@ -556,7 +558,11 @@ class ControlStrategy:
                 val = getattr(external_cfg, attr, None)
                 if val:
                     candidates.append(val)
-        cli_val = self._cli_flags_context.get("command_tape_path") if isinstance(self._cli_flags_context, dict) else None
+        cli_val = (
+            self._cli_flags_context.get("command_tape_path")
+            if isinstance(self._cli_flags_context, dict)
+            else None
+        )
         if cli_val:
             candidates.insert(0, cli_val)
         for cand in candidates:
@@ -923,7 +929,9 @@ class ControlStrategy:
                 params = entry.get("params")
                 if isinstance(params, dict):
                     for param_key, param_val in params.items():
-                        rule_obj = self._substitute_placeholders(rule_obj, str(param_key), param_val)
+                        rule_obj = self._substitute_placeholders(
+                            rule_obj, str(param_key), param_val
+                        )
                 for key, val in entry.items():
                     if key in {"use", "params"}:
                         continue
@@ -950,7 +958,11 @@ class ControlStrategy:
             return
         spec_path = self._spec_path or ""
         manifest_hint = self._export_paths.get("manifest", "export/manifest.json")
-        payload = {**self._webhook_base_payload(), "spec": spec_path, "manifest_path": manifest_hint}
+        payload = {
+            **self._webhook_base_payload(),
+            "spec": spec_path,
+            "manifest_path": manifest_hint,
+        }
         seed_val = self._seed_value
         if seed_val is not None:
             payload["seed"] = seed_val
@@ -1100,7 +1112,9 @@ class ControlStrategy:
                 "drawdown_after": tracker.bankroll_peak - tracker.bankroll,
                 "hand_id": tracker.hand_id,
                 "roll_in_hand": tracker.roll_in_hand,
-                "point_on": bool(event.get("point_on")) if isinstance(event, dict) else bool(self.point),
+                "point_on": (
+                    bool(event.get("point_on")) if isinstance(event, dict) else bool(self.point)
+                ),
             }
             total: Any = None
             if isinstance(event, dict):
@@ -1253,14 +1267,16 @@ class ControlStrategy:
         if self._outbound.enabled:
             self._outbound.emit("roll.processed", payload)
         roll_payload = dict(payload)
-        roll_payload.update({
-            "bankroll_before": bankroll_before,
-            "bankroll_after": bankroll_after,
-            "bankroll_delta": delta,
-            "event_type": event_type,
-            "point": point_value,
-            "point_on": bool(point_on),
-        })
+        roll_payload.update(
+            {
+                "bankroll_before": bankroll_before,
+                "bankroll_after": bankroll_after,
+                "bankroll_delta": delta,
+                "event_type": event_type,
+                "point": point_value,
+                "point_on": bool(point_on),
+            }
+        )
         if isinstance(total, (int, float)):
             roll_payload["last_roll_total"] = total
         self._emit_webhook("roll.processed", roll_payload)
@@ -1374,7 +1390,11 @@ class ControlStrategy:
             if isinstance(adapter_snapshot, dict):
                 snap["adapter_snapshot"] = adapter_snapshot
                 bankroll_after = adapter_snapshot.get("bankroll")
-                bets = adapter_snapshot.get("bets") if isinstance(adapter_snapshot.get("bets"), dict) else {}
+                bets = (
+                    adapter_snapshot.get("bets")
+                    if isinstance(adapter_snapshot.get("bets"), dict)
+                    else {}
+                )
                 snap["bankroll_after"] = bankroll_after
                 snap["bet_6"] = bets.get("6")
                 snap["bet_8"] = bets.get("8")
@@ -1420,11 +1440,13 @@ class ControlStrategy:
         out: List[Dict[str, Any]] = []
         if isinstance(plan_obj, dict):
             for bet_type, amount in plan_obj.items():
-                out.append({
-                    "action": "set",
-                    "bet_type": str(bet_type),
-                    "amount": ControlStrategy._extract_amount(amount),
-                })
+                out.append(
+                    {
+                        "action": "set",
+                        "bet_type": str(bet_type),
+                        "amount": ControlStrategy._extract_amount(amount),
+                    }
+                )
             return out
         if isinstance(plan_obj, (list, tuple)):
             for item in plan_obj:
@@ -1434,23 +1456,29 @@ class ControlStrategy:
                     out.append(item)
                 elif isinstance(item, (list, tuple)) and len(item) >= 3:
                     action, bet_type, amount = item[0], item[1], item[2]
-                    out.append({
-                        "action": str(action),
-                        "bet_type": str(bet_type),
-                        "amount": ControlStrategy._extract_amount(amount),
-                    })
+                    out.append(
+                        {
+                            "action": str(action),
+                            "bet_type": str(bet_type),
+                            "amount": ControlStrategy._extract_amount(amount),
+                        }
+                    )
             return out
         return out
 
-    def _apply_mode_template_plan(self, current_bets: Dict[str, Any], mode_name: Optional[str] = None) -> List[Dict[str, Any]]:
+    def _apply_mode_template_plan(
+        self, current_bets: Dict[str, Any], mode_name: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
         mode = mode_name or self.mode or self._default_mode()
         tmpl = (self.spec.get("modes", {}).get(mode) or {}).get("template") or {}
         st = self._current_state_for_eval()
-        synth_event = canonicalize_event({
-            "type": POINT_ESTABLISHED if self.point else COMEOUT,
-            "point": self.point,
-            "on_comeout": self.on_comeout,
-        })
+        synth_event = canonicalize_event(
+            {
+                "type": POINT_ESTABLISHED if self.point else COMEOUT,
+                "point": self.point,
+                "on_comeout": self.on_comeout,
+            }
+        )
         desired = render_runtime_template(tmpl, st, synth_event)
         return diff_bets(
             current_bets or {},
@@ -1539,7 +1567,9 @@ class ControlStrategy:
         return actions
 
     @staticmethod
-    def _split_switch_setvar_other(actions: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]]]:
+    def _split_switch_setvar_other(
+        actions: List[Dict[str, Any]],
+    ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]]]:
         switches: List[Dict[str, Any]] = []
         setvars: List[Dict[str, Any]] = []
         others: List[Dict[str, Any]] = []
@@ -1565,7 +1595,9 @@ class ControlStrategy:
         self.mode = last_target
         return self.mode != prev
 
-    def _apply_setvars_now(self, setvar_actions: List[Dict[str, Any]], event: Dict[str, Any]) -> None:
+    def _apply_setvars_now(
+        self, setvar_actions: List[Dict[str, Any]], event: Dict[str, Any]
+    ) -> None:
         if not setvar_actions:
             return
         for a in setvar_actions:
@@ -1593,7 +1625,9 @@ class ControlStrategy:
 
     # ----- public API used by tests -----
 
-    def handle_event(self, event: Dict[str, Any], current_bets: Dict[str, Any]) -> List[Dict[str, Any]]:
+    def handle_event(
+        self, event: Dict[str, Any], current_bets: Dict[str, Any]
+    ) -> List[Dict[str, Any]]:
         # Reset per-event flags
         self._mode_changed_this_event = False
 
@@ -1615,11 +1649,15 @@ class ControlStrategy:
             rule_actions = self._apply_rules_for_event(event)
             switches, setvars, rule_non_special = self._split_switch_setvar_other(rule_actions)
             if switches:
-                self._mode_changed_this_event = self._apply_switches_now(switches) or self._mode_changed_this_event
+                self._mode_changed_this_event = (
+                    self._apply_switches_now(switches) or self._mode_changed_this_event
+                )
             if setvars:
                 self._apply_setvars_now(setvars, event)
 
-            final = self._merge_actions_for_event(switches + template_and_regress + rule_non_special)
+            final = self._merge_actions_for_event(
+                switches + template_and_regress + rule_non_special
+            )
             final = self._annotate_seq(final)
             self._journal_actions(event, final)
             self._bump_stats(ev_type, final)
@@ -1638,7 +1676,9 @@ class ControlStrategy:
             rule_actions = self._apply_rules_for_event(event)
             switches, setvars, rule_non_special = self._split_switch_setvar_other(rule_actions)
             if switches:
-                self._mode_changed_this_event = self._apply_switches_now(switches) or self._mode_changed_this_event
+                self._mode_changed_this_event = (
+                    self._apply_switches_now(switches) or self._mode_changed_this_event
+                )
             if setvars:
                 self._apply_setvars_now(setvars, event)
 
@@ -1663,7 +1703,9 @@ class ControlStrategy:
                     )
                 )
 
-            final = self._merge_actions_for_event(switches + template_and_regress + rule_non_special)
+            final = self._merge_actions_for_event(
+                switches + template_and_regress + rule_non_special
+            )
             final = self._annotate_seq(final)
             self._journal_actions(event, final)
             self._bump_stats(ev_type, final)
@@ -1673,22 +1715,24 @@ class ControlStrategy:
             if self.point:
                 self.rolls_since_point += 1
                 if self._flags.get("demo_fallbacks", False) and self.rolls_since_point == 3:
-                    template_and_regress.extend([
-                        make_action(
-                            "clear",
-                            bet_type="place_6",
-                            source="template",
-                            id_="template:regress_roll3",
-                            notes="auto-regress after 3rd roll",
-                        ),
-                        make_action(
-                            "clear",
-                            bet_type="place_8",
-                            source="template",
-                            id_="template:regress_roll3",
-                            notes="auto-regress after 3rd roll",
-                        ),
-                    ])
+                    template_and_regress.extend(
+                        [
+                            make_action(
+                                "clear",
+                                bet_type="place_6",
+                                source="template",
+                                id_="template:regress_roll3",
+                                notes="auto-regress after 3rd roll",
+                            ),
+                            make_action(
+                                "clear",
+                                bet_type="place_8",
+                                source="template",
+                                id_="template:regress_roll3",
+                                notes="auto-regress after 3rd roll",
+                            ),
+                        ]
+                    )
 
             self._analytics_record_roll(event)
 
@@ -1800,11 +1844,15 @@ class ControlStrategy:
             rule_actions = self._apply_rules_for_event(event)
             switches, setvars, rule_non_special = self._split_switch_setvar_other(rule_actions)
             if switches:
-                self._mode_changed_this_event = self._apply_switches_now(switches) or self._mode_changed_this_event
+                self._mode_changed_this_event = (
+                    self._apply_switches_now(switches) or self._mode_changed_this_event
+                )
             if setvars:
                 self._apply_setvars_now(setvars, event)
 
-            final = self._merge_actions_for_event(switches + template_and_regress + rule_non_special)
+            final = self._merge_actions_for_event(
+                switches + template_and_regress + rule_non_special
+            )
             final = self._annotate_seq(final)
             self._journal_actions(event, final)
             self._bump_stats(ev_type, final)
@@ -1821,7 +1869,9 @@ class ControlStrategy:
             rule_actions = self._apply_rules_for_event(event)
             switches, setvars, rule_non_special = self._split_switch_setvar_other(rule_actions)
             if switches:
-                self._mode_changed_this_event = self._apply_switches_now(switches) or self._mode_changed_this_event
+                self._mode_changed_this_event = (
+                    self._apply_switches_now(switches) or self._mode_changed_this_event
+                )
             if setvars:
                 self._apply_setvars_now(setvars, event)
 
@@ -1925,10 +1975,7 @@ class ControlStrategy:
         resolved_export_paths: Dict[str, Optional[str]] = {}
         if export_paths is not None:
             resolved_export_paths.update(
-                {
-                    str(k): (str(v) if v is not None else None)
-                    for k, v in export_paths.items()
-                }
+                {str(k): (str(v) if v is not None else None) for k, v in export_paths.items()}
             )
         elif isinstance(self._export_paths, dict):
             resolved_export_paths.update(self._export_paths)
@@ -1996,9 +2043,7 @@ class ControlStrategy:
         run_flag_values = {
             "demo_fallbacks": bool(self._flags.get("demo_fallbacks", False)),
             "strict": bool(self._flags.get("strict", False)),
-            "embed_analytics": bool(
-                self._flags.get("embed_analytics", EMBED_ANALYTICS_DEFAULT)
-            ),
+            "embed_analytics": bool(self._flags.get("embed_analytics", EMBED_ANALYTICS_DEFAULT)),
         }
 
         run_flags = dict(run_flag_values)
@@ -2018,9 +2063,7 @@ class ControlStrategy:
         run_flags["webhook_enabled_source"] = str(
             cli_flags_dict.get("webhook_enabled_source", "default")
         )
-        run_flags["evo_enabled_source"] = str(
-            cli_flags_dict.get("evo_enabled_source", "default")
-        )
+        run_flags["evo_enabled_source"] = str(cli_flags_dict.get("evo_enabled_source", "default"))
         run_flags["trial_tag_source"] = str(cli_flags_dict.get("trial_tag_source", "default"))
         run_flags["external_mode_source"] = self._external_mode_source
 
@@ -2060,6 +2103,7 @@ class ControlStrategy:
             }
         )
         run_flags_meta["external_mode"] = self.external_mode
+
         def _source_for(key: str, default: str = "default") -> str:
             src = run_flags.get(f"{key}_source")
             if isinstance(src, str) and src:
@@ -2068,7 +2112,14 @@ class ControlStrategy:
                 return str(run_flag_sources_meta[key])
             return default
 
-        for key in ["strict", "demo_fallbacks", "embed_analytics", "export", "webhook_enabled", "external_mode"]:
+        for key in [
+            "strict",
+            "demo_fallbacks",
+            "embed_analytics",
+            "export",
+            "webhook_enabled",
+            "external_mode",
+        ]:
             if key in run_flags or key in run_flags_meta:
                 run_flags_meta[f"{key}_source"] = _source_for(key)
 
@@ -2393,7 +2444,10 @@ class ControlStrategy:
                 if "compress" in exp:
                     compress = bool(exp.get("compress"))
 
-        return (Path(export_root) if isinstance(export_root, str) and export_root.strip() else None, bool(compress))
+        return (
+            Path(export_root) if isinstance(export_root, str) and export_root.strip() else None,
+            bool(compress),
+        )
 
     # ---- P5C5 dedup/versioning helpers (folder mode only) ----
 
@@ -2413,7 +2467,9 @@ class ControlStrategy:
             return None
 
     @staticmethod
-    def _export_copy(src: Path, dst_dir: Path, *, versioning: bool = True) -> Tuple[Path, bool, Optional[str]]:
+    def _export_copy(
+        src: Path, dst_dir: Path, *, versioning: bool = True
+    ) -> Tuple[Path, bool, Optional[str]]:
         """
         Copy src into dst_dir with content-aware behavior.
         Returns (dst_path, copied_bool, fingerprint_hex).
@@ -2453,7 +2509,9 @@ class ControlStrategy:
             shutil.copy2(src, dst)
             return dst, True, src_fp
 
-    def export_bundle(self, export_root: Optional[str | Path] = None, compress: Optional[bool] = None) -> Optional[Path]:
+    def export_bundle(
+        self, export_root: Optional[str | Path] = None, compress: Optional[bool] = None
+    ) -> Optional[Path]:
         """
         Export run artifacts (csv/meta/report) into a dated folder or a .zip bundle.
         Returns the path to the export folder or zip file, or None on failure/no config.
@@ -2471,7 +2529,9 @@ class ControlStrategy:
 
         # Figure out artifacts
         j = self._ensure_journal()
-        csv_path = Path(getattr(j, "path")) if (j is not None and getattr(j, "path", None)) else None
+        csv_path = (
+            Path(getattr(j, "path")) if (j is not None and getattr(j, "path", None)) else None
+        )
         meta_path = self._read_meta_path_from_spec()
         report_path, _auto = self._report_cfg_from_spec()
         tape_path = Path(self._command_tape_path) if self._command_tape_path else None
@@ -2491,7 +2551,7 @@ class ControlStrategy:
 
         # Destination naming
         stamp = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
-        base_name = (identity.get("run_id") or "run")
+        base_name = identity.get("run_id") or "run"
         folder_name = f"{base_name}_{stamp}"
 
         # Relative names (preferred basenames)

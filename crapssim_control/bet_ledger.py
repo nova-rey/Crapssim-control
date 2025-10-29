@@ -13,13 +13,14 @@ from .bet_types import normalize_bet_type
 # Helpers / categorization
 # --------------------------
 
+
 def _infer_category(bet: str) -> str:
     b = (bet or "").lower()
     if b in {"pass", "pass line", "pass_line", "dont pass", "don't pass", "dp"}:
         return "line"
     if b in {"come", "dont come", "don't come", "dc"}:
         return "come"
-    if b.startswith("place") or b in {"4","5","6","8","9","10"}:
+    if b.startswith("place") or b in {"4", "5", "6", "8", "9", "10"}:
         return "place"
     if "odds" in b:
         return "odds"
@@ -44,6 +45,7 @@ def _lifo_key(bet: str, meta: Dict[str, Any]) -> str:
 # Core Entries
 # --------------------------
 
+
 @dataclass
 class LedgerEntry:
     id: int
@@ -51,9 +53,9 @@ class LedgerEntry:
     bet: str
     amount: float
     category: str
-    status: str = "open"           # "open" | "closed"
+    status: str = "open"  # "open" | "closed"
     payout: float = 0.0
-    result: Optional[str] = None   # "win" | "lose" | "push" | None
+    result: Optional[str] = None  # "win" | "lose" | "push" | None
     realized_pnl: float = 0.0
     meta: Dict[str, Any] = field(default_factory=dict)
     closed_ts: Optional[float] = None
@@ -68,6 +70,7 @@ class LedgerEntry:
 # Intent entries (Batch 6)
 # --------------------------
 
+
 @dataclass
 class IntentEntry:
     id: int
@@ -75,7 +78,7 @@ class IntentEntry:
     bet: str
     stake: Optional[float] = None
     number: Optional[int] = None
-    status: str = "open"              # "open" | "matched" | "canceled"
+    status: str = "open"  # "open" | "matched" | "canceled"
     reason: Optional[str] = None
     matched_entry_id: Optional[int] = None
     meta: Dict[str, Any] = field(default_factory=dict)
@@ -92,6 +95,7 @@ class IntentEntry:
 # --------------------------
 # BetLedger
 # --------------------------
+
 
 class BetLedger:
     def __init__(self) -> None:
@@ -223,7 +227,7 @@ class BetLedger:
         stake: Optional[float] = None,
         number: Optional[int] = None,
         reason: Optional[str] = None,
-        **meta: Any
+        **meta: Any,
     ) -> int:
         # **FIX**: include number in normalization context so "place" → "place_6" when number=6
         norm_ctx = dict(meta) if meta else {}
@@ -297,11 +301,15 @@ class BetLedger:
 
         exposure_by_cat: Dict[str, float] = {}
         for e in open_entries:
-            exposure_by_cat[e["category"]] = exposure_by_cat.get(e["category"], 0.0) + float(e["amount"])
+            exposure_by_cat[e["category"]] = exposure_by_cat.get(e["category"], 0.0) + float(
+                e["amount"]
+            )
 
         realized_by_cat: Dict[str, float] = {}
         for e in closed_entries:
-            realized_by_cat[e["category"]] = realized_by_cat.get(e["category"], 0.0) + float(e["realized_pnl"])
+            realized_by_cat[e["category"]] = realized_by_cat.get(e["category"], 0.0) + float(
+                e["realized_pnl"]
+            )
 
         intents_open = [i.snapshot() for i in self._intents if i.status == "open"]
         intents_matched = [i.snapshot() for i in self._intents if i.status == "matched"]

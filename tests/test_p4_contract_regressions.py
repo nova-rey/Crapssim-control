@@ -1,4 +1,5 @@
 import json
+from crapssim_control.schemas import JOURNAL_SCHEMA_VERSION, SUMMARY_SCHEMA_VERSION
 
 
 def _load(path):
@@ -12,10 +13,10 @@ def test_manifest_and_report_contract():
 
     assert manifest["run_id"] == report["run_id"]
 
-    assert manifest["schema"]["journal"] == "1.2"
-    assert manifest["schema"]["summary"] == "1.2"
-    assert report["journal_schema_version"] == "1.2"
-    assert report["summary_schema_version"] == "1.2"
+    assert manifest["schema"]["journal"] == JOURNAL_SCHEMA_VERSION
+    assert manifest["schema"]["summary"] == SUMMARY_SCHEMA_VERSION
+    assert report["journal_schema_version"] == JOURNAL_SCHEMA_VERSION
+    assert report["summary_schema_version"] == SUMMARY_SCHEMA_VERSION
 
     assert report["manifest_path"].endswith("manifest.json")
 

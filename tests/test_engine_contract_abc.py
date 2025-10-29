@@ -16,5 +16,6 @@ def test_null_adapter_implements_all_methods():
 
 def test_engine_adapter_is_abstract():
     import pytest
+
     with pytest.raises(TypeError):
         EngineAdapter()

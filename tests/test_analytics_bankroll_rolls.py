@@ -46,7 +46,13 @@ def test_roll_counters_reset_each_hand():
 
     events = [
         {"type": "comeout", "roll": 7, "bankroll_before": 1000, "bankroll_after": 1010},
-        {"type": "point_established", "point": 6, "roll": 6, "bankroll_before": 1010, "bankroll_after": 1010},
+        {
+            "type": "point_established",
+            "point": 6,
+            "roll": 6,
+            "bankroll_before": 1010,
+            "bankroll_after": 1010,
+        },
         {"type": "seven_out", "roll": 7, "bankroll_before": 1010, "bankroll_after": 995},
         {"type": "comeout", "roll": 8, "bankroll_before": 995, "bankroll_after": 995},
     ]
@@ -121,7 +127,9 @@ def test_flag_off_no_schema_diff(tmp_path):
     ctrl.handle_event({"type": "point_established", "point": 6}, current_bets={})
     ctrl.finalize_run()
 
-    baseline_header = Path("baselines/phase2/journal.csv").read_text(encoding="utf-8").splitlines()[0]
+    baseline_header = (
+        Path("baselines/phase2/journal.csv").read_text(encoding="utf-8").splitlines()[0]
+    )
     with csv_path.open(encoding="utf-8") as fh:
         for line in fh:
             stripped = line.strip()

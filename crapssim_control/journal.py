@@ -92,9 +92,7 @@ def dumps_effect_summary_line(
 
 def _serialize_line(line: Dict[str, Any]) -> str:
     ordered = {
-        k: line.get(k, None)
-        for k in EFFECT_KEYS_ORDER
-        if k in line or k in ("verb", "schema")
+        k: line.get(k, None) for k in EFFECT_KEYS_ORDER if k in line or k in ("verb", "schema")
     }
     extras = {k: v for k, v in line.items() if k not in ordered}
     for key in sorted(extras.keys()):

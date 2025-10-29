@@ -18,9 +18,7 @@ def _spec(csv_path: Path, meta_path: Path, report_path: Path, export_root: Path,
     """
     return {
         "modes": {
-            "Main": {
-                "template": {}  # no explicit template needed; fallback handles actions
-            }
+            "Main": {"template": {}}  # no explicit template needed; fallback handles actions
         },
         "variables": {"units": 10},
         "run": {
@@ -121,4 +119,6 @@ def test_export_zip_bundle(tmp_path: Path):
         for key in ("csv", "meta", "report"):
             rel = arts.get(key)
             assert rel, f"Artifact key '{key}' should be listed in manifest"
-            assert any(n.endswith(rel) for n in names), f"{key} artifact '{rel}' should be in the zip"
+            assert any(
+                n.endswith(rel) for n in names
+            ), f"{key} artifact '{rel}' should be in the zip"

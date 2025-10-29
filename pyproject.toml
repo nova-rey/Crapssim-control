@@ -39,3 +39,13 @@ exclude = ["tests*", "specs*"]
 crapssim_control = [
   "**/*.yml", "**/*.yaml", "**/*.json", "**/*.md",
 ]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+ignore = ["E402", "E701", "E702", "E741", "F401", "F402", "F821", "F841"]
+
+[tool.black]
+line-length = 100
+target-version = ["py311"]

@@ -1,5 +1,6 @@
 from crapssim_control.spec_validation import validate_spec
 
+
 def _good_spec():
     return {
         "meta": {"version": 0, "name": "Test"},
@@ -12,9 +13,11 @@ def _good_spec():
         ],
     }
 
+
 def test_freeform_calls_and_units_allowed():
     errs = validate_spec(_good_spec())
     assert errs == []
+
 
 def test_unknown_verb_is_flagged():
     spec = _good_spec()

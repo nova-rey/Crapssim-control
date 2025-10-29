@@ -1,4 +1,4 @@
-current_phase: 15
+current_phase: 16
 current_checkpoint: 5
-checkpoint_title: Orchestration & UI — Baseline & Tag
-allow_behavior_change: true
+checkpoint_title: Hardening & LTS Cut
+allow_behavior_change: false

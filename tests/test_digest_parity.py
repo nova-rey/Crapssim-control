@@ -37,7 +37,9 @@ def test_live_replay_digest_match():
     live_snap = live.snapshot_state()
 
     rep = VanillaAdapter()
-    snap_replay = ReplayRunner(controller=type("C", (), {"adapter": rep})(), tape=tape, seed=seed).run()
+    snap_replay = ReplayRunner(
+        controller=type("C", (), {"adapter": rep})(), tape=tape, seed=seed
+    ).run()
 
     report = build_report(live_snap, snap_replay, meta={"seed": seed})
     assert report["replay_verified"] is True

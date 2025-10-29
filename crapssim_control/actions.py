@@ -68,6 +68,7 @@ class ActionEnvelope(TypedDict, total=False):
     Strongly-typed view of an action for static tooling and tests.
     All keys are expected at runtime; some may be None depending on action type.
     """
+
     source: str
     id: str
     action: str
@@ -137,6 +138,7 @@ def make_action(
 
 # ---- P4C3 helpers ---------------------------------------------------------------
 
+
 def normalize_action(env: Dict[str, Any]) -> ActionEnvelope:
     """
     Normalize an arbitrary action-like dict to a compliant ActionEnvelope.
@@ -147,8 +149,8 @@ def normalize_action(env: Dict[str, Any]) -> ActionEnvelope:
     - Preserves optional 'var' and 'value' for setvar if present.
     Does not raise; best-effort normalization.
     """
-    source = (env.get("source") or SOURCE_TEMPLATE)
-    action = (env.get("action") or "")
+    source = env.get("source") or SOURCE_TEMPLATE
+    action = env.get("action") or ""
     bet_type = env.get("bet_type")
     amount = env.get("amount")
     notes = env.get("notes") or ""
@@ -164,7 +166,7 @@ def normalize_action(env: Dict[str, Any]) -> ActionEnvelope:
     )
 
     # Preserve setvar extras if present
-    if (str(action).lower() == ACTION_SETVAR):
+    if str(action).lower() == ACTION_SETVAR:
         var = env.get("var")
         if isinstance(var, str) and var.strip():
             out["var"] = var.strip()

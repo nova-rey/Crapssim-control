@@ -26,6 +26,7 @@ from typing import Any, Dict, Iterable, List
 # Utilities
 # -----------------------------
 
+
 def _ensure_snapshot(tracker: Any) -> Dict[str, Any]:
     if not hasattr(tracker, "snapshot"):
         raise TypeError("tracker has no snapshot()")
@@ -55,6 +56,7 @@ def _flatten_meta(meta: Any) -> str:
 # Exports
 # -----------------------------
 
+
 def export_session_json(tracker: Any, path: str) -> None:
     """
     Dump the current tracker snapshot to a single JSON file.
@@ -83,28 +85,39 @@ def export_ledger_csv(tracker: Any, path: str) -> None:
     for src in (open_rows, closed_rows):
         for e in src:
             meta = e.get("meta") or {}
-            rows.append({
-                "id": e.get("id"),
-                "status": e.get("status"),
-                "bet": e.get("bet"),
-                "canon_bet_type": meta.get("canon_bet_type"),
-                "category": e.get("category"),
-                "amount": e.get("amount"),
-                "payout": e.get("payout"),
-                "result": e.get("result"),
-                "realized_pnl": e.get("realized_pnl"),
-                "created_ts": e.get("created_ts"),
-                "closed_ts": e.get("closed_ts"),
-                "meta_json": _flatten_meta(meta),
-            })
+            rows.append(
+                {
+                    "id": e.get("id"),
+                    "status": e.get("status"),
+                    "bet": e.get("bet"),
+                    "canon_bet_type": meta.get("canon_bet_type"),
+                    "category": e.get("category"),
+                    "amount": e.get("amount"),
+                    "payout": e.get("payout"),
+                    "result": e.get("result"),
+                    "realized_pnl": e.get("realized_pnl"),
+                    "created_ts": e.get("created_ts"),
+                    "closed_ts": e.get("closed_ts"),
+                    "meta_json": _flatten_meta(meta),
+                }
+            )
 
     _write_csv(
         path,
         rows,
         fieldnames=[
-            "id", "status", "bet", "canon_bet_type", "category",
-            "amount", "payout", "result", "realized_pnl",
-            "created_ts", "closed_ts", "meta_json",
+            "id",
+            "status",
+            "bet",
+            "canon_bet_type",
+            "category",
+            "amount",
+            "payout",
+            "result",
+            "realized_pnl",
+            "created_ts",
+            "closed_ts",
+            "meta_json",
         ],
     )
 
@@ -124,27 +137,39 @@ def export_intents_csv(tracker: Any, path: str) -> None:
     for bucket in ("open", "matched", "canceled"):
         for i in intents.get(bucket, []) or []:
             meta = i.get("meta") or {}
-            rows.append({
-                "id": i.get("id"),
-                "status": i.get("status"),
-                "bet": i.get("bet"),
-                "number": i.get("number"),
-                "stake": i.get("stake"),
-                "reason": i.get("reason"),
-                "matched_entry_id": i.get("matched_entry_id"),
-                "created_ts": i.get("created_ts"),
-                "matched_ts": i.get("matched_ts"),
-                "canceled_ts": i.get("canceled_ts"),
-                "created_roll_index": i.get("created_roll_index"),
-                "meta_json": _flatten_meta(meta),
-            })
+            rows.append(
+                {
+                    "id": i.get("id"),
+                    "status": i.get("status"),
+                    "bet": i.get("bet"),
+                    "number": i.get("number"),
+                    "stake": i.get("stake"),
+                    "reason": i.get("reason"),
+                    "matched_entry_id": i.get("matched_entry_id"),
+                    "created_ts": i.get("created_ts"),
+                    "matched_ts": i.get("matched_ts"),
+                    "canceled_ts": i.get("canceled_ts"),
+                    "created_roll_index": i.get("created_roll_index"),
+                    "meta_json": _flatten_meta(meta),
+                }
+            )
 
     _write_csv(
         path,
         rows,
         fieldnames=[
-            "id", "status", "bet", "number", "stake", "reason", "matched_entry_id",
-            "created_ts", "matched_ts", "canceled_ts", "created_roll_index", "meta_json",
+            "id",
+            "status",
+            "bet",
+            "number",
+            "stake",
+            "reason",
+            "matched_entry_id",
+            "created_ts",
+            "matched_ts",
+            "canceled_ts",
+            "created_roll_index",
+            "meta_json",
         ],
     )
 
@@ -166,34 +191,47 @@ def export_bet_attrib_csv(tracker: Any, path: str) -> None:
     rows: List[Dict[str, Any]] = []
     for bet_type, stats in by_type.items():
         ctx = (stats or {}).get("_ctx") or {}
-        rows.append({
-            "bet_type": bet_type,
-            "placed_count": stats.get("placed_count", 0),
-            "resolved_count": stats.get("resolved_count", 0),
-            "push_count": stats.get("push_count", 0),
-            "total_staked": stats.get("total_staked", 0.0),
-            "exposure_rolls": stats.get("exposure_rolls", 0),
-            "peak_open_bets": stats.get("peak_open_bets", 0),
-            "wins": stats.get("wins", 0),
-            "losses": stats.get("losses", 0),
-            "pnl": stats.get("pnl", 0.0),
-            "total_commission": stats.get("total_commission", 0.0),
-            "hit_rate": stats.get("hit_rate", 0.0),
-            "roi": stats.get("roi", 0.0),
-            "pnl_per_exposure_roll": stats.get("pnl_per_exposure_roll", 0.0),
-            "comeout_resolved": ctx.get("comeout_resolved", 0),
-            "point_resolved": ctx.get("point_resolved", 0),
-        })
+        rows.append(
+            {
+                "bet_type": bet_type,
+                "placed_count": stats.get("placed_count", 0),
+                "resolved_count": stats.get("resolved_count", 0),
+                "push_count": stats.get("push_count", 0),
+                "total_staked": stats.get("total_staked", 0.0),
+                "exposure_rolls": stats.get("exposure_rolls", 0),
+                "peak_open_bets": stats.get("peak_open_bets", 0),
+                "wins": stats.get("wins", 0),
+                "losses": stats.get("losses", 0),
+                "pnl": stats.get("pnl", 0.0),
+                "total_commission": stats.get("total_commission", 0.0),
+                "hit_rate": stats.get("hit_rate", 0.0),
+                "roi": stats.get("roi", 0.0),
+                "pnl_per_exposure_roll": stats.get("pnl_per_exposure_roll", 0.0),
+                "comeout_resolved": ctx.get("comeout_resolved", 0),
+                "point_resolved": ctx.get("point_resolved", 0),
+            }
+        )
 
     _write_csv(
         path,
         rows,
         fieldnames=[
-            "bet_type", "placed_count", "resolved_count", "push_count",
-            "total_staked", "exposure_rolls", "peak_open_bets",
-            "wins", "losses", "pnl", "total_commission",
-            "hit_rate", "roi", "pnl_per_exposure_roll",
-            "comeout_resolved", "point_resolved",
+            "bet_type",
+            "placed_count",
+            "resolved_count",
+            "push_count",
+            "total_staked",
+            "exposure_rolls",
+            "peak_open_bets",
+            "wins",
+            "losses",
+            "pnl",
+            "total_commission",
+            "hit_rate",
+            "roi",
+            "pnl_per_exposure_roll",
+            "comeout_resolved",
+            "point_resolved",
         ],
     )
 
@@ -216,25 +254,31 @@ def export_histograms_csv(tracker: Any, path: str) -> None:
         return row
 
     rows: List[Dict[str, Any]] = []
-    rows.append(row_from(
-        "hand",
-        hist.get("hand_hits", {}),
-        int(hist.get("hand_inside_hits", 0)),
-        int(hist.get("hand_outside_hits", 0)),
-    ))
-    rows.append(row_from(
-        "shooter",
-        hist.get("shooter_hits", {}),
-        int(hist.get("shooter_inside_hits", 0)),
-        int(hist.get("shooter_outside_hits", 0)),
-    ))
-    rows.append(row_from(
-        "session",
-        hist.get("session_hits", {}),
-        # no explicit inside/outside for session in Batch 8; leave as zeros
-        0,
-        0,
-    ))
+    rows.append(
+        row_from(
+            "hand",
+            hist.get("hand_hits", {}),
+            int(hist.get("hand_inside_hits", 0)),
+            int(hist.get("hand_outside_hits", 0)),
+        )
+    )
+    rows.append(
+        row_from(
+            "shooter",
+            hist.get("shooter_hits", {}),
+            int(hist.get("shooter_inside_hits", 0)),
+            int(hist.get("shooter_outside_hits", 0)),
+        )
+    )
+    rows.append(
+        row_from(
+            "session",
+            hist.get("session_hits", {}),
+            # no explicit inside/outside for session in Batch 8; leave as zeros
+            0,
+            0,
+        )
+    )
 
     fieldnames = ["scope"] + [f"h{n}" for n in range(2, 13)] + ["inside_hits", "outside_hits"]
     _write_csv(path, rows, fieldnames=fieldnames)

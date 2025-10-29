@@ -21,9 +21,7 @@ def _good_minimal_spec():
         "table": {"bubble": False, "level": 10},
         "variables": {"units": 10, "mode": "Main"},
         "modes": {"Main": {"template": {"pass": "units"}}},
-        "rules": [
-            {"on": {"event": "comeout"}, "do": ["apply_template('Main')"]}
-        ],
+        "rules": [{"on": {"event": "comeout"}, "do": ["apply_template('Main')"]}],
     }
 
 
@@ -76,7 +74,9 @@ def test_cli_run_engine_missing():
     assert "pip install crapssim" in res.stderr.lower()
 
 
-@pytest.mark.skipif(not _engine_available(), reason="CrapsSim (table/player/dice) not fully available")
+@pytest.mark.skipif(
+    not _engine_available(), reason="CrapsSim (table/player/dice) not fully available"
+)
 def test_cli_run_smoke_when_engine_present():
     spec = _good_minimal_spec()
     path = _write_temp_spec(spec)

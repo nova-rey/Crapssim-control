@@ -56,6 +56,7 @@ ACTION_SETVAR = "setvar"
 
 # --------------------------- Public Entry Point --------------------------------- #
 
+
 def apply_rules(
     rules: Optional[List[Dict[str, Any]]],
     state: Dict[str, Any],
@@ -109,6 +110,7 @@ def apply_rules(
 
 
 # ------------------------------ Helpers ---------------------------------------- #
+
 
 def _rule_id(rule: Dict[str, Any], one_based_index: int) -> str:
     name = rule.get("name")
@@ -186,7 +188,11 @@ def _step_to_envelope(
         if action == ACTION_SETVAR:
             var = step.get("var") or step.get("name")
             # Prefer explicit 'value', otherwise allow numeric 'amount', otherwise 'notes' text
-            value = step.get("value") if "value" in step else (step.get("amount") if "amount" in step else step.get("notes"))
+            value = (
+                step.get("value")
+                if "value" in step
+                else (step.get("amount") if "amount" in step else step.get("notes"))
+            )
             env = make_action(
                 ACTION_SETVAR,
                 bet_type=None,

@@ -9,6 +9,25 @@ Where the snapshot tracks *state*, the Bible records *story*—why decisions wer
 
 ---
 
+### Phase 16 — Hardening & LTS Cut
+
+**Purpose:** Finalize CSC for long-term stability.  
+This phase freezes schemas, improves performance visibility, 
+cleans up the codebase, and captures the final LTS baseline.
+
+**Deliverables:**
+- Profiling tools (`tools/profile_run.py`, `tools/memory_audit.py`)
+- Schema version lock tests
+- CLI schema info output
+- Ruff + Black linting
+- LTS tag `v1.0.0-lts`
+
+**Outcome:**  
+CSC 1.0.0-LTS is stable, deterministic, and ready for extended operation 
+alongside CrapsSim-Evo and Node-RED without further schema changes.
+
+---
+
 ### Phase 14 — Plugin Extensibility System
 
 **Purpose:**  

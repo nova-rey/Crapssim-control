@@ -4,6 +4,7 @@ from crapssim_control.controller import ControlStrategy
 from crapssim_control.events import COMEOUT, POINT_ESTABLISHED
 from tests import skip_csv_preamble
 
+
 def _spec(csv_path):
     return {
         "table": {},
@@ -30,6 +31,7 @@ def _spec(csv_path):
             }
         ],
     }
+
 
 def test_finalize_run_emits_summary_row_and_stats(tmp_path):
     csv_path = tmp_path / "journal.csv"

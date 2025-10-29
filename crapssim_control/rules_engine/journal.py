@@ -141,9 +141,10 @@ class DecisionJournal:
         """Optional export to CSV for analysis."""
         import csv
 
-        with open(self.path, "r", encoding="utf-8") as src, open(
-            csv_path, "w", newline="", encoding="utf-8"
-        ) as dest:
+        with (
+            open(self.path, "r", encoding="utf-8") as src,
+            open(csv_path, "w", newline="", encoding="utf-8") as dest,
+        ):
             writer = csv.DictWriter(dest, fieldnames=list(json.loads(src.readline()).keys()))
             src.seek(0)
             writer.writeheader()

@@ -57,4 +57,3 @@ def load_risk_policy(spec: Dict[str, Any]) -> RiskPolicy:
             policy.recovery.mode = "none"
 
     return policy
-

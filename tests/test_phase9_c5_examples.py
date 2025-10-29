@@ -15,12 +15,15 @@ def live_engine_adapter():
     return adapter
 
 
-@pytest.mark.parametrize("example", [
-    "examples/example_line_odds.json",
-    "examples/example_field_hardway.json",
-    "examples/example_props.json",
-    "examples/example_ats.json"
-])
+@pytest.mark.parametrize(
+    "example",
+    [
+        "examples/example_line_odds.json",
+        "examples/example_field_hardway.json",
+        "examples/example_props.json",
+        "examples/example_ats.json",
+    ],
+)
 def test_examples_load_clean(example):
     path = pathlib.Path(example)
     spec = json.loads(path.read_text())

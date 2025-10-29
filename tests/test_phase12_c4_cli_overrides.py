@@ -49,7 +49,9 @@ def test_cli_overrides(tmp_path, monkeypatch):
         "crapssim_control.engine_adapter.resolve_engine_adapter",
         lambda: (DummyAdapter, None),
     )
-    monkeypatch.setattr("crapssim_control.cli._capture_control_surface_artifacts", lambda *a, **k: None)
+    monkeypatch.setattr(
+        "crapssim_control.cli._capture_control_surface_artifacts", lambda *a, **k: None
+    )
     monkeypatch.setenv("CSC_SKIP_VALIDATE", "1")
 
     # Fake args

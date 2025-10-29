@@ -49,6 +49,7 @@ from .bet_types import normalize_bet_type
 # Internal structures
 # -----------------------------
 
+
 @dataclass
 class _PerTypeStats:
     # Batch 7 (opportunity/exposure)
@@ -131,6 +132,7 @@ def _bet_key(event: Dict[str, Any]) -> str:
 # Public API
 # -----------------------------
 
+
 def attach_bet_attrib(tracker: Any, enabled: Optional[bool] = None) -> None:
     """
     Monkey-patch a live Tracker with bet attribution + exposure counters + Batch 10 rates.
@@ -170,10 +172,12 @@ def attach_bet_attrib(tracker: Any, enabled: Optional[bool] = None) -> None:
         # track an open unit for exposure accrual
         opened_at_roll = _safe_roll_index(tracker)
         # store minimal meta in case we want to expand context later
-        tracker._bet_open[key].append({
-            "opened_at_roll": opened_at_roll,
-            "amount": float(amt),
-        })
+        tracker._bet_open[key].append(
+            {
+                "opened_at_roll": opened_at_roll,
+                "amount": float(amt),
+            }
+        )
 
         # peak concurrency per type
         if len(tracker._bet_open[key]) > stats.peak_open_bets:
@@ -193,7 +197,7 @@ def attach_bet_attrib(tracker: Any, enabled: Optional[bool] = None) -> None:
         # pnl handling: if 'pnl' provided, treat it as gross; subtract commission.
         pnl = _coerce_float(event, "pnl", default=None)
         if pnl is None:
-            payout = _coerce_float(event, "payout", default=0.0)   # full return incl winnings
+            payout = _coerce_float(event, "payout", default=0.0)  # full return incl winnings
             amount = _coerce_float(event, "amount", "stake", default=0.0)
             pnl = payout - amount
         net_pnl = float(pnl) - float(commission)
@@ -265,7 +269,9 @@ def attach_bet_attrib(tracker: Any, enabled: Optional[bool] = None) -> None:
                 denom_resolved_no_push = max(1, stats.resolved_count - stats.push_count)
                 row["hit_rate"] = float(stats.wins) / float(denom_resolved_no_push)
                 row["roi"] = float(stats.pnl) / float(max(1.0, stats.total_staked))
-                row["pnl_per_exposure_roll"] = float(stats.pnl) / float(max(1, stats.exposure_rolls))
+                row["pnl_per_exposure_roll"] = float(stats.pnl) / float(
+                    max(1, stats.exposure_rolls)
+                )
                 # Present context as a nested, clearly named block
                 row["_ctx"] = {
                     "comeout_resolved": stats.comeout_resolved,
@@ -285,6 +291,7 @@ def attach_bet_attrib(tracker: Any, enabled: Optional[bool] = None) -> None:
 # -----------------------------
 # Helpers
 # -----------------------------
+
 
 def _safe_roll_index(tracker: Any) -> int:
     try:

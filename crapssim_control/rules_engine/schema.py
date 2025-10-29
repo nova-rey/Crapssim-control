@@ -15,6 +15,7 @@ RULE_FIELDS = {
     "enabled": bool,
 }
 
+
 def validate_rule(rule: Dict[str, Any]) -> List[str]:
     """Validate keys and types for a single rule. Returns list of error strings."""
     errors = []
@@ -25,6 +26,7 @@ def validate_rule(rule: Dict[str, Any]) -> List[str]:
         if not isinstance(rule[key], val_type):
             errors.append(f"Invalid type for {key}: {type(rule[key])}")
     return errors
+
 
 def validate_ruleset(rules: List[Dict[str, Any]]) -> List[str]:
     errors = []

@@ -1,5 +1,6 @@
 from crapssim_control.rules_engine.journal import DecisionJournal
 
+
 def test_cooldown_blocks_refire(tmp_path):
     j = DecisionJournal(tmp_path / "dj.jsonl")
     j.cooldowns["R1"] = 2

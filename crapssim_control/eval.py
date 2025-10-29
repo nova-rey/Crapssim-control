@@ -11,7 +11,9 @@ from typing import Any, Dict, Optional
 class EvalError(Exception):
     """Structured error raised by the safe evaluator."""
 
-    def __init__(self, message: str, src: str | None = None, line: int | None = None, col: int | None = None):
+    def __init__(
+        self, message: str, src: str | None = None, line: int | None = None, col: int | None = None
+    ):
         super().__init__(message)
         self.src = src
         self.line = line
@@ -36,7 +38,7 @@ _SAFE_FUNCS: Dict[str, Any] = {
     "floor": math.floor,
     "ceil": math.ceil,
     "sqrt": math.sqrt,
-    "log": math.log,       # natural log
+    "log": math.log,  # natural log
     "log10": math.log10,
 }
 
@@ -86,7 +88,7 @@ _ALLOWED_EXPR_NODES = {
     ast.Pow,
     ast.Num,
     ast.Constant,
-    ast.Tuple,      # allow tuple literals (for `in (6,8)` style membership)
+    ast.Tuple,  # allow tuple literals (for `in (6,8)` style membership)
     ast.Compare,
     ast.Eq,
     ast.NotEq,
@@ -94,8 +96,8 @@ _ALLOWED_EXPR_NODES = {
     ast.LtE,
     ast.Gt,
     ast.GtE,
-    ast.In,         # membership operator: a in (...)
-    ast.NotIn,      # membership operator: a not in (...)
+    ast.In,  # membership operator: a in (...)
+    ast.NotIn,  # membership operator: a not in (...)
     ast.And,
     ast.Or,
     ast.BoolOp,
@@ -169,6 +171,7 @@ def _exec_statements(src: str, ns: Dict[str, Any]) -> None:
 
 # ---- Namespace assembly -----------------------------------------------------------
 
+
 def _freeze_mapping(maybe_dict: Optional[Dict[str, Any]]) -> MappingProxyType:
     """
     Present a read-only mapping to the eval namespace for documentation parity
@@ -179,7 +182,9 @@ def _freeze_mapping(maybe_dict: Optional[Dict[str, Any]]) -> MappingProxyType:
     return MappingProxyType({})
 
 
-def _build_namespace(state: Optional[Dict[str, Any]], event: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+def _build_namespace(
+    state: Optional[Dict[str, Any]], event: Optional[Dict[str, Any]]
+) -> Dict[str, Any]:
     """
     Build the flat eval namespace.
 
@@ -209,7 +214,10 @@ def _build_namespace(state: Optional[Dict[str, Any]], event: Optional[Dict[str, 
 
 # ---- Public API -------------------------------------------------------------------
 
-def evaluate(expr: str, state: Optional[Dict[str, Any]] = None, event: Optional[Dict[str, Any]] = None) -> Any:
+
+def evaluate(
+    expr: str, state: Optional[Dict[str, Any]] = None, event: Optional[Dict[str, Any]] = None
+) -> Any:
     """
     General evaluator with sandboxed namespace and structured errors.
 
@@ -254,7 +262,9 @@ def evaluate(expr: str, state: Optional[Dict[str, Any]] = None, event: Optional[
         return None
 
 
-def eval_num(expr: str, state: Optional[Dict[str, Any]] = None, event: Optional[Dict[str, Any]] = None) -> float | int:
+def eval_num(
+    expr: str, state: Optional[Dict[str, Any]] = None, event: Optional[Dict[str, Any]] = None
+) -> float | int:
     """Evaluate and ensure a numeric result."""
     val = evaluate(expr, state, event)
     if isinstance(val, (int, float)):
@@ -273,7 +283,9 @@ _TRUE_STRS = {"1", "true", "yes", "y", "on", "t"}
 _FALSE_STRS = {"0", "false", "no", "n", "off", "f"}
 
 
-def eval_bool(expr: str, state: Optional[Dict[str, Any]] = None, event: Optional[Dict[str, Any]] = None) -> bool:
+def eval_bool(
+    expr: str, state: Optional[Dict[str, Any]] = None, event: Optional[Dict[str, Any]] = None
+) -> bool:
     """Evaluate and coerce to boolean with sensible string/number handling."""
     val = evaluate(expr, state, event)
     if isinstance(val, bool):
@@ -290,12 +302,19 @@ def eval_bool(expr: str, state: Optional[Dict[str, Any]] = None, event: Optional
     return bool(val)
 
 
-def safe_eval(expr: str, state: Optional[Dict[str, Any]] = None, event: Optional[Dict[str, Any]] = None) -> Any:
+def safe_eval(
+    expr: str, state: Optional[Dict[str, Any]] = None, event: Optional[Dict[str, Any]] = None
+) -> Any:
     """Backwards-compat alias used by templates code."""
     return evaluate(expr, state, event)
 
 
-def try_eval(expr: str, state: Optional[Dict[str, Any]] = None, event: Optional[Dict[str, Any]] = None, default: Any = None) -> Any:
+def try_eval(
+    expr: str,
+    state: Optional[Dict[str, Any]] = None,
+    event: Optional[Dict[str, Any]] = None,
+    default: Any = None,
+) -> Any:
     """
     Fail-safe helper: evaluate expression but return `default` on EvalError.
     Ideal for templates and CSV logging where failure should not break flow.

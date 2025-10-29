@@ -5,6 +5,7 @@ normalized rule dictionaries. The grammar is intentionally small
 and only validates surface structure; deeper expression evaluation
 will be introduced in later checkpoints.
 """
+
 from __future__ import annotations
 
 import re
@@ -105,7 +106,7 @@ def _parse_args(arg_str: str) -> Dict[str, Any]:
             continue
         if "=" in piece:
             key, value = piece.split("=", 1)
-            args[key.strip()] = value.strip().strip('\"\'')
+            args[key.strip()] = value.strip().strip("\"'")
         else:
             args[piece] = True
     return args

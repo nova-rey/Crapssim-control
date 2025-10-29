@@ -13,6 +13,7 @@ import traceback
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from . import __version__ as CSC_VERSION
 from .cli_flags import CLIFlags, parse_flags
 from .config import (
     EMBED_ANALYTICS_DEFAULT,
@@ -28,6 +29,7 @@ from .risk_schema import load_risk_policy
 from .spec_validation import VALIDATION_ENGINE_VERSION
 from .spec_loader import load_spec_file
 from .rules_engine.author import RuleBuilder
+from .schemas import JOURNAL_SCHEMA_VERSION, SUMMARY_SCHEMA_VERSION
 
 log = logging.getLogger("crapssim-ctl")
 
@@ -39,6 +41,7 @@ except Exception:  # pragma: no cover
 
 
 # ------------------------------- Helpers ------------------------------------ #
+
 
 def _load_spec_file(path: str | Path) -> Dict[str, Any]:
     spec, _ = load_spec_file(path)
@@ -75,6 +78,7 @@ def _smart_seed(seed: Optional[int]) -> None:
         random.seed(seed)
         try:
             import numpy as _np  # type: ignore
+
             _np.random.seed(seed)  # affects legacy RandomState only
         except Exception:
             pass
@@ -88,6 +92,7 @@ def _reseed_engine(seed: Optional[int]) -> None:
         return
     try:
         import crapssim.dice as dice_mod  # type: ignore
+
         # Prefer an explicit module hook, if present
         if hasattr(dice_mod, "set_seed"):
             dice_mod.set_seed(seed)
@@ -117,6 +122,7 @@ def _force_seed_on_table(table: Any, seed: Optional[int]) -> None:
     # Lazy import numpy only if we need it
     try:
         import numpy as _np  # type: ignore
+
         _has_numpy = True
     except Exception:
         _np = None
@@ -124,7 +130,9 @@ def _force_seed_on_table(table: Any, seed: Optional[int]) -> None:
 
     def _is_np_generator(obj: Any) -> bool:
         # Heuristic: new API Generators have .bit_generator and .random method
-        return _has_numpy and hasattr(obj, "bit_generator") and callable(getattr(obj, "random", None))
+        return (
+            _has_numpy and hasattr(obj, "bit_generator") and callable(getattr(obj, "random", None))
+        )
 
     def _try_seed_leaf(obj: Any) -> bool:
         # Direct seeding hooks
@@ -133,7 +141,7 @@ def _force_seed_on_table(table: Any, seed: Optional[int]) -> None:
                 obj.set_seed(seed)  # type: ignore[attr-defined]
                 return True
             if hasattr(obj, "seed"):
-                obj.seed(seed)      # type: ignore[attr-defined]
+                obj.seed(seed)  # type: ignore[attr-defined]
                 return True
         except Exception:
             pass
@@ -218,6 +226,7 @@ def _run_table_rolls(table: Any, rolls: int) -> Tuple[bool, str]:
     # 4) Manual loop with Dice: dice.roll() + table.process_roll/on_roll
     try:
         from crapssim.dice import Dice  # type: ignore
+
         dice = Dice()
         process = getattr(table, "process_roll", None) or getattr(table, "on_roll", None)
         if callable(process):
@@ -257,7 +266,11 @@ def _write_csv_summary(path: str | Path, row: Dict[str, Any]) -> None:
         safe_row = {
             "spec": str(row.get("spec", "")),
             "rolls": int(row.get("rolls", 0)),
-            "final_bankroll": float(row.get("final_bankroll", 0.0)) if row.get("final_bankroll") is not None else "",
+            "final_bankroll": (
+                float(row.get("final_bankroll", 0.0))
+                if row.get("final_bankroll") is not None
+                else ""
+            ),
             "seed": "" if row.get("seed") is None else str(row.get("seed")),
             "note": str(row.get("note", "")),
         }
@@ -266,9 +279,11 @@ def _write_csv_summary(path: str | Path, row: Dict[str, Any]) -> None:
 
 # ------------------------------ Validation ---------------------------------- #
 
+
 def _lazy_validate_spec(spec: Dict[str, Any]) -> Tuple[bool, List[str], List[str]]:
     try:
         from . import spec_validation as _sv  # lazy
+
         res = _sv.validate_spec(spec)
     except Exception as e:
         log.debug("validate_spec unavailable or failed: %r", e)
@@ -277,6 +292,7 @@ def _lazy_validate_spec(spec: Dict[str, Any]) -> Tuple[bool, List[str], List[str
 
 
 # ------------------------------ CSV Journal FYI ------------------------------ #
+
 
 def _csv_journal_info(spec: Dict[str, Any]) -> Optional[str]:
     run = spec.get("run", {}) if isinstance(spec.get("run", {}), dict) else {}
@@ -294,6 +310,7 @@ def _csv_journal_info(spec: Dict[str, Any]) -> Optional[str]:
 
 # --------------------------- P0·C1 inert env scrub --------------------------- #
 
+
 def _scrub_inert_env() -> None:
     """
     NO-OP: we keep CSC_FORCE_SEED intact so both runs in verify share the same
@@ -303,6 +320,7 @@ def _scrub_inert_env() -> None:
 
 
 # -------------------------------- Journal cmd -------------------------------- #
+
 
 def _cmd_journal_summarize(args: argparse.Namespace) -> int:
     from .csv_summary import summarize_journal, write_summary_csv
@@ -322,12 +340,24 @@ def _cmd_journal_summarize(args: argparse.Namespace) -> int:
             return 2
 
     cols = [
-        "run_id", "rows_total", "actions_total",
-        "sets", "clears", "presses", "reduces", "switch_mode",
-        "unique_bets", "modes_used", "points_seen",
-        "roll_events", "regress_events",
-        "sum_amount_set", "sum_amount_press", "sum_amount_reduce",
-        "first_timestamp", "last_timestamp",
+        "run_id",
+        "rows_total",
+        "actions_total",
+        "sets",
+        "clears",
+        "presses",
+        "reduces",
+        "switch_mode",
+        "unique_bets",
+        "modes_used",
+        "points_seen",
+        "roll_events",
+        "regress_events",
+        "sum_amount_set",
+        "sum_amount_press",
+        "sum_amount_reduce",
+        "first_timestamp",
+        "last_timestamp",
         "path",
     ]
     print("\t".join(["run_id_or_file"] + cols[1:]))
@@ -339,6 +369,7 @@ def _cmd_journal_summarize(args: argparse.Namespace) -> int:
 
 
 # --------------------------------- Run -------------------------------------- #
+
 
 def _merge_cli_run_flags(spec: Dict[str, Any], args: argparse.Namespace) -> None:
     """Merge CLI flag overrides into ``spec['run']`` in-place."""
@@ -466,7 +497,11 @@ def _capture_control_surface_artifacts(
     csv_blk["enabled"] = True
     csv_blk["append"] = False
     configured_path = csv_blk.get("path")
-    journal_path = Path(configured_path) if isinstance(configured_path, str) and configured_path.strip() else export_dir / "journal.csv"
+    journal_path = (
+        Path(configured_path)
+        if isinstance(configured_path, str) and configured_path.strip()
+        else export_dir / "journal.csv"
+    )
     csv_blk["path"] = str(journal_path)
     if seed is not None:
         csv_blk["seed"] = seed
@@ -603,7 +638,11 @@ def run(args: argparse.Namespace) -> int:
             data = None
         if isinstance(data, dict) and data:
             nested = data.get("run") if isinstance(data.get("run"), dict) else None
-            source = nested.get("risk") if isinstance(nested, dict) and isinstance(nested.get("risk"), dict) else data
+            source = (
+                nested.get("risk")
+                if isinstance(nested, dict) and isinstance(nested.get("risk"), dict)
+                else data
+            )
             if isinstance(source, dict):
                 risk_block.update(source)
                 risk_overrides["from_file"] = policy_path
@@ -642,8 +681,10 @@ def run(args: argparse.Namespace) -> int:
 
     recovery_mode = getattr(args, "recovery", None)
     if recovery_mode:
-        mode = "none" if recovery_mode == "none" else (
-            "flat_recovery" if recovery_mode == "flat" else "step_recovery"
+        mode = (
+            "none"
+            if recovery_mode == "none"
+            else ("flat_recovery" if recovery_mode == "flat" else "step_recovery")
         )
         risk_block["recovery"] = {"enabled": mode != "none", "mode": mode}
         risk_overrides["recovery_mode"] = mode
@@ -799,6 +840,14 @@ def run(args: argparse.Namespace) -> int:
     else:
         print(f"RESULT: rolls={rolls}")
 
+    run_config = spec_run
+    print(
+        "Schema versions → "
+        f"journal={run_config.get('journal_schema_version', JOURNAL_SCHEMA_VERSION)} "
+        f"summary={run_config.get('summary_schema_version', SUMMARY_SCHEMA_VERSION)}"
+    )
+    print(f"CSC version → {CSC_VERSION}")
+
     # Optional CSV export
     if getattr(args, "export", None):
         try:
@@ -809,7 +858,9 @@ def run(args: argparse.Namespace) -> int:
                     "rolls": rolls,
                     "final_bankroll": float(bankroll) if bankroll is not None else None,
                     "seed": seed_int,
-                    "note": getattr(getattr(attach_result, "meta", {}), "get", lambda _k, _d=None: _d)("mode", ""),
+                    "note": getattr(
+                        getattr(attach_result, "meta", {}), "get", lambda _k, _d=None: _d
+                    )("mode", ""),
                 },
             )
             log.info("Exported summary CSV → %s", args.export)
@@ -837,6 +888,7 @@ def run(args: argparse.Namespace) -> int:
 
 # ------------------------------ Parser/Main --------------------------------- #
 
+
 def _cmd_validate(args: argparse.Namespace) -> int:
     spec_path = Path(args.spec)
     try:
@@ -851,6 +903,7 @@ def _cmd_validate(args: argparse.Namespace) -> int:
     if getattr(args, "guardrails", False):
         try:
             from .guardrails import apply_guardrails  # lazy import
+
             _spec2, note_lines = apply_guardrails(
                 spec,
                 hot_table=getattr(args, "hot_table", False),
@@ -895,7 +948,10 @@ def _build_parser() -> argparse.ArgumentParser:
         description="Crapssim Control - validate specs and run simulations",
     )
     parser.add_argument(
-        "-v", "--verbose", action="count", default=0,
+        "-v",
+        "--verbose",
+        action="count",
+        default=0,
         help="increase verbosity (use -vv for debug)",
     )
     parser.add_argument(
@@ -920,8 +976,12 @@ def _build_parser() -> argparse.ArgumentParser:
     # validate
     p_val = sub.add_parser("validate", help="Validate a strategy spec (JSON or YAML)")
     p_val.add_argument("spec", help="Path to spec file")
-    p_val.add_argument("--hot-table", action="store_true", dest="hot_table",
-                       help='Plan with "hot table" defaults (no behavior change yet)')
+    p_val.add_argument(
+        "--hot-table",
+        action="store_true",
+        dest="hot_table",
+        help='Plan with "hot table" defaults (no behavior change yet)',
+    )
     p_val.add_argument(
         "--guardrails",
         action="store_true",
@@ -1038,9 +1098,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--webhook-url",
         type=str,
         default=None,
-        help=(
-            "POST lifecycle events to this webhook endpoint (disabled unless URL provided)."
-        ),
+        help=("POST lifecycle events to this webhook endpoint (disabled unless URL provided)."),
     )
     p_run.add_argument(
         "--webhook-timeout",
@@ -1053,8 +1111,11 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Disable outbound webhook emission even if a URL is configured.",
     )
-    p_run.add_argument("--rng-audit", action="store_true",
-                       help="(scaffold) Print RNG inspection info (does not affect results).")
+    p_run.add_argument(
+        "--rng-audit",
+        action="store_true",
+        help="(scaffold) Print RNG inspection info (does not affect results).",
+    )
     p_run.set_defaults(func=_cmd_run)
 
     # dsl helpers
@@ -1069,7 +1130,9 @@ def _build_parser() -> argparse.ArgumentParser:
     p_js.add_argument("journal", help="Path to journal.csv")
     p_js.add_argument("--out", type=str, default=None, help="Write summary CSV to this path")
     p_js.add_argument("--append", action="store_true", help="Append to --out if it exists")
-    p_js.add_argument("--no-group", action="store_true", help="Do not group by run_id; summarize whole file")
+    p_js.add_argument(
+        "--no-group", action="store_true", help="Do not group by run_id; summarize whole file"
+    )
     p_js.set_defaults(func=_cmd_journal_summarize)
 
     return parser

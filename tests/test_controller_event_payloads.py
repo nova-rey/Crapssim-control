@@ -38,7 +38,9 @@ def test_controller_canonicalizes_and_handles_core_events():
     assert ctrl.point == 6 and ctrl.on_comeout is False and ctrl.rolls_since_point == 0
 
     # ROLL while point is on → increments rolls_since_point; rule on 'roll' not present, so may be empty
-    a3 = ctrl.handle_event({"type": ROLL, "roll": 8, "point": 6, "on_comeout": False}, current_bets={})
+    a3 = ctrl.handle_event(
+        {"type": ROLL, "roll": 8, "point": 6, "on_comeout": False}, current_bets={}
+    )
     assert isinstance(a3, list)
     assert ctrl.rolls_since_point == 1
 

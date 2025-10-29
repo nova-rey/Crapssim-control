@@ -139,7 +139,9 @@ def validate_spec(spec: Dict[str, Any]) -> List[str]:
                     else:
                         if ev not in CANONICAL_EVENT_TYPES:
                             allowed = ", ".join(sorted(CANONICAL_EVENT_TYPES))
-                            errors.append(f"{ctx}.on.event must be one of {{{allowed}}} (got '{ev}')")
+                            errors.append(
+                                f"{ctx}.on.event must be one of {{{allowed}}} (got '{ev}')"
+                            )
 
                 # when (optional) must be string if present
                 if "when" in r and not isinstance(r.get("when"), str):
@@ -192,7 +194,9 @@ def validate_spec(spec: Dict[str, Any]) -> List[str]:
                 errors.append("run.csv must be an object")
             else:
                 if "embed_analytics" in csv_blk:
-                    norm, ok = coerce_flag(csv_blk.get("embed_analytics"), default=EMBED_ANALYTICS_DEFAULT)
+                    norm, ok = coerce_flag(
+                        csv_blk.get("embed_analytics"), default=EMBED_ANALYTICS_DEFAULT
+                    )
                     if not ok:
                         errors.append("run.csv.embed_analytics must be a boolean")
                     else:
@@ -209,6 +213,7 @@ def validate_spec(spec: Dict[str, Any]) -> List[str]:
 
 
 # ----------------------------- helpers -------------------------------------------
+
 
 def _rule_ctx(rule: Any, idx: int) -> str:
     if isinstance(rule, dict):
