@@ -838,3 +838,40 @@ Schema version updated to 1.1 to reflect dynamic capability merging.
 A new verb `cancel_bet()` provides a universal way to remove or reduce existing bets between rolls.
 It automatically routes to the correct underlying action depending on bet family, simplifying rule scripting and adapter logic.
 
+
+### Phase 18 — Evo Job Intake (File-Drop + HTTP)
+
+**Lane A — File-Drop**
+- Watch `jobs/incoming/*.job.json` (atomic rename contract).
+- Validate `bundle_id` (sha256 of the zip).
+- Import spec, honor `seed`, `run_flags`, `max_rolls`.
+- Write artifacts under `runs/gNNN_results/seed_XXXX/`.
+- Emit receipt `jobs/done/<request_id>.done.json` (or error receipt).
+
+**Lane B — HTTP Queue**
+- `POST /runs` (Idempotency-Key required, file:// bundle_url v1).
+- `GET /runs/{run_id}` for status.
+- Backpressure via max_inflight; returns 409 for duplicate keys.
+
+**Config**
+```ini
+[interop]
+jobs_dir = "jobs"
+max_inflight = 2
+results_root = "runs"
+log_json = true
+strict_default = false
+demo_fallbacks_default = false
+```
+
+Enable
+- File-Drop: run the watcher in a sidecar or small script with JobIntakeConfig(root).
+- HTTP: instantiate JobsHTTP(surface, cfg) and route inside the existing http server.
+
+**`NOVA_AGENT_ENTRYPOINT.yaml`**
+```yaml
+current_phase: 18
+current_checkpoint: 3
+checkpoint_title: Evo Job Intake (File-Drop + HTTP)
+allow_behavior_change: false
+```
