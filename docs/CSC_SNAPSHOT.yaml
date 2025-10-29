@@ -1,8 +1,7 @@
-phase: 16
-checkpoint: 5
-title: Hardening & LTS Cut
+phase: 17
+checkpoint: 3
+title: Evo Bundle I/O
 description: >
-  Final phase focusing on stability, determinism, and schema freeze. 
-  Adds profiling utilities, enforces schema version validation, 
-  cleans code for LTS readiness, and tags v1.0.0-lts.
+  Adds bundle export (CSC→Evo) and import (Evo→CSC) utilities for closed-loop evolution.
+  No controller/runtime behavior changes; patch-level LTS bump.
 status: complete

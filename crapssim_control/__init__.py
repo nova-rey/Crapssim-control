@@ -21,9 +21,11 @@ from .actions import (
 )
 from .csv_journal import CSVJournal
 from .csv_summary import summarize_journal, write_summary_csv
+from .bundles import export_bundle, import_evo_bundle
+from .bundles import ExportEmptyError, BundleReadError, SchemaMismatchError
 
 # Phase 5 Cycle 5 — includes report/export integration
-__version__ = "1.0.0-lts"
+__version__ = "1.0.1-lts"
 
 __all__ = [
     # Core controller
@@ -48,6 +50,11 @@ __all__ = [
     "CSVJournal",
     "summarize_journal",
     "write_summary_csv",
+    "export_bundle",
+    "import_evo_bundle",
+    "ExportEmptyError",
+    "BundleReadError",
+    "SchemaMismatchError",
     # Package version
     "__version__",
 ]
