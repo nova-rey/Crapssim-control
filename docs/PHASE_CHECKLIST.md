@@ -2,6 +2,10 @@
 
 | Phase | Checkpoint | Title | ✅ | Summary |
 |--------|-------------|-------|---|----------|
+| P18·C0 | Docs Kickoff — Evo Job Intake | ✅ Complete | Add File-Drop + HTTP job specs |
+| P18·C1 | Lane A — File-Drop Watcher | ✅ Complete | jobs/incoming → runs/*_results + receipts |
+| P18·C2 | Lane B — HTTP Job Queue | ✅ Complete | POST /runs + GET /runs/{id}, idempotent |
+| P18·C3 | Docs + Examples | ✅ Complete | usage snippets and config knobs |
 | P17·C0 | Docs Kickoff (Evo Bundle I/O) | ✅ Complete | roadmap + checklist entries for bundle I/O |
 | P17·C1 | Bundle Export (CSC → Evo) | ✅ Complete | export_bundle() zips manifest/report/journal/decisions |
 | P17·C2 | Bundle Import (Evo → CSC) | ✅ Complete | import_evo_bundle() reads/normalizes spec, verifies schemas |

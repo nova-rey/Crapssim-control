@@ -1,7 +1,7 @@
-phase: 17
+phase: 18
 checkpoint: 3
-title: Evo Bundle I/O
+title: Evo Job Intake (File-Drop + HTTP)
 description: >
-  Adds bundle export (CSC→Evo) and import (Evo→CSC) utilities for closed-loop evolution.
-  No controller/runtime behavior changes; patch-level LTS bump.
+  Adds opt-in Evo job intake via file-drop watcher and HTTP queue.
+  Idempotency, bundle hash validation, and deterministic seed handling.
 status: complete
