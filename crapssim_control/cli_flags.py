@@ -1,4 +1,5 @@
 """Centralized CLI flag definitions and defaults for CrapsSim-Control."""
+
 from dataclasses import dataclass
 
 

@@ -52,7 +52,9 @@ class NodeRedSimulator:
         self._command_counter = 0
         self._batch_counter = 0
         self._results: List[CommandResult] = []
-        self._command_tasks: "Queue[Optional[Tuple[float, Tuple[str, Dict[str, object]], Optional[str]]]]" = Queue()
+        self._command_tasks: (
+            "Queue[Optional[Tuple[float, Tuple[str, Dict[str, object]], Optional[str]]]]"
+        ) = Queue()
 
         self._press_patterns = (
             "mid-stairs",
@@ -276,8 +278,7 @@ class NodeRedSimulator:
         return schedule
 
     def _schedule_commands(
-        self,
-        schedule: Iterable[Tuple[float, Tuple[str, Dict[str, object]], Optional[str]]]
+        self, schedule: Iterable[Tuple[float, Tuple[str, Dict[str, object]], Optional[str]]]
     ) -> None:
         for item in schedule:
             if not isinstance(item, tuple):

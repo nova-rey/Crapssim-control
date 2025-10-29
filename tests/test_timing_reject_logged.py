@@ -4,7 +4,13 @@ from crapssim_control.external.command_channel import CommandQueue
 def test_timing_reject_logged(tmp_path):
     # simulate command with illegal timing
     q = CommandQueue()
-    cmd = {"run_id": "r1", "action": "switch_profile", "args": {}, "source": "nr", "correlation_id": "c99"}
+    cmd = {
+        "run_id": "r1",
+        "action": "switch_profile",
+        "args": {},
+        "source": "nr",
+        "correlation_id": "c99",
+    }
     accepted, reason = q.enqueue(cmd)
     assert accepted is True
     assert reason == "accepted"

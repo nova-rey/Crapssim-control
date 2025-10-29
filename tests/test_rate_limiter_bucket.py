@@ -17,10 +17,7 @@ def test_rate_limiter_bucket():
         "source": "src",
     }
 
-    results = [
-        q.enqueue({**base, "correlation_id": f"cid-{idx}"})
-        for idx in range(4)
-    ]
+    results = [q.enqueue({**base, "correlation_id": f"cid-{idx}"}) for idx in range(4)]
 
     accepts = [res for res in results if res[0]]
     rejects = [res for res in results if not res[0]]

@@ -25,6 +25,7 @@ from typing import Optional
 
 # ---- Flat/place increments ----
 
+
 def _place_step_for(number: Optional[int], bubble: bool) -> int:
     if bubble:
         return 1
@@ -35,16 +36,19 @@ def _place_step_for(number: Optional[int], bubble: bool) -> int:
     # Flats use table-min step when not bubble
     return 0  # sentinel meaning "use table-min step"
 
+
 def _round_up(value: int, step: int) -> int:
     if step <= 1:
         return int(value)
     rem = value % step
     return value if rem == 0 else value + (step - rem)
 
+
 def _round_down(value: int, step: int) -> int:
     if step <= 1:
         return int(value)
     return value - (value % step)
+
 
 def legalize_amount(number: Optional[int], raw_amount: int, bubble: bool, table_level: int) -> int:
     """
@@ -63,7 +67,9 @@ def legalize_amount(number: Optional[int], raw_amount: int, bubble: bool, table_
         step = int(table_level)
     return _round_up(amt, step)
 
+
 # ---- Odds legalization (PASS) ----
+
 
 def _max_multiple_for_point(point: int, policy: str | int) -> int:
     """
@@ -89,6 +95,7 @@ def _max_multiple_for_point(point: int, policy: str | int) -> int:
         return 5
     return 0
 
+
 def _pass_odds_step(point: int, bubble: bool) -> int:
     # steps chosen to avoid cents in payouts for live tables
     if bubble:
@@ -100,6 +107,7 @@ def _pass_odds_step(point: int, bubble: bool) -> int:
     if point in (6, 8):
         return 5
     return 1
+
 
 def legalize_odds(
     point: Optional[int],
@@ -129,7 +137,9 @@ def legalize_odds(
     amt = _round_down(amt, step)
     return max(0, amt)
 
+
 # ---- Lay odds legalization (DON'T PASS) ----
+
 
 def _lay_odds_step(point: int, bubble: bool) -> int:
     """
@@ -149,6 +159,7 @@ def _lay_odds_step(point: int, bubble: bool) -> int:
         return 6
     return 1
 
+
 def _lay_amount_cap_from_win_cap(point: int, win_cap: int) -> int:
     """
     Convert a cap on potential WIN into a max lay amount for the point:
@@ -165,6 +176,7 @@ def _lay_amount_cap_from_win_cap(point: int, win_cap: int) -> int:
     if point in (6, 8):
         return int((win_cap * 6) // 5)
     return 0
+
 
 def legalize_lay_odds(
     point: Optional[int],

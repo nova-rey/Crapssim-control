@@ -2,7 +2,15 @@ from crapssim_control.events import derive_event
 
 from tests._snapshot_helpers import GameState, TableView, PlayerView
 
-def _gs(comeout: bool, total: int | None, point_on: bool, point_num=None, seven_out=False, just_point=False):
+
+def _gs(
+    comeout: bool,
+    total: int | None,
+    point_on: bool,
+    point_num=None,
+    seven_out=False,
+    just_point=False,
+):
     dice = (1, 1, total) if total is not None else None
     t = TableView(
         point_on=point_on,
@@ -17,16 +25,20 @@ def _gs(comeout: bool, total: int | None, point_on: bool, point_num=None, seven_
     )
     p = PlayerView(bankroll=300, starting_bankroll=300, bets=[])
     return GameState(
-        table=t, player=p,
+        table=t,
+        player=p,
         just_established_point=just_point,
         just_made_point=False,
         just_seven_out=seven_out,
         is_new_shooter=False,
     )
 
+
 def test_comeout_event_emits_during_comeout_phase():
-    prev = _gs(comeout=True, total=11, point_on=False)   # previous roll irrelevant
-    curr = _gs(comeout=True, total=4, point_on=False)    # a comeout roll that establishes a point (but we check priority below)
+    prev = _gs(comeout=True, total=11, point_on=False)  # previous roll irrelevant
+    curr = _gs(
+        comeout=True, total=4, point_on=False
+    )  # a comeout roll that establishes a point (but we check priority below)
     ev = derive_event(prev, curr)
     # Because point establishment takes priority, this specific case becomes point_established.
     assert ev["event"] in ("point_established", "comeout")

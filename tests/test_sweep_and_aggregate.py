@@ -12,6 +12,7 @@ from crapssim_control.aggregator import aggregate
 
 # --- helpers ---------------------------------------------------------
 
+
 def _write_json(path, obj):
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
@@ -20,7 +21,9 @@ def _write_json(path, obj):
 
 def _mk_template_spec(tmp_path, bankroll=1000, table_min=5, profile="demo"):
     tp = tmp_path / "template.json"
-    _write_json(tp, {"name": "tmpl", "bankroll": bankroll, "table_min": table_min, "profile": profile})
+    _write_json(
+        tp, {"name": "tmpl", "bankroll": bankroll, "table_min": table_min, "profile": profile}
+    )
     return str(tp)
 
 
@@ -91,22 +94,42 @@ def test_aggregator_handles_success_and_error(tmp_path, monkeypatch):
     # Success record with artifacts_dir report
     run_a_dir = out_dir / "AAA"
     run_a_dir.mkdir()
-    _write_json(run_a_dir / "report.json", {
-        "summary": {
-            "bankroll_start": 1000, "bankroll_final": 1100,
-            "hands_played": 50, "rolls": 250, "max_drawdown": 80,
-            "pso_count": 3, "points_made": 12
+    _write_json(
+        run_a_dir / "report.json",
+        {
+            "summary": {
+                "bankroll_start": 1000,
+                "bankroll_final": 1100,
+                "hands_played": 50,
+                "rolls": 250,
+                "max_drawdown": 80,
+                "pso_count": 3,
+                "points_made": 12,
+            },
+            "by_bet_family": {"top_name": "place_6_8"},
         },
-        "by_bet_family": {"top_name": "place_6_8"}
-    })
+    )
 
     # Error record (no report)
     batch_manifest = {
         "plan": "derived_batch_plan.json",
         "out_dir": str(out_dir),
         "items": [
-            {"run_id": "AAA", "source": "specs/a.json", "input_type": "spec", "status": "success", "artifacts_dir": str(run_a_dir), "output_zip": None},
-            {"run_id": "BBB", "source": "specs/b.json", "input_type": "spec", "status": "error", "error": "boom"}
+            {
+                "run_id": "AAA",
+                "source": "specs/a.json",
+                "input_type": "spec",
+                "status": "success",
+                "artifacts_dir": str(run_a_dir),
+                "output_zip": None,
+            },
+            {
+                "run_id": "BBB",
+                "source": "specs/b.json",
+                "input_type": "spec",
+                "status": "error",
+                "error": "boom",
+            },
         ],
     }
     _write_json(out_dir / "batch_manifest.json", batch_manifest)
@@ -143,31 +166,67 @@ def test_sweep_runs_and_index_with_mock_batch(tmp_path, monkeypatch):
         # create artifacts for first item (spec) as a directory
         run1 = out_dir / "RUN1"
         run1.mkdir(parents=True, exist_ok=True)
-        _write_json(run1 / "report.json", {
-            "summary": {"bankroll_start": 1000, "bankroll_final": 1200, "hands_played": 60, "rolls": 300, "max_drawdown": 90, "pso_count": 2, "points_made": 15},
-            "by_bet_family": {"top_name": "pass_line"}
-        })
+        _write_json(
+            run1 / "report.json",
+            {
+                "summary": {
+                    "bankroll_start": 1000,
+                    "bankroll_final": 1200,
+                    "hands_played": 60,
+                    "rolls": 300,
+                    "max_drawdown": 90,
+                    "pso_count": 2,
+                    "points_made": 15,
+                },
+                "by_bet_family": {"top_name": "pass_line"},
+            },
+        )
         # create an output zip for second item with artifacts/report.json
         out_zip = out_dir / "RUN2.zip"
         with zipfile.ZipFile(out_zip, "w", compression=zipfile.ZIP_DEFLATED) as z:
-            payload = json.dumps({
-                "summary": {"bankroll_start": 1000, "bankroll_final": 900, "hands_played": 55, "rolls": 280, "max_drawdown": 150, "pso_count": 5, "points_made": 10},
-                "by_bet_family": {"top_name": "dont_pass"}
-            }).encode("utf-8")
+            payload = json.dumps(
+                {
+                    "summary": {
+                        "bankroll_start": 1000,
+                        "bankroll_final": 900,
+                        "hands_played": 55,
+                        "rolls": 280,
+                        "max_drawdown": 150,
+                        "pso_count": 5,
+                        "points_made": 10,
+                    },
+                    "by_bet_family": {"top_name": "dont_pass"},
+                }
+            ).encode("utf-8")
             z.writestr("artifacts/report.json", payload)
 
         manifest = {
             "plan": os.path.basename(derived_plan_path),
             "out_dir": str(out_dir),
             "items": [
-                {"run_id": "RUN1", "source": str(spec), "input_type": "spec", "status": "success", "artifacts_dir": str(run1), "output_zip": None},
-                {"run_id": "RUN2", "source": zip_in, "input_type": "zip", "status": "success", "artifacts_dir": None, "output_zip": str(out_zip)},
+                {
+                    "run_id": "RUN1",
+                    "source": str(spec),
+                    "input_type": "spec",
+                    "status": "success",
+                    "artifacts_dir": str(run1),
+                    "output_zip": None,
+                },
+                {
+                    "run_id": "RUN2",
+                    "source": zip_in,
+                    "input_type": "zip",
+                    "status": "success",
+                    "artifacts_dir": None,
+                    "output_zip": str(out_zip),
+                },
             ],
         }
         _write_json(out_dir / "batch_manifest.json", manifest)
         return manifest
 
     from crapssim_control import batch_runner as br
+
     monkeypatch.setattr(br, "run_batch", fake_run_batch)
 
     # Execute sweep (will call our mock)

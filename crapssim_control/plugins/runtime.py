@@ -83,50 +83,60 @@ def load_plugins_for_spec(
             ref, kind=kind, cap_name=cap_name, version=version
         )
         if spec is None:
-            items.append({
-                "name": ref,
-                "version": version,
-                "capabilities": [f"{cap_id}/{version}"],
-                "status": "missing",
-            })
+            items.append(
+                {
+                    "name": ref,
+                    "version": version,
+                    "capabilities": [f"{cap_id}/{version}"],
+                    "status": "missing",
+                }
+            )
             continue
 
         try:
             inst = loader.instantiate(spec, kind=kind, cap_name=cap_name, version=version)
             if inst is None:
-                items.append({
-                    "name": spec.name,
-                    "version": spec.version,
-                    "capabilities": [f"{cap_id}/{version}"],
-                    "status": "load_error",
-                })
+                items.append(
+                    {
+                        "name": spec.name,
+                        "version": spec.version,
+                        "capabilities": [f"{cap_id}/{version}"],
+                        "status": "load_error",
+                    }
+                )
                 continue
             if kind == "verb":
                 VerbRegistry.register(cap_name, inst)
             elif kind == "policy":
                 PolicyRegistry.register(cap_name, inst)
             else:
-                items.append({
+                items.append(
+                    {
+                        "name": spec.name,
+                        "version": spec.version,
+                        "capabilities": [f"{cap_id}/{version}"],
+                        "status": f"unsupported_kind:{kind}",
+                    }
+                )
+                continue
+            items.append(
+                {
                     "name": spec.name,
                     "version": spec.version,
                     "capabilities": [f"{cap_id}/{version}"],
-                    "status": f"unsupported_kind:{kind}",
-                })
-                continue
-            items.append({
-                "name": spec.name,
-                "version": spec.version,
-                "capabilities": [f"{cap_id}/{version}"],
-                "status": "ok",
-            })
+                    "status": "ok",
+                }
+            )
         except Exception as e:
-            items.append({
-                "name": spec.name,
-                "version": spec.version,
-                "capabilities": [f"{cap_id}/{version}"],
-                "status": "load_error",
-                "error": str(e),
-            })
+            items.append(
+                {
+                    "name": spec.name,
+                    "version": spec.version,
+                    "capabilities": [f"{cap_id}/{version}"],
+                    "status": "load_error",
+                    "error": str(e),
+                }
+            )
     return items
 
 
@@ -144,7 +154,7 @@ def default_sandbox_policy() -> SandboxPolicy:
             "http",
             "urllib",
         ],
-        init_timeout=1.0
+        init_timeout=1.0,
     )
 
 

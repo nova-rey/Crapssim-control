@@ -227,13 +227,36 @@ def diff_bets(
         des_amt = desired.get(k, 0)
         if des_amt <= 0:
             if envelope_mode:
-                clears.append(make_action("clear", bet_type=k, source=source or "template", id_=source_id or "template:Main", notes=notes))
+                clears.append(
+                    make_action(
+                        "clear",
+                        bet_type=k,
+                        source=source or "template",
+                        id_=source_id or "template:Main",
+                        notes=notes,
+                    )
+                )
             else:
                 clears.append({"action": "clear", "bet_type": k})
         elif des_amt != cur_amt:
             if envelope_mode:
-                clears.append(make_action("clear", bet_type=k, source=source or "template", id_=source_id or "template:Main", notes=notes))
-                act = make_action("set", bet_type=k, amount=des_amt, source=source or "template", id_=source_id or "template:Main", notes=notes)
+                clears.append(
+                    make_action(
+                        "clear",
+                        bet_type=k,
+                        source=source or "template",
+                        id_=source_id or "template:Main",
+                        notes=notes,
+                    )
+                )
+                act = make_action(
+                    "set",
+                    bet_type=k,
+                    amount=des_amt,
+                    source=source or "template",
+                    id_=source_id or "template:Main",
+                    notes=notes,
+                )
                 wf = (desired_bets.get(k) or {}).get("working_on_comeout")
                 if isinstance(wf, bool):
                     act["working_on_comeout"] = wf
@@ -252,7 +275,14 @@ def diff_bets(
         des_amt = _amt(des_meta)
         if des_amt > 0 and k not in current:
             if envelope_mode:
-                act = make_action("set", bet_type=k, amount=des_amt, source=source or "template", id_=source_id or "template:Main", notes=notes)
+                act = make_action(
+                    "set",
+                    bet_type=k,
+                    amount=des_amt,
+                    source=source or "template",
+                    id_=source_id or "template:Main",
+                    notes=notes,
+                )
                 wf = (desired_bets.get(k) or {}).get("working_on_comeout")
                 if isinstance(wf, bool):
                     act["working_on_comeout"] = wf
@@ -265,5 +295,7 @@ def diff_bets(
                 sets.append(set_action)
 
     # Stable deterministic ordering
-    actions = sorted(clears, key=lambda a: a["bet_type"]) + sorted(sets, key=lambda a: a["bet_type"])
+    actions = sorted(clears, key=lambda a: a["bet_type"]) + sorted(
+        sets, key=lambda a: a["bet_type"]
+    )
     return actions

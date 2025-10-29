@@ -165,13 +165,27 @@ class CSVJournal:
 
     analytics_columns: Optional[List[str]] = None
 
-    _columns: List[str] = field(default_factory=lambda: [
-        "ts", "run_id", "seed",
-        "event_type", "point", "rolls_since_point", "on_comeout",
-        "mode", "units", "bankroll",
-        "source", "id", "action", "bet_type", "amount", "notes",
-        "extra",
-    ])
+    _columns: List[str] = field(
+        default_factory=lambda: [
+            "ts",
+            "run_id",
+            "seed",
+            "event_type",
+            "point",
+            "rolls_since_point",
+            "on_comeout",
+            "mode",
+            "units",
+            "bankroll",
+            "source",
+            "id",
+            "action",
+            "bet_type",
+            "amount",
+            "notes",
+            "extra",
+        ]
+    )
 
     # Track whether we’ve performed the first write (to control truncate vs append when append=False)
     _first_write_done: bool = field(default=False, init=False)
@@ -303,7 +317,9 @@ class CSVJournal:
 
             # Build cover lines (all begin with '# ', followed by a blank line)
             def _dump(obj: Any) -> str:
-                return json.dumps(obj or {}, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+                return json.dumps(
+                    obj or {}, ensure_ascii=False, separators=(",", ":"), sort_keys=True
+                )
 
             lines: List[str] = []
             lines.append(f"# report_version: {report_version}")
@@ -391,7 +407,11 @@ class CSVJournal:
                     "seed": _as_str(self.seed) if self.seed is not None else "",
                     "event_type": event_type,
                     "point": int(_coerce_num(point)) if _coerce_num(point) is not None else "",
-                    "rolls_since_point": int(_coerce_num(rolls_since_point)) if _coerce_num(rolls_since_point) is not None else "",
+                    "rolls_since_point": (
+                        int(_coerce_num(rolls_since_point))
+                        if _coerce_num(rolls_since_point) is not None
+                        else ""
+                    ),
                     "on_comeout": bool(on_comeout) if on_comeout is not None else "",
                     "mode": mode_val,
                     "units": units if units is not None else "",
@@ -456,7 +476,9 @@ class CSVJournal:
 
     # ---------------- P5C1: summary writer ----------------
 
-    def write_summary(self, summary: Dict[str, Any], snapshot: Dict[str, Any] | None = None) -> bool:
+    def write_summary(
+        self, summary: Dict[str, Any], snapshot: Dict[str, Any] | None = None
+    ) -> bool:
         """
         Append a single 'summary' row with the given summary dict in 'extra'.
         Returns True on success, False on failure. Never raises.

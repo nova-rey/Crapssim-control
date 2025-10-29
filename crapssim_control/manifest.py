@@ -26,10 +26,7 @@ def generate_manifest(
         "timestamp": iso_now(),
         "spec_file": spec_file,
         "cli_flags": cli_flags,
-        "schema": {
-            "journal": JOURNAL_SCHEMA_VERSION,
-            "summary": SUMMARY_SCHEMA_VERSION
-        },
+        "schema": {"journal": JOURNAL_SCHEMA_VERSION, "summary": SUMMARY_SCHEMA_VERSION},
         "engine_version": engine_version,
         "output_paths": outputs,
         "integrations": {

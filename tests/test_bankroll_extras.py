@@ -2,6 +2,7 @@
 import math
 from crapssim_control.tracker import Tracker
 
+
 def test_bankroll_extras_flag_off_is_noop():
     tr = Tracker({"enabled": True, "bankroll_extras_enabled": False})
     tr.on_bankroll_delta(25.0)
@@ -22,9 +23,9 @@ def test_bankroll_extras_basic_flow_and_logging():
     tr = Tracker({"enabled": True, "bankroll_extras_enabled": True})
 
     # Hand starts implicitly; win, then pullback; then seven-out
-    tr.on_bankroll_delta(50.0)   # bankroll=50, peak=50, drawdown=0
+    tr.on_bankroll_delta(50.0)  # bankroll=50, peak=50, drawdown=0
     tr.on_bankroll_delta(-20.0)  # bankroll=30, peak=50, drawdown=20 (max_dd=20)
-    tr.on_seven_out()            # hand ends, pnl_log should capture +30
+    tr.on_seven_out()  # hand ends, pnl_log should capture +30
 
     snap = tr.snapshot()
     b = snap["bankroll"]
@@ -39,7 +40,7 @@ def test_bankroll_extras_basic_flow_and_logging():
 
     # Start second hand: a drawdown that grows, then partial recovery
     tr.on_bankroll_delta(-10.0)  # 20, peak=50, drawdown=30 (max_dd grows to 30)
-    tr.on_bankroll_delta(5.0)    # 25, drawdown=25, max_dd stays 30
+    tr.on_bankroll_delta(5.0)  # 25, drawdown=25, max_dd stays 30
     tr.on_seven_out()
 
     snap2 = tr.snapshot()
@@ -47,7 +48,7 @@ def test_bankroll_extras_basic_flow_and_logging():
     assert math.isclose(b2["bankroll"], 25.0)
     assert math.isclose(b2["max_drawdown"], 30.0)
     # recovery_factor = 25 / 30 ≈ 0.8333333
-    assert math.isclose(b2["recovery_factor"], 25.0/30.0, rel_tol=1e-9)
+    assert math.isclose(b2["recovery_factor"], 25.0 / 30.0, rel_tol=1e-9)
     # second hand PnL = -5
     assert b2["pnl_log"] == [30.0, -5.0]
 

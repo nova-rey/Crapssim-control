@@ -180,4 +180,3 @@ class RuleBuilder:
         """JSON-compatible deep copy helper."""
 
         return json.loads(json.dumps(data))
-

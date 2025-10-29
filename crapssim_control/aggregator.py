@@ -44,7 +44,9 @@ def _get_metric(report: Dict[str, Any], keys: List[str], default=None):
     return cur
 
 
-def _compute_roi(final_bankroll: Optional[float], start_bankroll: Optional[float]) -> Optional[float]:
+def _compute_roi(
+    final_bankroll: Optional[float], start_bankroll: Optional[float]
+) -> Optional[float]:
     if final_bankroll is None or start_bankroll is None:
         return None
     try:
@@ -65,12 +67,18 @@ def _summarize_rows(rows: List[Dict[str, Any]], metric: str, top_k: int = 10) ->
         "min": min(vals) if vals else None,
         "max": max(vals) if vals else None,
     }
-    top = sorted([r for r in rows if isinstance(r.get(metric), (int, float))], key=lambda r: r[metric], reverse=True)[:top_k]
+    top = sorted(
+        [r for r in rows if isinstance(r.get(metric), (int, float))],
+        key=lambda r: r[metric],
+        reverse=True,
+    )[:top_k]
     agg["top_k"] = [{"run_id": r["run_id"], metric: r[metric]} for r in top]
     return agg
 
 
-def aggregate(out_dir: str, leaderboard_metric: str = "ROI", top_k: int = 10, write_comparisons: bool = False) -> Dict[str, Any]:
+def aggregate(
+    out_dir: str, leaderboard_metric: str = "ROI", top_k: int = 10, write_comparisons: bool = False
+) -> Dict[str, Any]:
     manifest_path = os.path.join(out_dir, "batch_manifest.json")
     batch_manifest = _load_json(manifest_path)
 
@@ -128,10 +136,21 @@ def aggregate(out_dir: str, leaderboard_metric: str = "ROI", top_k: int = 10, wr
     # Write batch_index.csv
     csv_path = os.path.join(out_dir, "batch_index.csv")
     fieldnames = [
-        "run_id","source","input_type","status",
-        "bankroll_final","ROI","hands","rolls","max_drawdown",
-        "pso_count","points_made","top_bet_family",
-        "artifacts_dir","artifacts_zip","error"
+        "run_id",
+        "source",
+        "input_type",
+        "status",
+        "bankroll_final",
+        "ROI",
+        "hands",
+        "rolls",
+        "max_drawdown",
+        "pso_count",
+        "points_made",
+        "top_bet_family",
+        "artifacts_dir",
+        "artifacts_zip",
+        "error",
     ]
     with open(csv_path, "w", encoding="utf-8", newline="") as f:
         w = csv.DictWriter(f, fieldnames=fieldnames)

@@ -69,7 +69,12 @@ class FastAPI:
             return int(status), body
         return 200, result
 
-    async def __call__(self, scope: Dict[str, Any], receive: Callable[[], Any], send: Callable[[Dict[str, Any]], Any]) -> None:
+    async def __call__(
+        self,
+        scope: Dict[str, Any],
+        receive: Callable[[], Any],
+        send: Callable[[Dict[str, Any]], Any],
+    ) -> None:
         """Minimal ASGI entrypoint compatible with uvicorn."""
 
         if scope.get("type") != "http":

@@ -95,10 +95,7 @@ def test_embed_flag_controls_csv_schema(tmp_path):
         "ts,run_id,seed,event_type,point,rolls_since_point,on_comeout,"
         "mode,units,bankroll,source,id,action,bet_type,amount,notes,extra"
     )
-    header_with_analytics = (
-        header_expected
-        + ",hand_id,roll_in_hand,bankroll_after,drawdown_after"
-    )
+    header_with_analytics = header_expected + ",hand_id,roll_in_hand,bankroll_after,drawdown_after"
 
     def _header(path: Path) -> str:
         lines = path.read_text(encoding="utf-8").splitlines()

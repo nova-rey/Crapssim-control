@@ -26,7 +26,7 @@ _ALIASES = {
     "dc": "dont_come",
     # Field / hardways
     "field": "field",
-    "hard": "hardways",     # generic; number-aware mapping below
+    "hard": "hardways",  # generic; number-aware mapping below
     "hardway": "hardways",
     "hardways": "hardways",
     # Odds (generic)
@@ -37,8 +37,18 @@ _ALIASES = {
 }
 
 _NUMBER_WORDS = {
-    "four": 4, "five": 5, "six": 6, "eight": 8, "nine": 9, "ten": 10,
-    "4": 4, "5": 5, "6": 6, "8": 8, "9": 9, "10": 10,
+    "four": 4,
+    "five": 5,
+    "six": 6,
+    "eight": 8,
+    "nine": 9,
+    "ten": 10,
+    "4": 4,
+    "5": 5,
+    "6": 6,
+    "8": 8,
+    "9": 9,
+    "10": 10,
 }
 
 _HARD_ALLOWED = {4, 6, 8, 10}
@@ -109,9 +119,13 @@ def normalize_bet_type(raw: Optional[str], meta: Optional[Dict[str, Any]] = None
             if canon == "odds":
                 # try to classify odds context
                 # prefer 'come' if mentioned, then 'line'
-                if "come" in base or (isinstance(meta, dict) and str(meta.get("context","")).lower() == "come"):
+                if "come" in base or (
+                    isinstance(meta, dict) and str(meta.get("context", "")).lower() == "come"
+                ):
                     return f"odds_{n}_come" if n else "odds"
-                if "pass" in base or (isinstance(meta, dict) and "line" in str(meta.get("context","")).lower()):
+                if "pass" in base or (
+                    isinstance(meta, dict) and "line" in str(meta.get("context", "")).lower()
+                ):
                     return f"odds_{n}_line" if n else "odds"
                 return f"odds_{n}" if n else "odds"
             if canon == "hardways" and n in _HARD_ALLOWED:
@@ -133,7 +147,9 @@ def normalize_bet_type(raw: Optional[str], meta: Optional[Dict[str, Any]] = None
         return "field"
 
     # Pass / don't pass
-    if "pass" in toks and ("dont" in toks or "don" in toks):  # "don't" normalized to "don t" -> catch "don"
+    if "pass" in toks and (
+        "dont" in toks or "don" in toks
+    ):  # "don't" normalized to "don t" -> catch "don"
         return "dont_pass"
     if "pass" in toks:
         return "pass_line"

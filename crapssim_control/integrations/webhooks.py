@@ -2,6 +2,7 @@
 Simple webhook publisher for CSC events.
 Non-blocking; failures logged but ignored.
 """
+
 import json
 import logging
 import random

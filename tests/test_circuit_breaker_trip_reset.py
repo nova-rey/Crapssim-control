@@ -77,4 +77,3 @@ def test_circuit_breaker_trip_reset(tmp_path):
     last_entry = external_entries[-1]
     assert last_entry.get("executed") is True
     assert last_entry.get("circuit_breaker_reset") is True
-

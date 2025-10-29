@@ -1,6 +1,7 @@
 # tests/test_tracker_core.py
 from crapssim_control.tracker import Tracker
 
+
 def test_tracker_roll_point_bankroll_flow():
     tr = Tracker({"enabled": True})
     # Start: comeout roll 6 → point established

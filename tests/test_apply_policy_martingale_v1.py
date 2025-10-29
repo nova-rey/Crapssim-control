@@ -6,7 +6,12 @@ def test_martingale_policy_levels_and_deltas():
 
     effect1 = adapter.apply_action(
         "apply_policy",
-        {"policy": {"name": "martingale_v1", "args": {"step_key": "6", "delta": 6, "max_level": 3}}},
+        {
+            "policy": {
+                "name": "martingale_v1",
+                "args": {"step_key": "6", "delta": 6, "max_level": 3},
+            }
+        },
     )
     assert effect1["policy"] == "martingale_v1"
     assert effect1["bets"].get("6") == "+6"
@@ -16,7 +21,12 @@ def test_martingale_policy_levels_and_deltas():
 
     effect2 = adapter.apply_action(
         "apply_policy",
-        {"policy": {"name": "martingale_v1", "args": {"step_key": "6", "delta": 6, "max_level": 3}}},
+        {
+            "policy": {
+                "name": "martingale_v1",
+                "args": {"step_key": "6", "delta": 6, "max_level": 3},
+            }
+        },
     )
     assert effect2["bets"]["6"] == "+12"
     snap2 = adapter.snapshot_state()
@@ -25,7 +35,12 @@ def test_martingale_policy_levels_and_deltas():
 
     effect3 = adapter.apply_action(
         "apply_policy",
-        {"policy": {"name": "martingale_v1", "args": {"step_key": "6", "delta": 6, "max_level": 3}}},
+        {
+            "policy": {
+                "name": "martingale_v1",
+                "args": {"step_key": "6", "delta": 6, "max_level": 3},
+            }
+        },
     )
     assert effect3["bets"]["6"] == "+18"
     snap3 = adapter.snapshot_state()
@@ -34,7 +49,12 @@ def test_martingale_policy_levels_and_deltas():
 
     effect4 = adapter.apply_action(
         "apply_policy",
-        {"policy": {"name": "martingale_v1", "args": {"step_key": "6", "delta": 6, "max_level": 3}}},
+        {
+            "policy": {
+                "name": "martingale_v1",
+                "args": {"step_key": "6", "delta": 6, "max_level": 3},
+            }
+        },
     )
     snap4 = adapter.snapshot_state()
     assert snap4["levels"]["6"] == 0

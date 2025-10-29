@@ -9,12 +9,8 @@ def _stub():
 
 def test_line_and_odds_fallback():
     adapter = _stub()
-    adapter.apply_action(
-        "line_bet", {"side": "pass", "amount": {"mode": "dollars", "value": 10}}
-    )
-    adapter.apply_action(
-        "set_odds", {"on": "pass", "amount": {"mode": "dollars", "value": 20}}
-    )
+    adapter.apply_action("line_bet", {"side": "pass", "amount": {"mode": "dollars", "value": 10}})
+    adapter.apply_action("set_odds", {"on": "pass", "amount": {"mode": "dollars", "value": 20}})
     snap = adapter.snapshot_state()
     assert snap["bets"].get("pass", 0.0) >= 10.0
 

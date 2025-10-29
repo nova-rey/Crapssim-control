@@ -7,6 +7,7 @@ from collections import defaultdict
 INSIDE_SET = {5, 6, 8, 9}
 OUTSIDE_SET = {4, 10}
 
+
 @dataclass
 class _RollState:
     last_roll: Optional[int] = None
@@ -16,9 +17,11 @@ class _RollState:
     comeout_naturals: int = 0
     comeout_craps: int = 0
 
+
 @dataclass
 class _PointState:
     point: int = 0  # 0 means off
+
 
 @dataclass
 class _BankrollState:
@@ -30,11 +33,13 @@ class _BankrollState:
     max_drawdown: Optional[float] = None
     recovery_factor: Optional[float] = None
 
+
 @dataclass
 class _SessionState:
     seven_outs: int = 0
     pso: int = 0
     hands: int = 0  # increments on seven-out (shooter change)
+
 
 @dataclass
 class _SincePointState:
@@ -42,12 +47,14 @@ class _SincePointState:
     outside_hits: int = 0
     hits: DefaultDict[int, int] = field(default_factory=lambda: defaultdict(int))
 
+
 class Tracker:
     """
     Game telemetry tracker. All counters are opt-in via config {"enabled": True}.
     Batch-4 adds optional bankroll deep-dive metrics behind config key:
       {"bankroll_extras_enabled": True}
     """
+
     def __init__(self, config: Optional[Dict[str, Any]] = None) -> None:
         cfg = config or {}
         self.enabled: bool = bool(cfg.get("enabled", False))

@@ -14,7 +14,13 @@ def test_trace_enabled_and_disabled(monkeypatch):
 
     a = VanillaAdapter()
     a.start_session({"run": {"journal": {"explain": False}}})
-    rule = compiled({"id": "r1", "when": "point_on", "then": {"verb": "place_bet", "args": {"number": 6, "amount": 12}}})
+    rule = compiled(
+        {
+            "id": "r1",
+            "when": "point_on",
+            "then": {"verb": "place_bet", "args": {"number": 6, "amount": 12}},
+        }
+    )
     a.rule_engine = RuleEngine([rule])
     monkeypatch.setattr(a, "snapshot_state", lambda: {"point_on": True, "roll_in_hand": 1})
     calls = []
@@ -31,7 +37,9 @@ def test_trace_enabled_and_disabled(monkeypatch):
 
 
 def test_trace_record_format():
-    rule = compiled({"id": "r1", "when": "point_on", "then": {"verb": "field_bet", "args": {"amount": 5}}})
+    rule = compiled(
+        {"id": "r1", "when": "point_on", "then": {"verb": "field_bet", "args": {"amount": 5}}}
+    )
     r = RuleEngine([rule])
     acts, traces = r.evaluate({"point_on": True, "roll_in_hand": 1}, trace_enabled=True)
     assert traces and traces[0]["evaluated_true"] is True

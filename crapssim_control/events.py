@@ -15,8 +15,8 @@ POINT_ESTABLISHED = "point_established"
 POINT_MADE = "point_made"
 ROLL = "roll"
 SEVEN_OUT = "seven_out"
-SHOOTER_CHANGE = "shooter_change"   # P4C2: keep as distinct event
-BET_RESOLVED = "bet_resolved"       # P4C2: pass-through canonical event
+SHOOTER_CHANGE = "shooter_change"  # P4C2: keep as distinct event
+BET_RESOLVED = "bet_resolved"  # P4C2: pass-through canonical event
 
 CANONICAL_EVENT_TYPES: Set[str] = {
     COMEOUT,
@@ -36,6 +36,7 @@ NATURAL_NUMS = {7, 11}
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
 
 def _as_tuple3(x: Any) -> Tuple[int, int, int]:
     """Safely coerce dice-like inputs into (d1, d2, total)."""
@@ -59,13 +60,9 @@ def _normalize_state(s: Any) -> Dict[str, Any]:
         point_on = bool(getattr(t, "point_on", False))
         point_num = getattr(t, "point_number", None)
         just_est = bool(
-            getattr(s, "just_established_point", False)
-            or getattr(s, "just_est", False)
+            getattr(s, "just_established_point", False) or getattr(s, "just_est", False)
         )
-        just_made = bool(
-            getattr(s, "just_made_point", False)
-            or getattr(s, "just_made", False)
-        )
+        just_made = bool(getattr(s, "just_made_point", False) or getattr(s, "just_made", False))
         return {
             "comeout": comeout,
             "total": int(total),
@@ -99,6 +96,7 @@ def _normalize_state(s: Any) -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 # Derivation logic for table-state → semantic events
 # ---------------------------------------------------------------------------
+
 
 def derive_event(prev: Any, curr: Any) -> Dict[str, Any]:
     """
@@ -168,6 +166,7 @@ def derive_event(prev: Any, curr: Any) -> Dict[str, Any]:
 # Canonicalization layer (preserve unknown extras; keep known types verbatim)
 # ---------------------------------------------------------------------------
 
+
 def canonicalize_event(ev: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     """
     Normalize an arbitrary event dict (possibly partial) into a canonical
@@ -203,10 +202,22 @@ def canonicalize_event(ev: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         "on_comeout": bool(ev.get("on_comeout", t == COMEOUT)),
         "point_on": bool(ev.get("point_on", bool(ev.get("point")))),
         # Preserve additional fields like dice, shooter_id, roll_index, bet_type, result, payout, reason, total
-        **{k: v for k, v in ev.items() if k not in {
-            "type", "event", "roll", "total", "point", "natural", "craps",
-            "on_comeout", "point_on"
-        }},
+        **{
+            k: v
+            for k, v in ev.items()
+            if k
+            not in {
+                "type",
+                "event",
+                "roll",
+                "total",
+                "point",
+                "natural",
+                "craps",
+                "on_comeout",
+                "point_on",
+            }
+        },
     }
 
 

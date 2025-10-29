@@ -200,6 +200,7 @@ def _truthy(value: Any) -> bool:
 
 # --------- Evaluator ---------
 
+
 def _eval_node(node: Dict[str, Any], snapshot: Dict[str, Any]) -> Any:
     node_type = node["type"]
     if node_type in {"bool", "num", "str"}:

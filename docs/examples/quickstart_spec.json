@@ -1,0 +1,33 @@
+{
+  "table": {
+    "bubble": false,
+    "level": 10,
+    "place_410_increment": 5,
+    "max_odds_multiple": 3.0
+  },
+  "variables": {
+    "units": 5,
+    "mode": "Main"
+  },
+  "modes": {
+    "Main": {
+      "template": {
+        "pass": "units",
+        "place_6": "units*2",
+        "place_8": "units*2",
+        "odds_pass": "units*2"
+      }
+    }
+  },
+  "rules": [],
+  "run": {
+    "rolls": 50,
+    "seed": 123,
+    "csv": {
+      "enabled": true,
+      "path": "journal.csv",
+      "append": false
+    },
+    "demo_fallbacks": true
+  }
+}

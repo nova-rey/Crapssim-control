@@ -5,7 +5,9 @@ from crapssim_control.plugins.loader import PluginLoader, SandboxPolicy
 from crapssim_control.plugins.runtime import VerbRegistry, load_plugins_for_spec
 
 
-def _write_plugin(tmp_path: Path, name="author.sample", cap_kind="verb", cap_name="roll_strategy", cap_ver="1.0.0"):
+def _write_plugin(
+    tmp_path: Path, name="author.sample", cap_kind="verb", cap_name="roll_strategy", cap_ver="1.0.0"
+):
     root = tmp_path / "plugins" / "author.sample"
     (root / "sample").mkdir(parents=True, exist_ok=True)
     (root / "sample" / "roll_strategy.py").write_text(
@@ -25,7 +27,7 @@ def _write_plugin(tmp_path: Path, name="author.sample", cap_kind="verb", cap_nam
         f"    version: {cap_ver}\n"
         f"    entry: {entry_path}:RollStrategy\n"
         "requires:\n"
-        "  csc_core: \">=0.43,<0.50\"\n"
+        '  csc_core: ">=0.43,<0.50"\n'
         "description: test plugin\n"
     )
     with open(root / "plugin.yaml", "w", encoding="utf-8") as f:
@@ -37,8 +39,14 @@ def test_load_and_register_verb(tmp_path):
     _write_plugin(tmp_path)
     reg = PluginRegistry()
     reg.discover([str(tmp_path / "plugins")])
-    loader = PluginLoader(SandboxPolicy(["math","time","typing"], ["os","sys","subprocess"], init_timeout=1.0))
-    spec_dict = {"use_plugins": [{"capability": "verb.roll_strategy", "version": "1.0.0", "ref": "author.sample"}]}
+    loader = PluginLoader(
+        SandboxPolicy(["math", "time", "typing"], ["os", "sys", "subprocess"], init_timeout=1.0)
+    )
+    spec_dict = {
+        "use_plugins": [
+            {"capability": "verb.roll_strategy", "version": "1.0.0", "ref": "author.sample"}
+        ]
+    }
     loaded = load_plugins_for_spec(spec_dict, reg, loader)
     assert any(x.get("status") == "ok" for x in loaded)
     # Registered verb available
@@ -51,8 +59,12 @@ def test_load_and_register_verb(tmp_path):
 
 def test_missing_plugin_yields_trace(tmp_path):
     reg = PluginRegistry()
-    loader = PluginLoader(SandboxPolicy(["math"], ["os","sys"], init_timeout=1.0))
-    spec_dict = {"use_plugins": [{"capability": "verb.roll_strategy", "version": "1.0.0", "ref": "no.such.plugin"}]}
+    loader = PluginLoader(SandboxPolicy(["math"], ["os", "sys"], init_timeout=1.0))
+    spec_dict = {
+        "use_plugins": [
+            {"capability": "verb.roll_strategy", "version": "1.0.0", "ref": "no.such.plugin"}
+        ]
+    }
     loaded = load_plugins_for_spec(spec_dict, reg, loader)
     assert loaded and loaded[0]["status"] == "missing"
 
@@ -62,7 +74,10 @@ def test_loader_denies_os_even_via_runtime(tmp_path):
     root = tmp_path / "plugins" / "author.bad"
     (root).mkdir(parents=True, exist_ok=True)
     p = root / "naughty.py"
-    p.write_text("import os\nclass RollStrategy:\n    def apply(self,s,p=None): return {'ok':True}\n", encoding="utf-8")
+    p.write_text(
+        "import os\nclass RollStrategy:\n    def apply(self,s,p=None): return {'ok':True}\n",
+        encoding="utf-8",
+    )
     manifest_yaml = (
         "name: author.bad\n"
         "version: 0.0.1\n"
@@ -76,7 +91,11 @@ def test_loader_denies_os_even_via_runtime(tmp_path):
         f.write(manifest_yaml)
     reg = PluginRegistry()
     reg.discover([str(tmp_path / "plugins")])
-    loader = PluginLoader(SandboxPolicy(["math"], ["os","sys","subprocess"], init_timeout=1.0))
-    spec_dict = {"use_plugins": [{"capability": "verb.roll_strategy", "version": "1.0.0", "ref": "author.bad"}]}
+    loader = PluginLoader(SandboxPolicy(["math"], ["os", "sys", "subprocess"], init_timeout=1.0))
+    spec_dict = {
+        "use_plugins": [
+            {"capability": "verb.roll_strategy", "version": "1.0.0", "ref": "author.bad"}
+        ]
+    }
     loaded = load_plugins_for_spec(spec_dict, reg, loader)
     assert loaded[0]["status"] == "load_error"

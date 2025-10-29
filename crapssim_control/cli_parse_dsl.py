@@ -1,4 +1,5 @@
 """Command line helper for parsing Strategy DSL sentences."""
+
 from __future__ import annotations
 
 import json

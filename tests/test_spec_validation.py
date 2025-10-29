@@ -1,7 +1,12 @@
 # tests/test_spec_validation.py
 import pytest
 
-from crapssim_control.spec_validation import validate_spec, assert_valid_spec, is_valid_spec, SpecValidationError
+from crapssim_control.spec_validation import (
+    validate_spec,
+    assert_valid_spec,
+    is_valid_spec,
+    SpecValidationError,
+)
 
 
 def _good_spec():
@@ -14,14 +19,20 @@ def _good_spec():
                 "template": {
                     "pass": "units",
                     "place_6": 6,
-                    "place_8": {"amount": "6"}  # nested amount allowed
+                    "place_8": {"amount": "6"},  # nested amount allowed
                 }
             }
         },
         "rules": [
             {"on": {"event": "comeout"}, "do": ["apply_template('Main')"]},
-            {"on": {"event": "bet_resolved", "bet": "pass", "result": "lose"}, "do": ["units += 10", "apply_template('Main')"]},
-            {"on": {"event": "bet_resolved", "bet": "pass", "result": "win"}, "do": ["units = 10", "apply_template('Main')"]},
+            {
+                "on": {"event": "bet_resolved", "bet": "pass", "result": "lose"},
+                "do": ["units += 10", "apply_template('Main')"],
+            },
+            {
+                "on": {"event": "bet_resolved", "bet": "pass", "result": "win"},
+                "do": ["units = 10", "apply_template('Main')"],
+            },
         ],
     }
 

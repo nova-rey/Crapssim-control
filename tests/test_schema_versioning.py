@@ -156,7 +156,7 @@ def test_flag_on_columns_additive(tmp_path: Path):
     assert rows, "expected at least one row"
     expected_additive = ["hand_id", "roll_in_hand", "bankroll_after", "drawdown_after"]
     assert fieldnames[: len(_BASELINE_COLUMNS)] == _BASELINE_COLUMNS
-    assert fieldnames[len(_BASELINE_COLUMNS):] == expected_additive
+    assert fieldnames[len(_BASELINE_COLUMNS) :] == expected_additive
 
     sample_row = rows[0]
     for key in expected_additive:

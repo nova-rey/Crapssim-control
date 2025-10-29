@@ -53,4 +53,3 @@ def test_per_roll_dedupe(tmp_path):
     assert external_entries[0].get("executed") is True
     assert external_entries[1].get("executed") is False
     assert external_entries[1].get("rejection_reason") == "duplicate_roll"
-

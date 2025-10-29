@@ -16,6 +16,7 @@ SPEC = {
     ],
 }
 
+
 def test_state_snapshot_includes_stats_and_memory_updates():
     c = ControlStrategy(SPEC)
 

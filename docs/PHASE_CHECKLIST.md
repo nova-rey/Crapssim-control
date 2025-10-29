@@ -2,6 +2,12 @@
 
 | Phase | Checkpoint | Title | ✅ | Summary |
 |--------|-------------|-------|---|----------|
+| P16·C0 | Docs Kickoff & Guardrails | ✅ Complete | freeze new features and define LTS criteria |
+| P16·C1 | Performance & Memory Profiling | ✅ Complete | profiling tools added under tools/ |
+| P16·C2 | Schema Freeze & Validation | ✅ Complete | journal/summary schemas locked to v1.1 |
+| P16·C3 | CLI & Config Sanity | ✅ Complete | version and schema printed on run |
+| P16·C4 | Code Hygiene & Audit | ✅ Complete | Ruff/Black clean + CI green |
+| P16·C5 | Final Baseline & Tag | ✅ Complete | LTS tag v1.0.0-lts captured |
 | P15·C0 | Docs Kickoff & Guardrails | ✅ Complete | Activate Phase 15 and define orchestration scope and safety rules |
 | P15·C1 | Control Surface Adapter | ✅ Complete | In-process start/stop/status wrapper and event publishing hooks |
 | P15·C2 | Node-RED Webhook Bridge | ✅ Complete | HTTP endpoints (`/run/start`, `/run/stop`, `/status`) with SSE stream (`/events`) |

@@ -13,22 +13,26 @@ SNAP = {"bankroll": 500, "point_on": True, "hand_id": 1, "roll_in_hand": 2, "bet
 
 def test_rule_triggers_and_action_order():
     rules = [
-        compiled({
-            "id": "r1",
-            "when": "point_on",
-            "then": {"verb": "place_bet", "args": {"number": 6, "amount": 12}},
-            "scope": "roll",
-            "cooldown": 0,
-            "once": False,
-        }),
-        compiled({
-            "id": "r2",
-            "when": "point_on",
-            "then": {"verb": "field_bet", "args": {"amount": 5}},
-            "scope": "roll",
-            "cooldown": 0,
-            "once": False,
-        }),
+        compiled(
+            {
+                "id": "r1",
+                "when": "point_on",
+                "then": {"verb": "place_bet", "args": {"number": 6, "amount": 12}},
+                "scope": "roll",
+                "cooldown": 0,
+                "once": False,
+            }
+        ),
+        compiled(
+            {
+                "id": "r2",
+                "when": "point_on",
+                "then": {"verb": "field_bet", "args": {"amount": 5}},
+                "scope": "roll",
+                "cooldown": 0,
+                "once": False,
+            }
+        ),
     ]
     eng = RuleEngine(rules)
     acts, _ = eng.evaluate(SNAP)
@@ -37,22 +41,26 @@ def test_rule_triggers_and_action_order():
 
 def test_cooldown_and_once():
     rules = [
-        compiled({
-            "id": "r3",
-            "when": "point_on",
-            "then": {"verb": "field_bet", "args": {"amount": 5}},
-            "scope": "roll",
-            "cooldown": 1,
-            "once": False,
-        }),
-        compiled({
-            "id": "r4",
-            "when": "point_on",
-            "then": {"verb": "field_bet", "args": {"amount": 5}},
-            "scope": "roll",
-            "cooldown": 0,
-            "once": True,
-        }),
+        compiled(
+            {
+                "id": "r3",
+                "when": "point_on",
+                "then": {"verb": "field_bet", "args": {"amount": 5}},
+                "scope": "roll",
+                "cooldown": 1,
+                "once": False,
+            }
+        ),
+        compiled(
+            {
+                "id": "r4",
+                "when": "point_on",
+                "then": {"verb": "field_bet", "args": {"amount": 5}},
+                "scope": "roll",
+                "cooldown": 0,
+                "once": True,
+            }
+        ),
     ]
     eng = RuleEngine(rules)
     a1, _ = eng.evaluate(SNAP)
@@ -66,18 +74,20 @@ def test_step_roll_integration(monkeypatch):
 
     a = VanillaAdapter()
     a.start_session({"run": {"journal": {"explain": False}}})
-    a.rule_engine = RuleEngine([
-        compiled(
-            {
-                "id": "r1",
-                "when": "point_on",
-                "then": {"verb": "place_bet", "args": {"number": 6, "amount": 12}},
-                "scope": "roll",
-                "cooldown": 0,
-                "once": False,
-            }
-        )
-    ])
+    a.rule_engine = RuleEngine(
+        [
+            compiled(
+                {
+                    "id": "r1",
+                    "when": "point_on",
+                    "then": {"verb": "place_bet", "args": {"number": 6, "amount": 12}},
+                    "scope": "roll",
+                    "cooldown": 0,
+                    "once": False,
+                }
+            )
+        ]
+    )
     monkeypatch.setattr(
         a,
         "snapshot_state",

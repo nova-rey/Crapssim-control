@@ -5,7 +5,11 @@ from typing import Any, Dict, List
 from crapssim_control.rules_engine import apply_rules
 from crapssim_control.actions import (
     SOURCE_RULE,
-    ACTION_SET, ACTION_CLEAR, ACTION_PRESS, ACTION_REDUCE, ACTION_SWITCH_MODE,
+    ACTION_SET,
+    ACTION_CLEAR,
+    ACTION_PRESS,
+    ACTION_REDUCE,
+    ACTION_SWITCH_MODE,
 )
 
 
@@ -73,7 +77,7 @@ def test_basic_string_steps_and_amount_expressions():
             "on": {"event": "point_established"},
             "when": "units > 0",
             "do": [
-                "set pass_line units*2",     # expression amount
+                "set pass_line units*2",  # expression amount
                 "clear place_6",
                 "press place_8 6",
                 "reduce place_5 5",
@@ -135,8 +139,8 @@ def test_dict_form_steps_supported_and_unknown_steps_ignored():
             "do": [
                 {"action": "set", "bet_type": "field", "amount": 5},
                 {"action": "press", "bet_type": "place_6", "amount": "3+3"},  # expression
-                {"action": "unknown", "bet_type": "place_5", "amount": 5},    # ignored
-                "set place_8 not_a_number",                                   # invalid amount → ignored
+                {"action": "unknown", "bet_type": "place_5", "amount": 5},  # ignored
+                "set place_8 not_a_number",  # invalid amount → ignored
             ],
         }
     ]

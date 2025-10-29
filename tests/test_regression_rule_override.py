@@ -28,6 +28,7 @@ SPEC = {
     ],
 }
 
+
 def test_regression_clear_can_be_overridden_by_rule_in_same_event():
     c = ControlStrategy(SPEC)
     current_bets = {}

@@ -55,9 +55,7 @@ SPEC_SCHEMA: dict = {
                                     "type": "object",
                                     "additionalProperties": True,
                                     "properties": {
-                                        "amount": {
-                                            "type": ["number", "integer", "string"]
-                                        }
+                                        "amount": {"type": ["number", "integer", "string"]}
                                     },
                                 },
                             ]

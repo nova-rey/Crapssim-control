@@ -3,6 +3,7 @@ Minimal HTTP /commands endpoint with stdlib http.server.
 If FASTAPI is available, create_app() returns a FastAPI app. Otherwise,
 serve_commands() starts a stdlib server.
 """
+
 from __future__ import annotations
 
 from typing import Any, Callable, Dict, Optional, Tuple
@@ -77,7 +78,10 @@ def _load_snapshot_tag(snapshot_path: Optional[str | Path] = None) -> Optional[s
                 return val
     return None
 
-def ingest_command(body: Dict[str, Any], queue: CommandQueue, active_run_id_supplier: Callable[[], str]) -> Tuple[int, Dict[str, Any]]:
+
+def ingest_command(
+    body: Dict[str, Any], queue: CommandQueue, active_run_id_supplier: Callable[[], str]
+) -> Tuple[int, Dict[str, Any]]:
     rid = body.get("run_id")
     if not rid or rid != active_run_id_supplier():
         return 400, {"status": "rejected", "reason": "run_id_mismatch"}
@@ -145,7 +149,9 @@ def register_diagnostics(
             snapshot_tag = _load_snapshot_tag()
             if isinstance(snapshot_tag, str) and snapshot_tag:
                 tag_value = snapshot_tag
-        return JSONResponse({"version": version_value, "build_hash": build_hash_value, "tag": tag_value})
+        return JSONResponse(
+            {"version": version_value, "build_hash": build_hash_value, "tag": tag_value}
+        )
 
 
 def create_app(

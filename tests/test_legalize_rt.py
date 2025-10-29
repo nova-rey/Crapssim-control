@@ -1,5 +1,6 @@
 from crapssim_control.legalize import legalize_amount, cap_odds_amount
 
+
 def test_place_increments_nonbubble():
     cfg = {"bubble": False}
     # place 6/8 in $6s
@@ -12,15 +13,20 @@ def test_place_increments_nonbubble():
     assert legalize_amount("place_4", 19, cfg)[0] == 15
     assert legalize_amount("place_10", 20, cfg)[0] == 20
 
+
 def test_place_increments_bubble():
     cfg = {"bubble": True}
     assert legalize_amount("place_6", 14, cfg)[0] == 14
     assert legalize_amount("place_5", 14, cfg)[0] == 14
 
+
 def test_line_minimums():
     cfg = {"level": 15}
     assert legalize_amount("pass_line", 10, cfg)[0] == 15
-    assert legalize_amount("dont_pass", 22.7, cfg)[0] == 22  # min applied on pass; dp just $1 increments here
+    assert (
+        legalize_amount("dont_pass", 22.7, cfg)[0] == 22
+    )  # min applied on pass; dp just $1 increments here
+
 
 def test_odds_capped():
     # base pass $10, 3x max -> cap 30
@@ -30,6 +36,7 @@ def test_odds_capped():
     # $1 rounding
     legal, _ = legalize_amount("odds_6_pass", 29.7, cfg, point=6, base_line_bet=10)
     assert legal == 29
+
 
 def test_cap_odds_amount_helper():
     assert cap_odds_amount(10, 44, 3.0) == 30

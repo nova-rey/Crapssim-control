@@ -12,7 +12,9 @@ from .utils.dna_conveyor import (
 # These imports are expected to exist in the project already
 # Controller/single-run entrypoints should remain unchanged
 try:
-    from .controller import run_single  # expected signature: run_single(spec_path_or_dict, out_dir) -> artifacts_dir
+    from .controller import (
+        run_single,
+    )  # expected signature: run_single(spec_path_or_dict, out_dir) -> artifacts_dir
 except Exception:  # pragma: no cover
     run_single = None  # tests will mock or skip if unavailable
 
@@ -94,7 +96,9 @@ def run_single_bundle_or_spec(
             # Minimal placeholder: ensure folder and write a trivial manifest
             artifacts_dir = run_out
             with open(os.path.join(artifacts_dir, "manifest.json"), "w", encoding="utf-8") as f:
-                json.dump({"run_id": run_id, "note": "placeholder artifacts (run_single missing)"}, f)
+                json.dump(
+                    {"run_id": run_id, "note": "placeholder artifacts (run_single missing)"}, f
+                )
 
         # Always generate an output zip that preserves unknown payloads and adds artifacts/
         output_zip = os.path.join(out_root, f"{run_id}.zip")
@@ -105,12 +109,14 @@ def run_single_bundle_or_spec(
             artifacts_prefix="artifacts/",
         )
 
-        record.update({
-            "run_id": run_id,
-            "artifacts_dir": artifacts_dir,
-            "output_zip": output_zip,
-            "status": "success",
-        })
+        record.update(
+            {
+                "run_id": run_id,
+                "artifacts_dir": artifacts_dir,
+                "output_zip": output_zip,
+                "status": "success",
+            }
+        )
         return record
     except Exception as e:
         record.update({"status": "error", "error": str(e)})
@@ -138,6 +144,7 @@ def load_plan(plan_path: str) -> Dict[str, Any]:
     # Fallback to YAML if available
     try:
         import yaml  # type: ignore
+
         return yaml.safe_load(text)
     except Exception:
         raise

@@ -39,6 +39,7 @@ class VarStore:
       - vs.system: dictionary of derived state like pnl_session, rolls_since_point, etc.
       - methods: from_spec(...), refresh_system(snapshot), apply_event_side_effects(...)
     """
+
     variables: Dict[str, Any] = field(default_factory=dict)
     system: Dict[str, Any] = field(default_factory=dict)
     counters: Dict[str, Any] = field(default_factory=dict)
@@ -110,8 +111,8 @@ class VarStore:
         ssb = _coerce_float(self.system.get("session_start_bankroll", bankroll))
         shb = _coerce_float(self.system.get("shooter_start_bankroll", bankroll))
         br = bankroll or 0.0
-        self.system["pnl_session"] = (br - (ssb or 0.0))
-        self.system["pnl_shooter"] = (br - (shb or 0.0))
+        self.system["pnl_session"] = br - (ssb or 0.0)
+        self.system["pnl_shooter"] = br - (shb or 0.0)
 
         # --- Rolls since point
         if point_on:

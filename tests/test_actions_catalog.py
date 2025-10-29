@@ -14,7 +14,9 @@ def test_illegal_timing_blocks_resolution():
 
 
 def test_legal_timing_passes():
-    legal, reason = is_legal_timing({"resolving": False, "point_on": False}, {"verb": "switch_profile"})
+    legal, reason = is_legal_timing(
+        {"resolving": False, "point_on": False}, {"verb": "switch_profile"}
+    )
     assert legal and reason == "ok"
 
 

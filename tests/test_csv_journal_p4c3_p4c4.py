@@ -57,7 +57,20 @@ def test_csv_journal_seq_and_extra(tmp_path):
     # Check a couple of fields on the first row
     r0 = rows[0]
     # core columns present
-    for col in ["ts","run_id","seed","event_type","mode","source","id","action","bet_type","amount","notes","extra"]:
+    for col in [
+        "ts",
+        "run_id",
+        "seed",
+        "event_type",
+        "mode",
+        "source",
+        "id",
+        "action",
+        "bet_type",
+        "amount",
+        "notes",
+        "extra",
+    ]:
         assert col in r0
 
     # event type recorded

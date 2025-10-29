@@ -3,12 +3,13 @@ from crapssim_control.varstore import VarStore
 
 from tests._snapshot_helpers import GameState, TableView, PlayerView
 
+
 def _gs(bankroll, starting, shooter_index, is_new_shooter=False):
     t = TableView(
         point_on=False,
         point_number=None,
         comeout=True,
-        dice=(3,4,7),  # arbitrary
+        dice=(3, 4, 7),  # arbitrary
         shooter_index=shooter_index,
         roll_index=0,
         rolls_this_shooter=0,
@@ -16,11 +17,15 @@ def _gs(bankroll, starting, shooter_index, is_new_shooter=False):
         bubble=False,
     )
     p = PlayerView(bankroll=bankroll, starting_bankroll=starting, bets=[])
-    return GameState(table=t, player=p,
-                     just_established_point=False,
-                     just_made_point=False,
-                     just_seven_out=False,
-                     is_new_shooter=is_new_shooter)
+    return GameState(
+        table=t,
+        player=p,
+        just_established_point=False,
+        just_made_point=False,
+        just_seven_out=False,
+        is_new_shooter=is_new_shooter,
+    )
+
 
 def test_pnl_session_and_shooter_reset():
     vs = VarStore.from_spec({"variables": {}})
@@ -44,4 +49,3 @@ def test_pnl_session_and_shooter_reset():
     assert vs.system["pnl_session"] == 25
     assert vs.system["pnl_shooter"] == 0
     assert vs.system["shooter_start_bankroll"] == 325
-

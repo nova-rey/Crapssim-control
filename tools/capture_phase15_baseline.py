@@ -1,4 +1,5 @@
 """Capture a minimal Phase 15 baseline and tag."""
+
 from __future__ import annotations
 
 import json

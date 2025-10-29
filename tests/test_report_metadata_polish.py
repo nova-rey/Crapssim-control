@@ -39,6 +39,7 @@ def _execute_run(monkeypatch: pytest.MonkeyPatch | None = None):
 
     calls: list[tuple[str, dict]] = []
     if monkeypatch is not None:
+
         def fake_emit(self, event: str, payload: dict):
             calls.append((event, payload))
             return True
@@ -67,6 +68,8 @@ def _execute_run(monkeypatch: pytest.MonkeyPatch | None = None):
     report = json.loads(report_path.read_text(encoding="utf-8"))
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     return report, manifest, calls
+
+
 def test_run_id_and_manifest_path_present():
     report, manifest, _ = _execute_run()
     assert report["run_id"] == manifest["run_id"]

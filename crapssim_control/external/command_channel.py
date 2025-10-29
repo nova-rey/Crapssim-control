@@ -59,6 +59,7 @@ class CircuitBreaker:
     def allow(self) -> bool:
         return time.time() >= self.tripped_until
 
+
 REQUIRED_KEYS = {"run_id", "action", "args", "source", "correlation_id"}
 ALLOWED_ACTIONS = {
     "switch_profile",
@@ -261,9 +262,7 @@ class CommandQueue:
             else:
                 event = breaker.record(False)
                 if event == "trip":
-                    logger.warning(
-                        "Command source '%s' tripped circuit breaker", source
-                    )
+                    logger.warning("Command source '%s' tripped circuit breaker", source)
                 if rejection_reason:
                     self.stats["rejected"][rejection_reason] += 1
         return {"circuit_breaker_reset": reset}

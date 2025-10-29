@@ -10,11 +10,13 @@ except Exception:  # pragma: no cover
     TableUpdate = None  # type: ignore
     Player = object  # type: ignore
 
+
 class _ProxyStrategy:
     """
     Tiny shim that looks like a vanilla Strategy but delegates to a
     crapssim_control-style controller (ctrl).
     """
+
     def __init__(self, ctrl: Any):
         self.ctrl = ctrl
         # track previous point_on to detect seven_out
@@ -48,11 +50,13 @@ class _ProxyStrategy:
         except TypeError:
             pass
 
+
 class VanillaDriver:
     """
     Per-roll driver over vanilla crapssim.Table using TableUpdate.
     Exposes .view resembling the loose shape expected by CSC engine_adapter.
     """
+
     def __init__(self, table: Any, ctrl: Any):
         if TableUpdate is None:
             raise RuntimeError("crapssim is not available")
@@ -68,8 +72,8 @@ class VanillaDriver:
         before_point = getattr(self.table.point, "number", None)
         TableUpdate().run(self.table, run_complete=False, verbose=False)  # type: ignore
         after_point = getattr(self.table.point, "number", None)
-        self._just_established_point = (before_point is None and after_point is not None)
-        self._just_made_point = (before_point is not None and after_point is None)
+        self._just_established_point = before_point is None and after_point is not None
+        self._just_made_point = before_point is not None and after_point is None
         self._last_point_number = after_point
 
     @property

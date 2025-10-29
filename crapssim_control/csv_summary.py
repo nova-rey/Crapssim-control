@@ -9,6 +9,7 @@ from datetime import datetime
 
 # ----------------------------- helpers --------------------------------------- #
 
+
 def _to_float(x: Any) -> Optional[float]:
     if x is None:
         return None
@@ -59,8 +60,10 @@ def _first_last(ts_iter: Iterable[Optional[datetime]]) -> Tuple[Optional[str], O
     if not vals:
         return None, None
     vals.sort()
+
     def fmt(t: datetime) -> str:
         return t.strftime("%Y-%m-%dT%H:%M:%S")
+
     return fmt(vals[0]), fmt(vals[-1])
 
 
@@ -69,6 +72,7 @@ def _default_group_key_for_file(journal_path: Path) -> str:
 
 
 # ----------------------------- core API -------------------------------------- #
+
 
 def _skip_preamble(fh: TextIO) -> None:
     while True:
@@ -120,27 +124,29 @@ def summarize_journal(
         return []
 
     if not rows:
-        return [{
-            "run_id": _default_group_key_for_file(p),
-            "rows_total": 0,
-            "actions_total": 0,
-            "sets": 0,
-            "clears": 0,
-            "presses": 0,
-            "reduces": 0,
-            "switch_mode": 0,
-            "unique_bets": 0,
-            "modes_used": 0,
-            "points_seen": 0,
-            "roll_events": 0,
-            "regress_events": 0,
-            "sum_amount_set": 0.0,
-            "sum_amount_press": 0.0,
-            "sum_amount_reduce": 0.0,
-            "first_timestamp": None,
-            "last_timestamp": None,
-            "path": str(p),
-        }]
+        return [
+            {
+                "run_id": _default_group_key_for_file(p),
+                "rows_total": 0,
+                "actions_total": 0,
+                "sets": 0,
+                "clears": 0,
+                "presses": 0,
+                "reduces": 0,
+                "switch_mode": 0,
+                "unique_bets": 0,
+                "modes_used": 0,
+                "points_seen": 0,
+                "roll_events": 0,
+                "regress_events": 0,
+                "sum_amount_set": 0.0,
+                "sum_amount_press": 0.0,
+                "sum_amount_reduce": 0.0,
+                "first_timestamp": None,
+                "last_timestamp": None,
+                "path": str(p),
+            }
+        ]
 
     has_run_id_col = "run_id" in rows[0]
     groups: Dict[str, List[Dict[str, Any]]] = {}
@@ -226,27 +232,29 @@ def summarize_journal(
 
         first_ts, last_ts = _first_last(ts_list)
 
-        summaries.append({
-            "run_id": key,
-            "rows_total": rows_total,
-            "actions_total": rows_total,  # one row per action in the journal
-            "sets": sets,
-            "clears": clears,
-            "presses": presses,
-            "reduces": reduces,
-            "switch_mode": switch_mode,
-            "unique_bets": len(bet_types),
-            "modes_used": len(modes),
-            "points_seen": len(points),
-            "roll_events": len(roll_ticks),  # distinct roll timestamps
-            "regress_events": regress_events,
-            "sum_amount_set": round(sum_amount_set, 4),
-            "sum_amount_press": round(sum_amount_press, 4),
-            "sum_amount_reduce": round(sum_amount_reduce, 4),
-            "first_timestamp": first_ts,
-            "last_timestamp": last_ts,
-            "path": str(p),
-        })
+        summaries.append(
+            {
+                "run_id": key,
+                "rows_total": rows_total,
+                "actions_total": rows_total,  # one row per action in the journal
+                "sets": sets,
+                "clears": clears,
+                "presses": presses,
+                "reduces": reduces,
+                "switch_mode": switch_mode,
+                "unique_bets": len(bet_types),
+                "modes_used": len(modes),
+                "points_seen": len(points),
+                "roll_events": len(roll_ticks),  # distinct roll timestamps
+                "regress_events": regress_events,
+                "sum_amount_set": round(sum_amount_set, 4),
+                "sum_amount_press": round(sum_amount_press, 4),
+                "sum_amount_reduce": round(sum_amount_reduce, 4),
+                "first_timestamp": first_ts,
+                "last_timestamp": last_ts,
+                "path": str(p),
+            }
+        )
 
     return summaries
 

@@ -22,6 +22,7 @@ class BetEvent:
                    - 'push' or None => 0.0
         meta:    Arbitrary structured extras (odds detail, units, roll id, etc.).
     """
+
     bet: str
     amount: float = 0.0
     result: Optional[str] = None

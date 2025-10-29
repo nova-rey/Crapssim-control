@@ -2,6 +2,7 @@ import pytest
 
 from crapssim_control.bet_ledger import BetLedger
 
+
 def test_place_and_resolve_and_snapshot():
     led = BetLedger()
 

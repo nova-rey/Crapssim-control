@@ -1,7 +1,7 @@
 # tracker_ledger_shim.py
 from __future__ import annotations
 from typing import Any, Dict, Optional
-from .bet_ledger import BetLedger   # <-- fixed: relative import
+from .bet_ledger import BetLedger  # <-- fixed: relative import
 
 
 def wire_ledger(tracker_obj: Any) -> None:
@@ -95,7 +95,9 @@ def wire_ledger(tracker_obj: Any) -> None:
         for k in ("bet", "stake", "number", "point", "box", "reason"):
             meta.pop(k, None)
         try:
-            return tracker_obj.ledger.create_intent(bet=bet, stake=stake, number=number, reason=reason, **meta)
+            return tracker_obj.ledger.create_intent(
+                bet=bet, stake=stake, number=number, reason=reason, **meta
+            )
         except Exception:
             return None
 
@@ -126,8 +128,12 @@ def wire_ledger(tracker_obj: Any) -> None:
                 "open": [],
                 "closed": [],
                 "intents": {
-                    "open_count": 0, "matched_count": 0, "canceled_count": 0,
-                    "open": [], "matched": [], "canceled": []
+                    "open_count": 0,
+                    "matched_count": 0,
+                    "canceled_count": 0,
+                    "open": [],
+                    "matched": [],
+                    "canceled": [],
                 },
             }
         return snap

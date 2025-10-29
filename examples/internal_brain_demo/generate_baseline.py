@@ -26,12 +26,54 @@ RUN_ID = "phase5-ittt-demo"
 SEED = 12345
 
 EVENT_SEQUENCE: List[Dict[str, int | float | bool]] = [
-    {"hand_id": 1, "roll_in_hand": 1, "point_on": False, "bankroll_after": 940, "box_hits": 2, "last_roll_total": 6},
-    {"hand_id": 1, "roll_in_hand": 2, "point_on": False, "bankroll_after": 930, "box_hits": 1, "last_roll_total": 5},
-    {"hand_id": 2, "roll_in_hand": 1, "point_on": True, "bankroll_after": 920, "box_hits": 2, "last_roll_total": 4},
-    {"hand_id": 2, "roll_in_hand": 2, "point_on": True, "bankroll_after": 880, "box_hits": 2, "last_roll_total": 8},
-    {"hand_id": 3, "roll_in_hand": 1, "point_on": False, "bankroll_after": 960, "box_hits": 0, "last_roll_total": 10},
-    {"hand_id": 3, "roll_in_hand": 2, "point_on": False, "bankroll_after": 940, "box_hits": 2, "last_roll_total": 9},
+    {
+        "hand_id": 1,
+        "roll_in_hand": 1,
+        "point_on": False,
+        "bankroll_after": 940,
+        "box_hits": 2,
+        "last_roll_total": 6,
+    },
+    {
+        "hand_id": 1,
+        "roll_in_hand": 2,
+        "point_on": False,
+        "bankroll_after": 930,
+        "box_hits": 1,
+        "last_roll_total": 5,
+    },
+    {
+        "hand_id": 2,
+        "roll_in_hand": 1,
+        "point_on": True,
+        "bankroll_after": 920,
+        "box_hits": 2,
+        "last_roll_total": 4,
+    },
+    {
+        "hand_id": 2,
+        "roll_in_hand": 2,
+        "point_on": True,
+        "bankroll_after": 880,
+        "box_hits": 2,
+        "last_roll_total": 8,
+    },
+    {
+        "hand_id": 3,
+        "roll_in_hand": 1,
+        "point_on": False,
+        "bankroll_after": 960,
+        "box_hits": 0,
+        "last_roll_total": 10,
+    },
+    {
+        "hand_id": 3,
+        "roll_in_hand": 2,
+        "point_on": False,
+        "bankroll_after": 940,
+        "box_hits": 2,
+        "last_roll_total": 9,
+    },
 ]
 
 
@@ -123,7 +165,11 @@ def main() -> None:
 
             verb = action_text.split("(")[0]
             legal, timing_reason = is_legal_timing(
-                {"resolving": False, "point_on": context["point_on"], "roll_in_hand": context["roll_in_hand"]},
+                {
+                    "resolving": False,
+                    "point_on": context["point_on"],
+                    "roll_in_hand": context["roll_in_hand"],
+                },
                 {"verb": verb},
             )
             decision["timing_legal"] = legal

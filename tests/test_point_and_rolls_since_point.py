@@ -4,8 +4,11 @@ from crapssim_control.varstore import VarStore
 
 from tests._snapshot_helpers import GameState, TableView, PlayerView
 
-def _gs(comeout: bool, total: int, point_on: bool, point_num, roll_idx, just_est=False, just_made=False):
-    dice = (2, total-2, total)
+
+def _gs(
+    comeout: bool, total: int, point_on: bool, point_num, roll_idx, just_est=False, just_made=False
+):
+    dice = (2, total - 2, total)
     t = TableView(
         point_on=point_on,
         point_number=point_num,
@@ -19,12 +22,14 @@ def _gs(comeout: bool, total: int, point_on: bool, point_num, roll_idx, just_est
     )
     p = PlayerView(bankroll=300, starting_bankroll=300, bets=[])
     return GameState(
-        table=t, player=p,
+        table=t,
+        player=p,
         just_established_point=just_est,
         just_made_point=just_made,
         just_seven_out=False,
         is_new_shooter=False,
     )
+
 
 def test_point_made_and_rolls_since_point():
     vs = VarStore.from_spec({"variables": {}})
@@ -33,7 +38,10 @@ def test_point_made_and_rolls_since_point():
     prev = _gs(comeout=True, total=6, point_on=False, point_num=None, roll_idx=0, just_est=False)
     curr = _gs(comeout=False, total=4, point_on=True, point_num=4, roll_idx=1, just_est=True)
     ev = derive_event(prev, curr)
-    assert ev["event"] in ("point_established", "bet_resolved")  # depending on upstream, establishment takes priority
+    assert ev["event"] in (
+        "point_established",
+        "bet_resolved",
+    )  # depending on upstream, establishment takes priority
     vs.refresh_system(curr)
     assert vs.system["rolls_since_point"] == 0
 

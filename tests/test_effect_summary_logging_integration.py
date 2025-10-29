@@ -10,7 +10,9 @@ def test_jsonl_lines_include_verb_and_schema():
         p = os.path.join(d, "effect_summaries.jsonl")
         # missing verb on purpose to exercise inference
         append_effect_summary_line({"bets": {"8": "+12"}, "bankroll_delta": -12.0}, path=p)
-        append_effect_summary_line({"verb": "place_bet", "bets": {"6": "+6"}, "bankroll_delta": -6.0}, path=p)
+        append_effect_summary_line(
+            {"verb": "place_bet", "bets": {"6": "+6"}, "bankroll_delta": -6.0}, path=p
+        )
         data = [json.loads(s) for s in open(p, encoding="utf-8").read().splitlines() if s.strip()]
         assert len(data) == 2
         for obj in data:

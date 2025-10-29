@@ -20,6 +20,7 @@ SPEC = {
     "run": {"csv": {"enabled": False, "path": ""}},
 }
 
+
 def test_controller_handles_sequence_and_rules():
     c = ControlStrategy(SPEC)
     # comeout: only rules for comeout (none here)
@@ -33,7 +34,9 @@ def test_controller_handles_sequence_and_rules():
     assert ("set", "pass_line") in kinds
 
     # roll 9 with point on -> rules clear place_6
-    acts = c.handle_event({"type": ROLL, "roll": 9, "point": 6}, current_bets={"pass":10,"place_6":6,"place_8":6})
+    acts = c.handle_event(
+        {"type": ROLL, "roll": 9, "point": 6}, current_bets={"pass": 10, "place_6": 6, "place_8": 6}
+    )
     assert any(a["action"] == "clear" and a.get("bet_type") == "place_6" for a in acts)
 
     # seven out should reset and emit rules (switch_mode)

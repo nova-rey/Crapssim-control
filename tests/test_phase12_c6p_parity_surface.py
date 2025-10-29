@@ -1,7 +1,27 @@
 import pytest
 
-SEQ = [(3,4),(2,2),(6,1),(5,3),(6,2),(4,2),(3,3),(6,6),(5,2),(2,3),
-       (4,3),(1,1),(5,1),(6,5),(4,4),(2,5),(3,2),(6,4),(5,5),(1,6)]
+SEQ = [
+    (3, 4),
+    (2, 2),
+    (6, 1),
+    (5, 3),
+    (6, 2),
+    (4, 2),
+    (3, 3),
+    (6, 6),
+    (5, 2),
+    (2, 3),
+    (4, 3),
+    (1, 1),
+    (5, 1),
+    (6, 5),
+    (4, 4),
+    (2, 5),
+    (3, 2),
+    (6, 4),
+    (5, 5),
+    (1, 6),
+]
 
 RULES = """
 WHEN NOT point_on THEN line_bet(side=pass, amount=10)
@@ -9,16 +29,19 @@ WHEN point_on AND bets.6 == 0 THEN place_bet(number=6, amount=12)
 WHEN point_on AND bets.8 == 0 THEN place_bet(number=8, amount=12)
 """
 
+
 def drive(adapter, seq, trace=False, explain=False):
-    adapter.start_session({
-        "run":{
-            "policy":{"enforce": True},
-            "risk":{"max_drawdown_pct": 50, "max_heat": 300},
-            "stop_on_bankrupt": True,
-            "stop_on_unactionable": True,
-            "journal":{"explain": explain}
+    adapter.start_session(
+        {
+            "run": {
+                "policy": {"enforce": True},
+                "risk": {"max_drawdown_pct": 50, "max_heat": 300},
+                "stop_on_bankrupt": True,
+                "stop_on_unactionable": True,
+                "journal": {"explain": explain},
+            }
         }
-    })
+    )
     adapter.load_ruleset(RULES)
     if hasattr(adapter, "enable_dsl_trace"):
         adapter.enable_dsl_trace(trace)
@@ -33,6 +56,7 @@ def drive(adapter, seq, trace=False, explain=False):
         "violations": getattr(adapter, "_policy_violations", 0),
         "applied": getattr(adapter, "_policy_applied", 0),
     }
+
 
 def test_surface_parity_with_and_without_trace(monkeypatch):
     from crapssim_control.engine_adapter import VanillaAdapter

@@ -5,7 +5,9 @@ from crapssim_control.engine_adapter import VanillaAdapter
 
 def mk(spec=None):
     a = VanillaAdapter()
-    a.start_session(spec or {"run": {"journal": {"explain": True, "explain_grouping": "first_only"}}})
+    a.start_session(
+        spec or {"run": {"journal": {"explain": True, "explain_grouping": "first_only"}}}
+    )
     return a
 
 

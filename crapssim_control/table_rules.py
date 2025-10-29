@@ -25,7 +25,6 @@ DEFAULT_PROFILES: Dict[str, Dict[str, Any]] = {
         },
         "allow": {"buy": True, "lay": True, "hardways": True},
     },
-
     # Bubble / stadium style: fine-grained increments, huge odds multiplier.
     "bubble_1000x": {
         "enforcement": "warning",
@@ -55,6 +54,7 @@ class TableRulesResult:
 # ---------------------------
 # Public helpers
 # ---------------------------
+
 
 def get_table_rules(spec: Dict[str, Any]) -> Dict[str, Any]:
     """
@@ -174,6 +174,7 @@ def validate_table_rules(spec: Dict[str, Any]) -> TableRulesResult:
 # (Future) Normalization hooks
 # ---------------------------
 
+
 def normalize_amount(
     bet_type: str,
     amount: float,
@@ -211,6 +212,7 @@ def normalize_amount(
 # ---------------------------
 # internals
 # ---------------------------
+
 
 def _is_positive_number(x: Any) -> bool:
     try:

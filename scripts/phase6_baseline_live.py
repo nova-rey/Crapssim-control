@@ -63,12 +63,14 @@ def _baseline_spec(seed: int) -> Dict[str, object]:
     run_cfg["rolls"] = 60
 
     csv_cfg = dict(run_cfg.get("csv", {}))
-    csv_cfg.update({
-        "enabled": True,
-        "path": str(CSV_JOURNAL_PATH),
-        "append": False,
-        "run_id": RUN_ID,
-    })
+    csv_cfg.update(
+        {
+            "enabled": True,
+            "path": str(CSV_JOURNAL_PATH),
+            "append": False,
+            "run_id": RUN_ID,
+        }
+    )
     run_cfg["csv"] = csv_cfg
 
     report_cfg = dict(run_cfg.get("report", {}))
@@ -76,11 +78,13 @@ def _baseline_spec(seed: int) -> Dict[str, object]:
     run_cfg["report"] = report_cfg
 
     webhook_cfg = dict(run_cfg.get("webhooks", {}))
-    webhook_cfg.update({
-        "enabled": True,
-        "targets": [WEBHOOK_URL],
-        "timeout": 2.0,
-    })
+    webhook_cfg.update(
+        {
+            "enabled": True,
+            "targets": [WEBHOOK_URL],
+            "timeout": 2.0,
+        }
+    )
     run_cfg["webhooks"] = webhook_cfg
 
     http_cfg = dict(run_cfg.get("http_commands", {}))
@@ -88,10 +92,12 @@ def _baseline_spec(seed: int) -> Dict[str, object]:
     run_cfg["http_commands"] = http_cfg
 
     external_cfg = dict(run_cfg.get("external", {}))
-    external_cfg.update({
-        "mode": "live",
-        "tape_path": str(COMMAND_TAPE_PATH),
-    })
+    external_cfg.update(
+        {
+            "mode": "live",
+            "tape_path": str(COMMAND_TAPE_PATH),
+        }
+    )
     run_cfg["external"] = external_cfg
 
     spec["run"] = run_cfg
@@ -212,7 +218,9 @@ def main() -> int:
     else:
         manifest = {}
     manifest.setdefault("run_id", RUN_ID)
-    manifest["spec_file"] = str((ROOT / "examples" / "internal_brain_demo" / "spec.yaml").relative_to(ROOT))
+    manifest["spec_file"] = str(
+        (ROOT / "examples" / "internal_brain_demo" / "spec.yaml").relative_to(ROOT)
+    )
     manifest.setdefault("cli_flags", {})
     manifest["cli_flags"].update(
         {
@@ -245,7 +253,10 @@ def main() -> int:
     manifest.setdefault("schema", {})
     manifest["schema"].setdefault("journal", report.get("journal_schema_version", "1.2"))
     manifest["schema"].setdefault("summary", report.get("summary_schema_version", "1.2"))
-    manifest.setdefault("engine_version", report.get("metadata", {}).get("engine", {}).get("version", "CrapsSim-Control"))
+    manifest.setdefault(
+        "engine_version",
+        report.get("metadata", {}).get("engine", {}).get("version", "CrapsSim-Control"),
+    )
     MANIFEST_PATH.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
     diagnostics = {

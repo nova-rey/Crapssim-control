@@ -1,12 +1,10 @@
 from crapssim_control.templates_legacy import render_template
 
+
 def test_template_supports_odds_and_working():
     tpl = {
         "pass": {"amount": "units", "odds": "units*2", "working": True},
-        "place": {
-            "6": {"amount": "units", "working": False},
-            "8": "units*2"
-        }
+        "place": {"6": {"amount": "units", "working": False}, "8": "units*2"},
     }
     names = {"units": 10}
     out = render_template(tpl, names, bubble=False, table_level=10)

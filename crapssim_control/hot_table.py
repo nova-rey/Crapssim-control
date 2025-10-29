@@ -4,6 +4,7 @@ from typing import Any, Dict, List
 # Types are intentionally loose to avoid leaking into public API
 Intent = Dict[str, Any]
 
+
 def scale_bets_if_hot(spec: Dict[str, Any], vs: Any, intents: List[Intent]) -> List[Intent]:
     """
     No-op scaffolding for 'hot table' scaling.

@@ -4,7 +4,13 @@ import json
 
 
 class Outbound:
-    def __init__(self, enabled: bool = False, url: str | None = None, headers: dict | None = None, timeout: float = 2.0):
+    def __init__(
+        self,
+        enabled: bool = False,
+        url: str | None = None,
+        headers: dict | None = None,
+        timeout: float = 2.0,
+    ):
         self.enabled = bool(enabled)
         self.url = url
         self.headers = headers or {}

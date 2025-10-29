@@ -24,7 +24,9 @@ def test_rejected_effect_logging(tmp_path):
     from crapssim_control.journal import append_effect_summary_line
 
     path = tmp_path / "journal.jsonl"
-    append_effect_summary_line({"rejected": True, "code": "illegal_number", "reason": "bad"}, path=path)
+    append_effect_summary_line(
+        {"rejected": True, "code": "illegal_number", "reason": "bad"}, path=path
+    )
     data = path.read_text()
     assert "rejected_effect" in data
 

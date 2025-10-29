@@ -74,7 +74,7 @@ def get_journal_options(spec: Dict[str, Any]) -> Dict[str, Any]:
 
 def get_policy_options(spec: Dict[str, Any]) -> Dict[str, Any]:
     run = (spec or {}).get("run") or {}
-    pol = (run.get("policy") or {})
+    pol = run.get("policy") or {}
     return {
         "enforce": bool(pol.get("enforce", True)),
         "report": bool(pol.get("report", False)),
@@ -91,7 +91,7 @@ def get_stop_options(spec: Dict[str, Any]) -> Dict[str, Any]:
 
 def get_table_mins(spec: Dict[str, Any]) -> Dict[str, Any]:
     run = (spec or {}).get("run") or {}
-    mins = (run.get("table_mins") or {})
+    mins = run.get("table_mins") or {}
     # Defaults
     place_unit = mins.get("place_unit") or {}
     return {
@@ -106,5 +106,5 @@ def get_table_mins(spec: Dict[str, Any]) -> Dict[str, Any]:
             "8": float(place_unit.get("8", place_unit.get("default", 6))),
             "9": float(place_unit.get("9", place_unit.get("default", 5))),
             "10": float(place_unit.get("10", place_unit.get("default", 5))),
-        }
+        },
     }

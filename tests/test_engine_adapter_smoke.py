@@ -9,9 +9,7 @@ def test_controller_defaults_to_null_adapter():
         "table": {"bubble": True, "level": 5},
         "variables": {"units": 5},
         "modes": {"Main": {"template": {"field": "units"}}},
-        "rules": [
-            {"on": {"event": "comeout"}, "do": ["apply_template('Main')"]}
-        ],
+        "rules": [{"on": {"event": "comeout"}, "do": ["apply_template('Main')"]}],
     }
 
     ctrl = ControlStrategy(spec)
@@ -31,5 +29,3 @@ def test_engine_adapter_class_is_not_concrete():
     import inspect
 
     assert inspect.isabstract(EngineAdapter)
-
-

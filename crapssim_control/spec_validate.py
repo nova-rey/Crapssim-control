@@ -20,6 +20,7 @@ from typing import Any, Dict, List, Tuple
 
 class SpecValidationError(Exception):
     """Raised when a SPEC is structurally invalid."""
+
     def __init__(self, errors: List[str], warnings: List[str] | None = None):
         self.errors = errors
         self.warnings = warnings or []
@@ -82,7 +83,11 @@ def validate_spec(spec: Dict[str, Any]) -> Tuple[bool, List[str], List[str]]:
             warnings.append("'table.level' is <= 0 -- is that intended?")
 
         # optional odds_policy as str (do not enforce enumeration here)
-        if "odds_policy" in table and table["odds_policy"] is not None and not isinstance(table["odds_policy"], str):
+        if (
+            "odds_policy" in table
+            and table["odds_policy"] is not None
+            and not isinstance(table["odds_policy"], str)
+        ):
             warnings.append("'table.odds_policy' should be a string or null.")
 
     # variables
@@ -115,7 +120,9 @@ def validate_spec(spec: Dict[str, Any]) -> Tuple[bool, List[str], List[str]]:
                     pass  # fine
                 elif isinstance(val, dict):
                     if "amount" not in val:
-                        errors.append(f"Mode '{name}.template.{bet_key}' object must contain 'amount'.")
+                        errors.append(
+                            f"Mode '{name}.template.{bet_key}' object must contain 'amount'."
+                        )
                     else:
                         amt = val["amount"]
                         if not isinstance(amt, (str, int, float)):

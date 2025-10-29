@@ -10,16 +10,20 @@ from .eval import safe_eval
 #   meta: dict    (optional fields: {"working": bool})
 BetIntent = Tuple[str, Optional[int], int, Dict[str, Any]]
 
+
 def _ev(expr, names: Dict[str, Any]) -> int | float | bool:
     if isinstance(expr, (int, float, bool)):
         return expr
     return safe_eval(str(expr), names)
 
+
 def _ev_i(expr, names: Dict[str, Any]) -> int:
     return int(_ev(expr, names))
 
+
 def _legal_amount(number: Optional[int], raw_amount: int, bubble: bool, table_level: int) -> int:
     return legalize_amount(number, raw_amount, bubble, table_level)
+
 
 def _parse_simple_or_obj(value: Any) -> Dict[str, Any]:
     """
@@ -31,10 +35,10 @@ def _parse_simple_or_obj(value: Any) -> Dict[str, Any]:
         return dict(value)
     return {"amount": value}
 
-def render_template(template: Dict[str, Any],
-                    vars_map: Dict[str, Any],
-                    bubble: bool,
-                    table_level: int) -> List[BetIntent]:
+
+def render_template(
+    template: Dict[str, Any], vars_map: Dict[str, Any], bubble: bool, table_level: int
+) -> List[BetIntent]:
     """
     Convert a template dict into a list of bet intents with legalized amounts and optional meta.
 
