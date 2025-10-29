@@ -9,6 +9,25 @@ Where the snapshot tracks *state*, the Bible records *story*—why decisions wer
 
 ---
 
+### Phase 17 — Evo Bundle I/O
+
+**Why:** Close the loop between CSC and CrapsSim-Evo with simple, deterministic handoffs.
+
+**What changed:**  
+- `export_bundle(run_dir)` → creates `csc_bundle.zip` with `manifest.json`, `journal.csv`, and optional `report.json`, `decisions.csv`.  
+- `import_evo_bundle(path)` → reads Evo zip, normalizes `spec.json` (strips Evo-only keys), and verifies schema versions.
+
+**Usage:**
+```python
+from crapssim_control import export_bundle, import_evo_bundle
+z = export_bundle("/path/to/run")
+spec, meta = import_evo_bundle("/path/to/evo_bundle.zip")
+
+Version: 1.0.1-lts (patch bump).
+```
+
+---
+
 ### Phase 16 — Hardening & LTS Cut
 
 **Purpose:** Finalize CSC for long-term stability.  

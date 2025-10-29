@@ -1,4 +1,4 @@
-current_phase: 16
-current_checkpoint: 5
-checkpoint_title: Hardening & LTS Cut
+current_phase: 17
+current_checkpoint: 3
+checkpoint_title: Evo Bundle I/O
 allow_behavior_change: false

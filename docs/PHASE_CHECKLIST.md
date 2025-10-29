@@ -2,6 +2,10 @@
 
 | Phase | Checkpoint | Title | ✅ | Summary |
 |--------|-------------|-------|---|----------|
+| P17·C0 | Docs Kickoff (Evo Bundle I/O) | ✅ Complete | roadmap + checklist entries for bundle I/O |
+| P17·C1 | Bundle Export (CSC → Evo) | ✅ Complete | export_bundle() zips manifest/report/journal/decisions |
+| P17·C2 | Bundle Import (Evo → CSC) | ✅ Complete | import_evo_bundle() reads/normalizes spec, verifies schemas |
+| P17·C3 | Docs & Patch Tag | ✅ Complete | Bible entry and version bump to 1.0.1-lts |
 | P16·C0 | Docs Kickoff & Guardrails | ✅ Complete | freeze new features and define LTS criteria |
 | P16·C1 | Performance & Memory Profiling | ✅ Complete | profiling tools added under tools/ |
 | P16·C2 | Schema Freeze & Validation | ✅ Complete | journal/summary schemas locked to v1.1 |
