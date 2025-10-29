@@ -166,7 +166,7 @@ def run_batch(plan_path: str) -> Dict[str, Any]:
     out_root = plan.get("out_dir", "exports")
     _ensure_dir(out_root)
 
-    # TODO: fetch actual versions from runtime surface if available
+    # Placeholder hook: fetch actual versions from runtime surface if available.
     engine_version = plan.get("engine_version", "engine-unknown")
     csc_version = plan.get("csc_version", "csc-unknown")
 

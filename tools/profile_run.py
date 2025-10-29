@@ -11,22 +11,24 @@ import time
 import tracemalloc
 from pathlib import Path
 
-from crapssim_control.cli import _build_parser
+from crapssim_control import controller
+from crapssim_control.spec_loader import load_spec_file
 
 
 def main(spec_path: str) -> None:
     spec_path_obj = Path(spec_path)
     if not spec_path_obj.exists():
         raise FileNotFoundError(spec_path)
+    spec, _ = load_spec_file(spec_path_obj)
+    try:
+        spec["_csc_spec_path"] = str(spec_path_obj)
+    except Exception:
+        pass
+    if not hasattr(controller, "run"):
+        raise RuntimeError("controller.run is unavailable in this build")
     tracemalloc.start()
     t0 = time.time()
-    parser = _build_parser()
-    args = parser.parse_args(["run", str(spec_path_obj)])
-    run_func = getattr(args, "func", None)
-    if callable(run_func):
-        run_func(args)
-    else:
-        raise RuntimeError("CLI parser did not attach run handler")
+    controller.run(spec)
     elapsed = time.time() - t0
     current, peak = tracemalloc.get_traced_memory()
     tracemalloc.stop()

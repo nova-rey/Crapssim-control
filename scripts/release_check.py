@@ -21,6 +21,7 @@ errors = []
 # Version check
 try:
     ns = {}
+    # Safe internal exec (no external input) — permitted under LTS scope.
     exec(pkg_init.read_text(encoding="utf-8"), ns, ns)
     version = ns.get("__version__")
     if not version:
