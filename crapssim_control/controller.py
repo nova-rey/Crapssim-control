@@ -28,6 +28,13 @@ from crapssim_control.external.http_api import (
 )
 from crapssim_control.integrations.webhooks import WebhookPublisher
 from crapssim_control.rules_engine.actions import ACTIONS, is_legal_timing
+from crapssim_control.behavior import (
+    BehaviorEngine,
+    DecisionsJournal,
+    DecisionAttempt,
+    DSLSpecError,
+    parse_rules,
+)
 from crapssim_control.report_hook import maybe_enrich_report  # P13·C3: enrich per-run report
 from crapssim_control.plugins.runtime import (
     load_plugins_for_spec,
@@ -211,6 +218,38 @@ class ControlStrategy:
         )
         if self.external_mode == "replay":
             self.webhooks.enabled = False
+
+        # Phase 19: DSL behavior engine (flag gated)
+        self._dsl_engine: Optional[BehaviorEngine] = None
+        self._dsl_journal: Optional[DecisionsJournal] = None
+        self._dsl_enabled: bool = False
+        self._dsl_once_per_window: bool = True
+        self._dsl_verbose_journal: bool = False
+        self._dsl_roll_index: int = 0
+        self._dsl_last_roll_total: Optional[int] = None
+        self._dsl_initial_bankroll: Optional[float] = None
+
+        run_dict = run_block if isinstance(run_block, dict) else {}
+        self._dsl_once_per_window = bool(run_dict.get("dsl_once_per_window", True))
+        self._dsl_verbose_journal = bool(run_dict.get("dsl_verbose_journal", False))
+        dsl_flag = bool(run_dict.get("dsl", False))
+        if dsl_flag:
+            try:
+                rules = parse_rules(spec)
+            except DSLSpecError as exc:  # pragma: no cover - surfaced in tests
+                raise RuntimeError(f"DSL_SPEC_INVALID: {exc}") from exc
+            artifacts_dir_value = run_dict.get("artifacts_dir")
+            if isinstance(artifacts_dir_value, (str, Path)) and str(artifacts_dir_value):
+                artifacts_path = str(artifacts_dir_value)
+            else:
+                artifacts_path = "export"
+            self._dsl_engine = BehaviorEngine(
+                rules,
+                once_per_window=self._dsl_once_per_window,
+                verbose=self._dsl_verbose_journal,
+            )
+            self._dsl_journal = DecisionsJournal(artifacts_path, verbose=self._dsl_verbose_journal)
+            self._dsl_enabled = True
         self.table_cfg = table_cfg or spec.get("table") or {}
         self.point: Optional[int] = None
         self.rolls_since_point: int = 0
@@ -398,6 +437,19 @@ class ControlStrategy:
         self._analytics_session_closed: bool = False
 
         self._init_tracker()
+        if self._dsl_initial_bankroll is None:
+            baseline = None
+            if self._tracker_session_ctx is not None:
+                try:
+                    baseline = float(getattr(self._tracker_session_ctx, "bankroll", 0.0))
+                except Exception:
+                    baseline = getattr(self._tracker_session_ctx, "bankroll", None)
+            if baseline is None:
+                baseline = self._bankroll_best_effort()
+            try:
+                self._dsl_initial_bankroll = float(baseline) if baseline is not None else None
+            except Exception:
+                self._dsl_initial_bankroll = None
         self._update_outbound_from_flags(self._cli_flags_context)
         self._load_internal_rules()
 
@@ -1418,6 +1470,229 @@ class ControlStrategy:
             self._journal_enabled = False
             self._journal = None
 
+    # ----- Phase 19 helpers -----
+
+    def _dsl_prepare_for_event(self, event_type: Optional[str]) -> None:
+        if not self._dsl_enabled or self._dsl_engine is None:
+            return
+        if not event_type:
+            return
+        if event_type in {COMEOUT, POINT_ESTABLISHED, ROLL, SEVEN_OUT}:
+            self._dsl_engine.on_scope_advance("roll")
+            self._dsl_roll_index += 1
+        if event_type == COMEOUT:
+            self._dsl_engine.on_scope_advance("hand")
+        if event_type in {POINT_ESTABLISHED, SEVEN_OUT}:
+            self._dsl_engine.on_scope_advance("point_cycle")
+
+    def _dsl_snapshot(self, event: Dict[str, Any]) -> Dict[str, Any]:
+        tracker = self._tracker
+        bankroll_val: float = 0.0
+        drawdown_val: float = 0.0
+        profit_val: float = 0.0
+        if tracker is not None:
+            try:
+                bankroll_val = float(tracker.bankroll)
+            except Exception:
+                bankroll_val = float(self._bankroll_best_effort() or 0.0)
+            try:
+                drawdown_val = float(tracker.bankroll_peak - tracker.bankroll)
+            except Exception:
+                drawdown_val = 0.0
+            if self._dsl_initial_bankroll is not None:
+                profit_val = bankroll_val - self._dsl_initial_bankroll
+        else:
+            base_bankroll = self._bankroll_best_effort()
+            if base_bankroll is not None:
+                bankroll_val = float(base_bankroll)
+                if self._dsl_initial_bankroll is not None:
+                    profit_val = bankroll_val - self._dsl_initial_bankroll
+
+        if self._dsl_initial_bankroll is None and bankroll_val:
+            self._dsl_initial_bankroll = bankroll_val
+
+        hand_id_val = 0
+        roll_in_hand_val = 0
+        pso_count_val = 0
+        if tracker is not None:
+            try:
+                hand_id_val = int(tracker.hand_id)
+            except Exception:
+                hand_id_val = 0
+            try:
+                roll_in_hand_val = int(tracker.roll_in_hand)
+            except Exception:
+                roll_in_hand_val = 0
+            try:
+                pso_count_val = int(getattr(tracker, "pso_count", 0))
+            except Exception:
+                pso_count_val = 0
+        else:
+            hand_id_val = int(getattr(self, "_hands_played_fallback", 0))
+            roll_in_hand_val = int(self.rolls_since_point)
+
+        point_on_val = bool(event.get("point_on", self.point is not None))
+        point_number_val = event.get("point") if event.get("point") is not None else self.point
+        try:
+            if point_number_val is not None:
+                point_number_val = int(point_number_val)
+        except Exception:
+            point_number_val = None
+
+        roll_val = event.get("roll")
+        if roll_val is None:
+            roll_val = event.get("total")
+        if isinstance(roll_val, (int, float)):
+            self._dsl_last_roll_total = int(roll_val)
+        last_total_val = int(self._dsl_last_roll_total or 0)
+
+        box_hits_raw = event.get("box_hits")
+        box_hits_val = 0
+        if isinstance(box_hits_raw, (int, float)):
+            box_hits_val = int(box_hits_raw)
+        elif isinstance(box_hits_raw, (list, tuple)):
+            box_hits_val = len(box_hits_raw)
+        elif isinstance(box_hits_raw, dict):
+            try:
+                box_hits_val = sum(1 for _k, v in box_hits_raw.items() if v)
+            except Exception:
+                box_hits_val = 0
+
+        seed_val = None
+        if self._seed_value is not None:
+            try:
+                seed_val = int(self._seed_value)
+            except Exception:
+                seed_val = self._seed_value
+
+        return {
+            "roll_index": self._dsl_roll_index,
+            "bankroll": bankroll_val,
+            "drawdown": drawdown_val,
+            "profit": profit_val,
+            "hand_id": hand_id_val,
+            "roll_in_hand": roll_in_hand_val,
+            "point_on": bool(point_on_val),
+            "point_number": point_number_val,
+            "last_roll_total": last_total_val,
+            "pso_count": pso_count_val,
+            "box_hits": box_hits_val,
+            "seed": seed_val,
+            "run_id": self.run_id,
+        }
+
+    def _dsl_legality_gate(
+        self,
+        window: str,
+        intent: Dict[str, Any],
+        current_bets: Optional[Dict[str, Any]],
+    ) -> Optional[str]:
+        if not intent:
+            return None
+        verb = str(intent.get("verb") or "")
+        allowed_windows = {
+            "switch_profile": {"come_out_start", "after_point_set", "after_resolve", "hand_end"},
+            "apply_policy": {"come_out_start", "after_point_set", "after_resolve", "hand_end"},
+            "press": {"after_resolve"},
+            "regress": {"after_resolve"},
+        }
+        allowed = allowed_windows.get(verb)
+        if allowed is not None and window not in allowed:
+            return "ILLEGAL_WINDOW"
+        bets = current_bets if isinstance(current_bets, dict) else {}
+        if verb in {"press", "regress"}:
+            bet_key = str(intent.get("bet") or "").strip()
+            if not bet_key or bet_key not in bets:
+                return "NO_SUCH_BET"
+            try:
+                units = int(intent.get("units", 0))
+            except Exception:
+                units = 0
+            if units <= 0:
+                return "INCREMENT_INVALID"
+            bankroll_candidate: Optional[float] = None
+            if self._tracker is not None:
+                try:
+                    bankroll_candidate = float(self._tracker.bankroll)
+                except Exception:
+                    bankroll_candidate = None
+            if bankroll_candidate is None:
+                base_bankroll = self._bankroll_best_effort()
+                if base_bankroll is not None:
+                    try:
+                        bankroll_candidate = float(base_bankroll)
+                    except Exception:
+                        bankroll_candidate = None
+            if bankroll_candidate is not None and bankroll_candidate <= 0:
+                return "INSUFFICIENT_BANKROLL"
+        return None
+
+    def _apply_dsl_intent(self, intent: Dict[str, Any]) -> None:
+        verb = str(intent.get("verb") or "")
+        if not verb or verb not in ACTIONS:
+            return
+        args_payload = {k: v for k, v in intent.items() if k != "verb"}
+        try:
+            ACTIONS[verb].execute(self.__dict__, {"args": args_payload})
+        except Exception:
+            attempt = getattr(self._dsl_engine, "last_attempt", None)
+            if attempt is not None and self._dsl_journal is not None:
+                self._dsl_journal.write(
+                    DecisionAttempt(
+                        roll_index=attempt.roll_index,
+                        window=attempt.window,
+                        rule_id=attempt.rule_id,
+                        origin=attempt.origin,
+                        when_expr=attempt.when_expr,
+                        evaluated_true=attempt.evaluated_true,
+                        verb=attempt.verb,
+                        args=attempt.args,
+                        legal=True,
+                        applied=False,
+                        reason="APPLY_ERROR",
+                    )
+                )
+
+    def _evaluate_window(
+        self,
+        window_name: str,
+        event: Dict[str, Any],
+        current_bets: Optional[Dict[str, Any]],
+    ) -> None:
+        if not self._dsl_enabled or self._dsl_engine is None or self._dsl_journal is None:
+            return
+        snapshot = self._dsl_snapshot(event)
+        intent = self._dsl_engine.evaluate_window(window_name, snapshot, self._dsl_journal)
+        if not intent:
+            return
+        attempt = self._dsl_engine.last_attempt
+        reason = self._dsl_legality_gate(window_name, intent, current_bets)
+        if reason:
+            args_payload: Dict[str, Any]
+            verb = str(intent.get("verb") or "")
+            if attempt is not None:
+                args_payload = dict(attempt.args)
+                verb = attempt.verb
+            else:
+                args_payload = {k: v for k, v in intent.items() if k != "verb"}
+            self._dsl_journal.write(
+                DecisionAttempt(
+                    roll_index=int(snapshot.get("roll_index", 0)),
+                    window=window_name,
+                    rule_id=attempt.rule_id if attempt is not None else "unknown",
+                    origin=attempt.origin if attempt is not None else "dsl",
+                    when_expr=attempt.when_expr if attempt is not None else "",
+                    evaluated_true=attempt.evaluated_true if attempt is not None else True,
+                    verb=verb,
+                    args=args_payload,
+                    legal=False,
+                    applied=False,
+                    reason=reason,
+                )
+            )
+            return
+        self._apply_dsl_intent(intent)
+
     @staticmethod
     def _extract_amount(val: Any) -> float:
         if isinstance(val, (int, float)):
@@ -1635,6 +1910,14 @@ class ControlStrategy:
         event = canonicalize_event(event or {})
         ev_type = event.get("type")
 
+        roll_val = event.get("roll")
+        if roll_val is None:
+            roll_val = event.get("total")
+        if isinstance(roll_val, (int, float)):
+            self._dsl_last_roll_total = int(roll_val)
+
+        self._dsl_prepare_for_event(ev_type)
+
         template_and_regress: List[Dict[str, Any]] = []
         rule_actions: List[Dict[str, Any]] = []
 
@@ -1645,6 +1928,7 @@ class ControlStrategy:
             self.on_comeout = True
 
             self._analytics_record_roll(event)
+            self._evaluate_window("come_out_start", event, current_bets)
 
             rule_actions = self._apply_rules_for_event(event)
             switches, setvars, rule_non_special = self._split_switch_setvar_other(rule_actions)
@@ -1672,6 +1956,7 @@ class ControlStrategy:
             self.on_comeout = self.point in (None, 0)
 
             self._analytics_record_roll(event)
+            self._evaluate_window("after_point_set", event, current_bets)
 
             rule_actions = self._apply_rules_for_event(event)
             switches, setvars, rule_non_special = self._split_switch_setvar_other(rule_actions)
@@ -1735,6 +2020,7 @@ class ControlStrategy:
                     )
 
             self._analytics_record_roll(event)
+            self._evaluate_window("after_resolve", event, current_bets)
 
             current_state = self._current_state_for_eval()
             tracker = self._tracker
@@ -1865,6 +2151,8 @@ class ControlStrategy:
             self.point = None
             self.rolls_since_point = 0
             self.on_comeout = True
+
+            self._evaluate_window("hand_end", event, current_bets)
 
             rule_actions = self._apply_rules_for_event(event)
             switches, setvars, rule_non_special = self._split_switch_setvar_other(rule_actions)
@@ -2256,6 +2544,10 @@ class ControlStrategy:
 
         report["journal_schema_version"] = JOURNAL_SCHEMA_VERSION
         report["summary_schema_version"] = SUMMARY_SCHEMA_VERSION
+        report["capabilities"] = {
+            "verbs": ["switch_profile", "press", "regress", "apply_policy"],
+            "dsl": bool(self._dsl_enabled),
+        }
 
         report_file: Optional[Path] = None
         if isinstance(report_path, (str, Path)) and str(report_path):

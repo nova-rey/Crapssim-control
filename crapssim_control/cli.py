@@ -444,14 +444,6 @@ def _merge_cli_run_flags(spec: Dict[str, Any], args: argparse.Namespace) -> None
         sources["embed_analytics"] = "cli"
         changed = True
 
-    if getattr(args, "dsl_trace", False):
-        journal_blk = run_dict.get("journal")
-        if not isinstance(journal_blk, dict):
-            journal_blk = {}
-        journal_blk["dsl_trace"] = True
-        run_dict["journal"] = journal_blk
-        changed = True
-
     if sources:
         run_dict["_csc_flag_sources"] = sources
     elif "_csc_flag_sources" in run_dict:
@@ -770,11 +762,6 @@ def run(args: argparse.Namespace) -> int:
             raise RuntimeError(reason or "engine adapter scaffolding not connected")
 
         adapter = adapter_cls()
-        if getattr(args, "dsl", None) and hasattr(adapter, "load_ruleset"):
-            try:
-                adapter.load_ruleset(str(args.dsl))
-            except Exception as exc:
-                print(f"warn: failed to load DSL ruleset: {exc}", file=sys.stderr)
         if not hasattr(adapter, "attach"):
             raise RuntimeError("engine adapter missing attach() implementation")
         attach_result = adapter.attach(spec)
@@ -789,11 +776,6 @@ def run(args: argparse.Namespace) -> int:
                 print(f"Risk policy active: {json.dumps(risk_overrides, separators=(',',':'))}")
             except Exception:
                 print("Risk policy active: overrides applied")
-        if getattr(args, "dsl_trace", False) and hasattr(adapter, "enable_dsl_trace"):
-            try:
-                adapter.enable_dsl_trace(True)
-            except Exception:
-                log.debug("failed to enable DSL trace on adapter", exc_info=True)
         table = attach_result.table
         # CRITICAL: seed the actual dice/rng instance now that it exists
         _force_seed_on_table(table, seed_int)
@@ -841,6 +823,11 @@ def run(args: argparse.Namespace) -> int:
         print(f"RESULT: rolls={rolls}")
 
     run_config = spec_run
+    run_config["dsl"] = bool(getattr(args, "dsl", False))
+    run_config["dsl_once_per_window"] = bool(getattr(args, "dsl_once_per_window", True))
+    run_config["dsl_verbose_journal"] = bool(
+        getattr(args, "dsl_verbose_journal", False)
+    )
     print(
         "Schema versions → "
         f"journal={run_config.get('journal_schema_version', JOURNAL_SCHEMA_VERSION)} "
@@ -1003,14 +990,20 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     p_run.add_argument(
         "--dsl",
-        type=str,
-        default=None,
-        help="Path to DSL rule file (WHEN ... THEN ...)",
+        action="store_true",
+        help="Enable DSL rule evaluation (behavior.rules)",
     )
     p_run.add_argument(
-        "--dsl-trace",
+        "--dsl-once-per-window",
         action="store_true",
-        help="Enable DSL rule evaluation tracing in journal.",
+        default=True,
+        help="Stop after first applied rule per window (MVP)",
+    )
+    p_run.add_argument(
+        "--dsl-verbose-journal",
+        action="store_true",
+        default=False,
+        help="Journal non-triggering evaluations",
     )
     # runtime flag overrides
     p_run.add_argument(

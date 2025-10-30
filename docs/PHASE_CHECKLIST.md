@@ -2,6 +2,11 @@
 
 | Phase | Checkpoint | Title | ✅ | Summary |
 |--------|-------------|-------|---|----------|
+| P19·C0 | Docs Kickoff — DSL MVP | ✅ Complete | brief and constraints added |
+| P19·C1 | Parser & Validation | ✅ Complete | WHEN/THEN parse, whitelist vars, errors |
+| P19·C2 | Evaluator & Verbs | ✅ Complete | windows, cooldown, scope, conflict rule |
+| P19·C3 | Controller Integration | ✅ Complete | flag-gated, legality gate, journaling |
+| P19·C4 | Tests & Capabilities | ✅ Complete | seeded determinism, capabilities in report |
 | P18·C0 | Docs Kickoff — Evo Job Intake | ✅ Complete | Add File-Drop + HTTP job specs |
 | P18·C1 | Lane A — File-Drop Watcher | ✅ Complete | jobs/incoming → runs/*_results + receipts |
 | P18·C2 | Lane B — HTTP Job Queue | ✅ Complete | POST /runs + GET /runs/{id}, idempotent |
