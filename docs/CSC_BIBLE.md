@@ -870,8 +870,17 @@ Enable
 
 **`NOVA_AGENT_ENTRYPOINT.yaml`**
 ```yaml
-current_phase: 18
-current_checkpoint: 3
-checkpoint_title: Evo Job Intake (File-Drop + HTTP)
-allow_behavior_change: false
+current_phase: 19
+current_checkpoint: 4
+checkpoint_title: DSL MVP — Deterministic Behavior Switching
+allow_behavior_change: true
 ```
+
+### Phase 19 — DSL MVP (Deterministic Behavior Switching)
+
+- Grammar: WHEN <condition> THEN <verb>(args); optional scope, cooldown, guards.
+- Windows: come_out_start, after_point_set, after_resolve, hand_end (once-per-window).
+- Verbs: switch_profile, press, regress, apply_policy.
+- Determinism: no randomness; spec order evaluation; journals every attempt to decisions.jsonl.
+- Flags: --dsl, --dsl-once-per-window (default true), --dsl-verbose-journal (default false).
+- Capabilities: report.capabilities.dsl=true and verbs list when enabled.

@@ -1,4 +1,4 @@
-current_phase: 17
-current_checkpoint: 3
-checkpoint_title: Evo Bundle I/O
-allow_behavior_change: false
+current_phase: 19
+current_checkpoint: 4
+checkpoint_title: DSL MVP — Deterministic Behavior Switching
+allow_behavior_change: true
