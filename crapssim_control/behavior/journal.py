@@ -4,6 +4,7 @@ from pathlib import Path
 from dataclasses import dataclass, asdict
 from typing import Any, Dict, Optional
 
+
 @dataclass
 class DecisionAttempt:
     roll_index: int
@@ -13,13 +14,15 @@ class DecisionAttempt:
     when_expr: str
     evaluated_true: bool
     verb: str
-    args: Dict[str,Any]
+    args: Dict[str, Any]
     legal: bool
     applied: bool
     reason: Optional[str] = None
 
+
 DecisionResult = DecisionAttempt  # alias
-DecisionSnapshot = Dict[str,Any]
+DecisionSnapshot = Dict[str, Any]
+
 
 class DecisionsJournal:
     def __init__(self, artifacts_dir: str, verbose: bool = False):
@@ -29,4 +32,4 @@ class DecisionsJournal:
 
     def write(self, attempt: DecisionAttempt) -> None:
         with self.path.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(asdict(attempt), separators=(",",":")) + "\n")
+            f.write(json.dumps(asdict(attempt), separators=(",", ":")) + "\n")

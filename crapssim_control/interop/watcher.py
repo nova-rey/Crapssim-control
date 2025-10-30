@@ -136,7 +136,9 @@ def run_watcher(
                     run_id=f"error-{int(time.time())}",
                     error_code="ENGINE_FAIL",
                     error_detail=str(e),
-                    partial_results_root=str(cfg.root / f"{cfg.results_root}/{job.generation}_results"),
+                    partial_results_root=str(
+                        cfg.root / f"{cfg.results_root}/{job.generation}_results"
+                    ),
                 )
                 write_json(cfg.done_dir / f"{job.request_id}.done.json", err.__dict__)
             finally:

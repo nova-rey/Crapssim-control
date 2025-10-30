@@ -1,7 +1,5 @@
-phase: 19
-checkpoint: 4
-title: DSL MVP — Deterministic Behavior Switching
-description: >
-  Adds a minimal rule DSL (WHEN <cond> THEN <verb>) evaluated at legal windows with cooldown/scope.
-  Flag-gated (off by default). Journals decisions.jsonl and echoes capabilities in report.
-status: complete
+phase: 15
+checkpoint: 1
+title: Explain + decisions.csv
+description: Add run --explain and decisions.csv trace with applied/rejected decisions.
+status: active

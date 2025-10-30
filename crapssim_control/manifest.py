@@ -21,7 +21,7 @@ def generate_manifest(
     run_id: str | None = None,
 ):
     manifest_run_id = str(run_id) if run_id else str(uuid4())
-    return {
+    manifest = {
         "run_id": manifest_run_id,
         "timestamp": iso_now(),
         "spec_file": spec_file,
@@ -43,6 +43,15 @@ def generate_manifest(
         "risk_overrides": {},
         "ui": {"report_url": None, "journal_url": None},
     }
+
+    manifest["run"] = {
+        "flags": {
+            "explain": bool(cli_flags.get("explain", False)),
+            "human_summary": bool(cli_flags.get("human_summary", False)),
+        }
+    }
+
+    return manifest
 
 
 def _resolve_capabilities(adapter: Any | None) -> Dict[str, Any]:

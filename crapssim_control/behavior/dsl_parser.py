@@ -4,19 +4,31 @@ from dataclasses import dataclass
 from typing import Any, Dict, List
 
 _WHITELIST_VARS = {
-    "bankroll","drawdown","profit",
-    "hand_id","roll_in_hand","point_on","point_number","last_roll_total",
-    "pso_count","box_hits","seed","run_id"
+    "bankroll",
+    "drawdown",
+    "profit",
+    "hand_id",
+    "roll_in_hand",
+    "point_on",
+    "point_number",
+    "last_roll_total",
+    "pso_count",
+    "box_hits",
+    "seed",
+    "run_id",
 }
-_WINDOWS = {"come_out_start","after_point_set","after_resolve","hand_end"}
+_WINDOWS = {"come_out_start", "after_point_set", "after_resolve", "hand_end"}
 _VERB_SIGS = {
     "switch_profile": {"name"},
-    "press": {"bet","units"},
-    "regress": {"bet","units"},
+    "press": {"bet", "units"},
+    "regress": {"bet", "units"},
     "apply_policy": {"name"},
 }
 
-class DSLSpecError(Exception): pass
+
+class DSLSpecError(Exception):
+    pass
+
 
 @dataclass
 class RuleDef:
@@ -24,8 +36,9 @@ class RuleDef:
     when: str
     then: str
     scope: str | None
-    cooldown: Dict[str,int] | None
+    cooldown: Dict[str, int] | None
     guards: List[str]
+
 
 def _validate_expr(expr: str) -> None:
     if "(" in expr or ")" in expr:
@@ -38,9 +51,11 @@ def _validate_expr(expr: str) -> None:
         raise DSLSpecError("String literals not allowed")
     # variable names must be whitelisted
     for tok in re.findall(r"[A-Za-z_]\w*", expr):
-        if tok in {"and","or","not","true","false"}: continue
+        if tok in {"and", "or", "not", "true", "false"}:
+            continue
         if tok not in _WHITELIST_VARS:
             raise DSLSpecError(f"Unknown variable in expression: {tok}")
+
 
 def _parse_then(then: str) -> tuple[str, Dict[str, Any]]:
     m = re.match(r"\s*([a-z_]+)\s*\((.*)\)\s*$", then)
@@ -49,14 +64,16 @@ def _parse_then(then: str) -> tuple[str, Dict[str, Any]]:
     verb, args_src = m.group(1), m.group(2).strip()
     if verb not in _VERB_SIGS:
         raise DSLSpecError(f"Unknown verb: {verb}")
-    args: Dict[str,Any] = {}
+    args: Dict[str, Any] = {}
     if args_src:
         # very small parser: key=value, value numeric or bare identifier
         for part in [x.strip() for x in args_src.split(",") if x.strip()]:
-            k,v = [p.strip() for p in part.split("=",1)]
+            k, v = [p.strip() for p in part.split("=", 1)]
             # numbers
-            if re.fullmatch(r"-?\d+", v): args[k] = int(v)
-            elif re.fullmatch(r"-?\d+\.\d+", v): args[k] = float(v)
+            if re.fullmatch(r"-?\d+", v):
+                args[k] = int(v)
+            elif re.fullmatch(r"-?\d+\.\d+", v):
+                args[k] = float(v)
             else:
                 # bare identifier string like place_6 must be quoted in journaling
                 args[k] = v.strip("'").strip('"')
@@ -67,9 +84,11 @@ def _parse_then(then: str) -> tuple[str, Dict[str, Any]]:
         raise DSLSpecError(f"Verb {verb} missing args: {missing}")
     return verb, args
 
-def parse_rules(spec: Dict[str,Any]) -> List[RuleDef]:
+
+def parse_rules(spec: Dict[str, Any]) -> List[RuleDef]:
     behavior = (spec or {}).get("behavior")
-    if not behavior: return []
+    if not behavior:
+        return []
     if behavior.get("schema_version") != "1.0":
         raise DSLSpecError("behavior.schema_version must be '1.0'")
     rules = behavior.get("rules") or []
@@ -86,7 +105,16 @@ def parse_rules(spec: Dict[str,Any]) -> List[RuleDef]:
         verb, args = _parse_then(then)
         scope = r.get("scope")  # "roll"|"hand"|"point_cycle"|None
         cd = r.get("cooldown")
-        out.append(RuleDef(id=rid, when=when, then=f"{verb}", scope=scope, cooldown=cd, guards=r.get("guards") or []))
+        out.append(
+            RuleDef(
+                id=rid,
+                when=when,
+                then=f"{verb}",
+                scope=scope,
+                cooldown=cd,
+                guards=r.get("guards") or [],
+            )
+        )
         # store args back for evaluator via an attached field
         out[-1].args = args  # type: ignore[attr-defined]
     return out

@@ -14,6 +14,7 @@ dist/
 build/
 *.egg-info/
 *.egg
+artifacts/
 
 # Generated baseline artifacts (created by simulate_rounds)
 baselines/*

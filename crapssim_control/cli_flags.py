@@ -13,6 +13,8 @@ class CLIFlags:
     embed_analytics_source: str = "default"
     export: bool = False
     export_source: str = "default"
+    explain: bool = False
+    explain_source: str = "default"
     webhook_url: str | None = None
     webhook_url_source: str = "default"
     webhook_timeout: float = 2.0
@@ -40,6 +42,10 @@ def parse_flags(args):
     if "--export" in args:
         flags.export = True
         flags.export_source = "cli"
+
+    if "--explain" in args:
+        flags.explain = True
+        flags.explain_source = "cli"
 
     if "--webhook-url" in args:
         try:
@@ -75,6 +81,7 @@ def parse_flags(args):
     flags.demo_fallbacks_source = flags.demo_fallbacks_source or "default"
     flags.embed_analytics_source = flags.embed_analytics_source or "default"
     flags.export_source = flags.export_source or "default"
+    flags.explain_source = flags.explain_source or "default"
     flags.webhook_enabled_source = flags.webhook_enabled_source or "default"
     if flags.webhook_url:
         flags.webhook_url_source = flags.webhook_url_source or "cli"
