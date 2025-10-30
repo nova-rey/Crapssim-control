@@ -384,6 +384,7 @@ def _merge_cli_run_flags(spec: Dict[str, Any], args: argparse.Namespace) -> None
             demo_fallbacks=bool(getattr(args, "demo_fallbacks", False)),
             embed_analytics=not bool(getattr(args, "no_embed_analytics", False)),
             export=bool(getattr(args, "export", None)),
+            explain=bool(getattr(args, "explain", False)),
             webhook_url=getattr(args, "webhook_url", None),
             webhook_timeout=(
                 float(getattr(args, "webhook_timeout", 2.0))
@@ -410,6 +411,8 @@ def _merge_cli_run_flags(spec: Dict[str, Any], args: argparse.Namespace) -> None
             cli_flags_obj.webhook_enabled_source = "cli"
         if getattr(args, "no_webhook", False):
             cli_flags_obj.webhook_enabled_source = "cli"
+        if getattr(args, "explain", False):
+            cli_flags_obj.explain_source = "cli"
         setattr(args, "_cli_flags", cli_flags_obj)
 
     run_blk = spec.get("run")
@@ -433,6 +436,15 @@ def _merge_cli_run_flags(spec: Dict[str, Any], args: argparse.Namespace) -> None
     if cli_flags_obj.strict:
         run_dict["strict"] = True
         sources["strict"] = "cli"
+        changed = True
+
+    if cli_flags_obj.explain:
+        journal_blk = run_dict.get("journal")
+        if not isinstance(journal_blk, dict):
+            journal_blk = {}
+        journal_blk["dsl_trace"] = True
+        run_dict["journal"] = journal_blk
+        sources["explain"] = "cli"
         changed = True
 
     if not cli_flags_obj.embed_analytics:
@@ -825,9 +837,7 @@ def run(args: argparse.Namespace) -> int:
     run_config = spec_run
     run_config["dsl"] = bool(getattr(args, "dsl", False))
     run_config["dsl_once_per_window"] = bool(getattr(args, "dsl_once_per_window", True))
-    run_config["dsl_verbose_journal"] = bool(
-        getattr(args, "dsl_verbose_journal", False)
-    )
+    run_config["dsl_verbose_journal"] = bool(getattr(args, "dsl_verbose_journal", False))
     print(
         "Schema versions → "
         f"journal={run_config.get('journal_schema_version', JOURNAL_SCHEMA_VERSION)} "
@@ -1108,6 +1118,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "--rng-audit",
         action="store_true",
         help="(scaffold) Print RNG inspection info (does not affect results).",
+    )
+    p_run.add_argument(
+        "--explain",
+        action="store_true",
+        help="Print rule decisions and write artifacts/<run_id>/decisions.csv",
     )
     p_run.set_defaults(func=_cmd_run)
 

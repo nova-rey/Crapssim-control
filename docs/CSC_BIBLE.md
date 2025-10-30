@@ -884,3 +884,6 @@ allow_behavior_change: true
 - Determinism: no randomness; spec order evaluation; journals every attempt to decisions.jsonl.
 - Flags: --dsl, --dsl-once-per-window (default true), --dsl-verbose-journal (default false).
 - Capabilities: report.capabilities.dsl=true and verbs list when enabled.
+
+### Phase 15 · C1 — Explain + decisions.csv
+Added `--explain` mode and a deterministic `decisions.csv` written per legal decision window. No default behavior changes.

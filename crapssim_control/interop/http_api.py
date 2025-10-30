@@ -14,7 +14,9 @@ from .util import sha256_file
 class JobsHTTP:
     """Optional HTTP job queue: POST /runs, GET /runs/{id}."""
 
-    def __init__(self, surface: ControlSurface, cfg: JobIntakeConfig, *, max_inflight: int | None = None):
+    def __init__(
+        self, surface: ControlSurface, cfg: JobIntakeConfig, *, max_inflight: int | None = None
+    ):
         self.surface = surface
         self.cfg = cfg
         self.max_inflight = max_inflight or cfg.max_inflight
@@ -48,7 +50,10 @@ class JobsHTTP:
             if str(calc) != str(bundle_id):
                 handler._json(
                     422,
-                    {"error": "BUNDLE_HASH_MISMATCH", "detail": f"expected {bundle_id}, got {calc}"},
+                    {
+                        "error": "BUNDLE_HASH_MISMATCH",
+                        "detail": f"expected {bundle_id}, got {calc}",
+                    },
                 )
                 return
 
@@ -56,7 +61,9 @@ class JobsHTTP:
             spec.setdefault("seed", seed)
             spec.setdefault("run", {})
             spec["run"]["strict"] = bool(flags.get("strict", self.cfg.strict_default))
-            spec["run"]["demo_fallbacks"] = bool(flags.get("demo_fallbacks", self.cfg.demo_fallbacks_default))
+            spec["run"]["demo_fallbacks"] = bool(
+                flags.get("demo_fallbacks", self.cfg.demo_fallbacks_default)
+            )
             if max_rolls is not None:
                 spec["run"]["max_rolls"] = int(max_rolls)
 

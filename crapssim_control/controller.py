@@ -44,6 +44,7 @@ from crapssim_control.plugins.runtime import (
 )
 from crapssim_control.plugins.registry import PluginRegistry
 from crapssim_control.plugins.loader import PluginLoader
+from .run.decisions_trace import DecisionsTrace
 
 from .actions import make_action  # Action Envelope helper
 from .analytics.tracker import Tracker
@@ -130,6 +131,8 @@ class ControlStrategy:
         *,
         spec_path: Optional[str | Path] = None,
         cli_flags: Optional[Any] = None,
+        explain: bool = False,
+        decisions_writer: Optional[DecisionsTrace] = None,
     ) -> None:
         embedded_deprecations: List[Dict[str, Any]] = []
         if spec_deprecations is not None:
@@ -157,13 +160,47 @@ class ControlStrategy:
         self._command_tape: Optional[CommandTape] = None
         self._command_tape_path: Optional[str] = None
         self._replay_commands: Deque[Dict[str, Any]] = deque()
+        run_block = spec.get("run") if isinstance(spec, dict) else None
         adapter_cfg: Dict[str, Any] = {}
-        if isinstance(spec, dict):
-            run_block = spec.get("run")
-            if isinstance(run_block, dict):
-                raw_adapter = run_block.get("adapter")
-                if isinstance(raw_adapter, dict):
-                    adapter_cfg = raw_adapter
+        if isinstance(run_block, dict):
+            raw_adapter = run_block.get("adapter")
+            if isinstance(raw_adapter, dict):
+                adapter_cfg = raw_adapter
+
+        run_dict_for_flags = run_block if isinstance(run_block, dict) else {}
+        journal_cfg = run_dict_for_flags.get("journal")
+        if not isinstance(journal_cfg, dict):
+            journal_cfg = {}
+        artifacts_dir_value = run_dict_for_flags.get("artifacts_dir")
+        explain_cli = bool(self._cli_flags_context.get("explain", False))
+        explain_param = bool(explain)
+        explain_spec = bool(journal_cfg.get("dsl_trace", False))
+        explain_source = "default"
+        if explain_cli or explain_param:
+            explain_source = "cli"
+        elif explain_spec:
+            explain_source = "spec"
+        self._explain_mode: bool = bool(explain_cli or explain_param or explain_spec)
+        self._explain_flag_source: str = explain_source
+        self._human_summary_flag: bool = bool(self._cli_flags_context.get("human_summary", False))
+        self._decisions_writer: Optional[DecisionsTrace] = decisions_writer
+        self._decisions_writer_external: bool = decisions_writer is not None
+        self._decisions_trace_dir: Optional[Path] = None
+        if self._explain_mode and self._decisions_writer is None:
+            if isinstance(artifacts_dir_value, (str, Path)) and str(artifacts_dir_value):
+                decisions_dir = Path(artifacts_dir_value)
+            else:
+                base_root = Path(self._run_root or ".")
+                decisions_dir = base_root / "artifacts" / self._run_id
+            try:
+                decisions_dir.mkdir(parents=True, exist_ok=True)
+            except Exception:
+                pass
+            self._decisions_trace_dir = decisions_dir
+            self._decisions_writer = DecisionsTrace(decisions_dir)
+        elif self._decisions_writer is not None and isinstance(artifacts_dir_value, (str, Path)):
+            self._decisions_trace_dir = Path(artifacts_dir_value)
+
         adapter_enabled = bool(adapter_cfg.get("enabled", False))
         adapter_impl = str(adapter_cfg.get("impl", "null") or "null")
         if adapter_enabled and adapter_impl == "vanilla":
@@ -339,6 +376,14 @@ class ControlStrategy:
                 src_key = f"{key}_source"
                 if cli_flag_sources.get(src_key) == "cli":
                     flag_sources[key] = "cli"
+
+        flag_sources["explain"] = self._explain_flag_source
+        flag_sources["human_summary"] = (
+            "cli"
+            if self._human_summary_flag
+            and self._cli_flags_context.get("human_summary_source") == "cli"
+            else "default"
+        )
 
         self._flag_sources = flag_sources
 
@@ -854,6 +899,8 @@ class ControlStrategy:
             "embed_analytics_source",
             "export",
             "export_source",
+            "explain",
+            "explain_source",
             "webhook_enabled",
             "webhook_enabled_source",
             "webhook_url",
@@ -862,6 +909,8 @@ class ControlStrategy:
             "evo_enabled",
             "trial_tag",
             "command_tape_path",
+            "human_summary",
+            "human_summary_source",
         )
         if flags is None:
             return {}
@@ -1627,31 +1676,106 @@ class ControlStrategy:
                 return "INSUFFICIENT_BANKROLL"
         return None
 
-    def _apply_dsl_intent(self, intent: Dict[str, Any]) -> None:
+    def _record_decision_trace(
+        self,
+        snapshot: Dict[str, Any],
+        window_name: str,
+        attempt: Optional[DecisionAttempt],
+        *,
+        applied: bool,
+        reason: Optional[str],
+    ) -> None:
+        writer = getattr(self, "_decisions_writer", None)
+        explain = bool(getattr(self, "_explain_mode", False))
+        if attempt is None or (writer is None and not explain):
+            return
+
+        roll_val = snapshot.get("roll_index")
+        bankroll_val = snapshot.get("bankroll")
+        point_on_val = snapshot.get("point_on")
+        hand_id_val = snapshot.get("hand_id")
+        roll_in_hand_val = snapshot.get("roll_in_hand")
+        applied_flag = bool(applied)
+        reason_str = "" if reason is None else str(reason)
+        row = {
+            "roll": roll_val if roll_val is not None else "",
+            "window": window_name,
+            "rule_id": attempt.rule_id,
+            "when_expr": attempt.when_expr,
+            "evaluated_true": bool(getattr(attempt, "evaluated_true", False)),
+            "applied": applied_flag,
+            "reason": reason_str,
+            "bankroll": bankroll_val if bankroll_val is not None else "",
+            "point_on": bool(point_on_val) if point_on_val is not None else "",
+            "hand_id": hand_id_val if hand_id_val is not None else "",
+            "roll_in_hand": roll_in_hand_val if roll_in_hand_val is not None else "",
+        }
+
+        if writer is not None:
+            try:
+                writer.write(row)
+            except Exception:
+                pass
+
+        if explain:
+            status = "TRUE" if row["evaluated_true"] else "FALSE"
+            args_payload = getattr(attempt, "args", {}) or {}
+            args_render = ", ".join(f"{k}={args_payload[k]}" for k in sorted(args_payload.keys()))
+            applied_part = (
+                f" → {attempt.verb}({args_render})"
+                if applied_flag and args_render
+                else (f" → {attempt.verb}()" if applied_flag else "")
+            )
+            roll_label = row["roll"] if row["roll"] != "" else "?"
+            reason_display = reason_str or "ok"
+            print(
+                f"[roll {roll_label}] window={window_name}, {attempt.rule_id} {status}{applied_part} ({reason_display})"
+            )
+
+    def _apply_dsl_intent(
+        self,
+        intent: Dict[str, Any],
+        snapshot: Dict[str, Any],
+        attempt: Optional[DecisionAttempt],
+        window_name: str,
+    ) -> None:
         verb = str(intent.get("verb") or "")
         if not verb or verb not in ACTIONS:
             return
         args_payload = {k: v for k, v in intent.items() if k != "verb"}
         try:
             ACTIONS[verb].execute(self.__dict__, {"args": args_payload})
+            self._record_decision_trace(
+                snapshot,
+                window_name,
+                attempt,
+                applied=True,
+                reason=None,
+            )
         except Exception:
             attempt = getattr(self._dsl_engine, "last_attempt", None)
             if attempt is not None and self._dsl_journal is not None:
-                self._dsl_journal.write(
-                    DecisionAttempt(
-                        roll_index=attempt.roll_index,
-                        window=attempt.window,
-                        rule_id=attempt.rule_id,
-                        origin=attempt.origin,
-                        when_expr=attempt.when_expr,
-                        evaluated_true=attempt.evaluated_true,
-                        verb=attempt.verb,
-                        args=attempt.args,
-                        legal=True,
-                        applied=False,
-                        reason="APPLY_ERROR",
-                    )
+                record = DecisionAttempt(
+                    roll_index=attempt.roll_index,
+                    window=attempt.window,
+                    rule_id=attempt.rule_id,
+                    origin=attempt.origin,
+                    when_expr=attempt.when_expr,
+                    evaluated_true=attempt.evaluated_true,
+                    verb=attempt.verb,
+                    args=attempt.args,
+                    legal=True,
+                    applied=False,
+                    reason="APPLY_ERROR",
                 )
+                self._record_decision_trace(
+                    snapshot,
+                    window_name,
+                    record,
+                    applied=False,
+                    reason="APPLY_ERROR",
+                )
+                self._dsl_journal.write(record)
 
     def _evaluate_window(
         self,
@@ -1675,23 +1799,29 @@ class ControlStrategy:
                 verb = attempt.verb
             else:
                 args_payload = {k: v for k, v in intent.items() if k != "verb"}
-            self._dsl_journal.write(
-                DecisionAttempt(
-                    roll_index=int(snapshot.get("roll_index", 0)),
-                    window=window_name,
-                    rule_id=attempt.rule_id if attempt is not None else "unknown",
-                    origin=attempt.origin if attempt is not None else "dsl",
-                    when_expr=attempt.when_expr if attempt is not None else "",
-                    evaluated_true=attempt.evaluated_true if attempt is not None else True,
-                    verb=verb,
-                    args=args_payload,
-                    legal=False,
-                    applied=False,
-                    reason=reason,
-                )
+            record = DecisionAttempt(
+                roll_index=int(snapshot.get("roll_index", 0)),
+                window=window_name,
+                rule_id=attempt.rule_id if attempt is not None else "unknown",
+                origin=attempt.origin if attempt is not None else "dsl",
+                when_expr=attempt.when_expr if attempt is not None else "",
+                evaluated_true=attempt.evaluated_true if attempt is not None else True,
+                verb=verb,
+                args=args_payload,
+                legal=False,
+                applied=False,
+                reason=reason,
             )
+            self._record_decision_trace(
+                snapshot,
+                window_name,
+                record,
+                applied=False,
+                reason=reason,
+            )
+            self._dsl_journal.write(record)
             return
-        self._apply_dsl_intent(intent)
+        self._apply_dsl_intent(intent, snapshot, attempt, window_name)
 
     @staticmethod
     def _extract_amount(val: Any) -> float:
@@ -2332,6 +2462,8 @@ class ControlStrategy:
             "demo_fallbacks": bool(self._flags.get("demo_fallbacks", False)),
             "strict": bool(self._flags.get("strict", False)),
             "embed_analytics": bool(self._flags.get("embed_analytics", EMBED_ANALYTICS_DEFAULT)),
+            "explain": bool(self._explain_mode),
+            "human_summary": bool(self._human_summary_flag),
         }
 
         run_flags = dict(run_flag_values)
@@ -2347,6 +2479,8 @@ class ControlStrategy:
         run_flags["demo_fallbacks_source"] = self._flag_sources.get("demo_fallbacks", "default")
         run_flags["strict_source"] = self._flag_sources.get("strict", "default")
         run_flags["embed_analytics_source"] = self._flag_sources.get("embed_analytics", "default")
+        run_flags["explain_source"] = self._flag_sources.get("explain", self._explain_flag_source)
+        run_flags["human_summary_source"] = self._flag_sources.get("human_summary", "default")
         run_flags["export_source"] = str(cli_flags_dict.get("export_source", "default"))
         run_flags["webhook_enabled_source"] = str(
             cli_flags_dict.get("webhook_enabled_source", "default")
@@ -2361,6 +2495,8 @@ class ControlStrategy:
         run_flag_sources_meta["evo_enabled"] = run_flags["evo_enabled_source"]
         run_flag_sources_meta["trial_tag"] = run_flags["trial_tag_source"]
         run_flag_sources_meta["external_mode"] = self._external_mode_source
+        run_flag_sources_meta.setdefault("explain", self._explain_flag_source)
+        run_flag_sources_meta.setdefault("human_summary", "default")
 
         report: Dict[str, Any] = {
             "identity": identity,
@@ -2404,6 +2540,8 @@ class ControlStrategy:
             "strict",
             "demo_fallbacks",
             "embed_analytics",
+            "explain",
+            "human_summary",
             "export",
             "webhook_enabled",
             "external_mode",
@@ -2673,6 +2811,8 @@ class ControlStrategy:
             "strict",
             "demo_fallbacks",
             "embed_analytics",
+            "explain",
+            "human_summary",
             "export",
             "webhook_enabled",
             "evo_enabled",
@@ -3010,6 +3150,13 @@ class ControlStrategy:
             self._stop_http_server()
             self._analytics_session_end()
         finally:
+            writer = getattr(self, "_decisions_writer", None)
+            if writer is not None and not getattr(self, "_decisions_writer_external", False):
+                try:
+                    writer.close()
+                except Exception:
+                    pass
+            self._decisions_writer = None
             clear_registries()
 
     def state_snapshot(self) -> Dict[str, Any]:
