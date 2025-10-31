@@ -595,6 +595,41 @@ def _manifest_cli_flags(
     return flags
 
 
+def _fallback_summary_payload(
+    run_id: str,
+    summary: Mapping[str, Any],
+    *,
+    stage: str,
+    error: Exception,
+    cause: Optional[Exception] = None,
+) -> Dict[str, Any]:
+    """Produce a minimal summary payload when serialization fails."""
+
+    payload: Dict[str, Any] = {
+        "run_id": str(summary.get("run_id") or run_id),
+        "result": summary.get("result") or "error",
+    }
+
+    for key in ("rolls", "seed", "final_bankroll"):
+        value = summary.get(key)
+        if value is not None:
+            payload[key] = value
+
+    payload["error"] = {
+        "stage": stage,
+        "type": type(error).__name__,
+        "message": str(error),
+    }
+
+    if cause is not None and cause is not error:
+        payload["error"]["cause"] = {
+            "type": type(cause).__name__,
+            "message": str(cause),
+        }
+
+    return payload
+
+
 def _finalize_run_artifacts(
     run_dir: Path,
     run_id: str,
@@ -619,11 +654,52 @@ def _finalize_run_artifacts(
     summary.setdefault("last_roll", summary.get("rolls"))
 
     summary_path = run_dir / "summary.json"
-    summary_payload = _ensure_json_serializable(summary)
-    summary_path.write_text(
-        json.dumps(summary_payload, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
+    serialization_error: Optional[Exception] = None
+
+    try:
+        summary_payload = _ensure_json_serializable(summary)
+    except Exception as exc:  # pragma: no cover - defensive
+        serialization_error = exc
+        log.debug("summary serialization failed; writing fallback", exc_info=True)
+        summary_payload = _fallback_summary_payload(
+            run_id,
+            summary,
+            stage="serialize",
+            error=exc,
+        )
+
+    try:
+        summary_json = json.dumps(summary_payload, ensure_ascii=False, indent=2)
+    except Exception as exc:  # pragma: no cover - defensive
+        log.debug("summary encoding failed; writing fallback", exc_info=True)
+        summary_json = json.dumps(
+            _fallback_summary_payload(
+                run_id,
+                summary,
+                stage="encode",
+                error=exc,
+                cause=serialization_error,
+            ),
+            ensure_ascii=False,
+            indent=2,
+        )
+
+    try:
+        summary_path.write_text(summary_json, encoding="utf-8")
+    except Exception as exc:  # pragma: no cover - defensive
+        log.debug("summary write failed; writing fallback payload", exc_info=True)
+        fallback_json = json.dumps(
+            _fallback_summary_payload(
+                run_id,
+                summary,
+                stage="write",
+                error=exc,
+                cause=serialization_error,
+            ),
+            ensure_ascii=False,
+            indent=2,
+        )
+        summary_path.write_text(fallback_json, encoding="utf-8")
 
     journal_path = run_dir / "journal.csv"
     ensure_journal = False

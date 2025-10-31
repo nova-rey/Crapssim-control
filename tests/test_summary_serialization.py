@@ -2,6 +2,7 @@ import json
 from argparse import Namespace
 from datetime import datetime
 
+import crapssim_control.cli as cli
 from crapssim_control.cli import _finalize_run_artifacts
 
 
@@ -48,3 +49,42 @@ def test_finalize_run_artifacts_serializes_non_json_values(tmp_path):
     assert summary["sequence"][1] == "custom-object"
     assert summary["nested"]["path"] == str(tmp_path / "inner")
     assert summary["nested"]["timestamp"].startswith("2024-01-01T12:30:00")
+
+
+def test_finalize_run_artifacts_writes_fallback_on_serialization_error(tmp_path, monkeypatch):
+    run_dir = tmp_path / "artifacts"
+    spec_path = tmp_path / "spec.json"
+    spec_path.write_text("{}", encoding="utf-8")
+
+    summary_payload = {
+        "run_id": "run123",
+        "spec": str(spec_path),
+        "rolls": 10,
+        "result": "ok",
+    }
+
+    def boom(_value):
+        raise ValueError("cannot serialize")
+
+    monkeypatch.setattr(cli, "_ensure_json_serializable", boom)
+
+    _finalize_run_artifacts(
+        run_dir,
+        "run123",
+        spec_path,
+        Namespace(),
+        explain_mode=False,
+        explain_source="cli",
+        summary=summary_payload,
+        decisions_writer=None,
+    )
+
+    summary_path = run_dir / "summary.json"
+    assert summary_path.exists()
+
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    assert summary["run_id"] == "run123"
+    assert summary["result"] == "ok"
+    assert summary["rolls"] == 10
+    assert summary["error"]["stage"] == "serialize"
+    assert summary["error"]["type"] == "ValueError"
