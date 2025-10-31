@@ -10,6 +10,7 @@ import os
 import random
 import sys
 import traceback
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from uuid import uuid4
@@ -50,6 +51,48 @@ except Exception:  # pragma: no cover
 def _load_spec_file(path: str | Path) -> Dict[str, Any]:
     spec, _ = load_spec_file(path)
     return spec
+
+
+def _ensure_json_serializable(value: Any) -> Any:
+    """Coerce arbitrary values into JSON-serializable structures."""
+
+    if isinstance(value, (str, int, bool)) or value is None:
+        return value
+
+    if isinstance(value, float):
+        # Allow non-finite floats (NaN/Inf) to pass through. json.dumps will
+        # render them using its standard JavaScript-compatible tokens.
+        return value
+
+    if isinstance(value, Path):
+        return str(value)
+
+    if isinstance(value, Mapping):
+        return {str(k): _ensure_json_serializable(v) for k, v in value.items()}
+
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+        return [_ensure_json_serializable(v) for v in value]
+
+    iso_formatter = getattr(value, "isoformat", None)
+    if callable(iso_formatter):
+        try:
+            return iso_formatter()
+        except Exception:
+            pass
+
+    for caster in ("__float__", "__int__"):
+        caster_fn = getattr(value, caster, None)
+        if callable(caster_fn):
+            try:
+                return caster_fn()
+            except Exception:
+                continue
+
+    try:
+        return str(value)
+    except Exception:
+        # Last resort: fall back to repr to avoid serialization failures.
+        return repr(value)
 
 
 def _normalize_validate_result(res):
@@ -576,8 +619,9 @@ def _finalize_run_artifacts(
     summary.setdefault("last_roll", summary.get("rolls"))
 
     summary_path = run_dir / "summary.json"
+    summary_payload = _ensure_json_serializable(summary)
     summary_path.write_text(
-        json.dumps(summary, ensure_ascii=False, indent=2),
+        json.dumps(summary_payload, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
 
