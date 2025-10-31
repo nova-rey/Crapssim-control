@@ -887,3 +887,9 @@ allow_behavior_change: true
 
 ### Phase 15 · C1 — Explain + decisions.csv
 Added `--explain` mode and a deterministic `decisions.csv` written per legal decision window. No default behavior changes.
+
+### Phase 15 · C2 — Human summary + init + doctor
+- Added `csc summarize --human` to emit a readable `report.md`.
+- Added `csc init <dir>` scaffold for a runnable skeleton (spec + DSL + profiles/).
+- Added `csc doctor` to validate basic spec shape with actionable messages.
+- All features are additive and flag-gated; no default behavior changes.

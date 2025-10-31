@@ -43,3 +43,6 @@ Thumbs.db
 coverage.xml
 htmlcov/
 *.log
+*.md
+!docs/*.md
+!docs/**/*.md
