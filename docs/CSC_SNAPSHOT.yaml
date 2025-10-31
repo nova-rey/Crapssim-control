@@ -1,5 +1,5 @@
 phase: 15
-checkpoint: 1
-title: Explain + decisions.csv
-description: Add run --explain and decisions.csv trace with applied/rejected decisions.
+checkpoint: 2
+title: Human summary + init + doctor
+description: Add summarize --human (report.md), project scaffolder, and doctor check.
 status: active

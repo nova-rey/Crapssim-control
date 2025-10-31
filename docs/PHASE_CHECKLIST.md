@@ -28,6 +28,7 @@
 | P15·C4 | Local UI Stub + Manifest View | ✅ Complete | Minimal HTML stub to watch events and query status |
 | P15·C5 | Baseline & Tag | ✅ Complete | Capture Phase 15 baseline and write tag `v0.44.0-phase15-baseline` |
 |   15  | C1         | Explain + decisions.csv |             | run --explain + decisions trace     |
+|   15  | C2         | Human summary + init + doctor |             | summarize --human; csc init; csc doctor      |
 | P14·C0 | Docs Kickoff & Guardrails | ✅ Active | Initialize Phase 14 docs and guardrails |
 | P14·C1 | Plugin Manifest & Registry | ✅ Complete | Manifest schema and registry foundation established |
 | P14·C2 | Safe Loader & Sandbox Lite | ✅ Complete | Restricted loader with deny-lists and timeouts |

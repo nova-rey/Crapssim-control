@@ -23,6 +23,7 @@ from .config import (
     get_stop_options,
     normalize_demo_fallbacks,
 )
+from .commands import doctor_run, init_run, summarize_run
 from .logging_utils import setup_logging
 from .policy_engine import PolicyEngine
 from .risk_schema import load_risk_policy
@@ -939,6 +940,26 @@ def _cmd_run(args: argparse.Namespace) -> int:
         raise
 
 
+def _cmd_summarize(args: argparse.Namespace) -> int:
+    return summarize_run(args.artifacts, human=bool(getattr(args, "human", False)))
+
+
+def _cmd_init(args: argparse.Namespace) -> int:
+    init_run(args.target_dir)
+    return 0
+
+
+def _cmd_doctor(args: argparse.Namespace) -> int:
+    try:
+        result = doctor_run(args.spec)
+    except SystemExit as exc:  # pragma: no cover - passthrough for doctor exit semantics
+        code = exc.code if isinstance(exc.code, int) else 0
+        return code
+    if result is None:
+        return 0
+    return int(result)
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="crapssim-ctl",
@@ -969,6 +990,24 @@ def _build_parser() -> argparse.ArgumentParser:
     )
 
     sub = parser.add_subparsers(dest="subcommand", required=False)
+
+    # summarize
+    p_sum = sub.add_parser("summarize", help="Summarize run artifacts")
+    p_sum.add_argument("--artifacts", required=True, help="Path to artifacts directory")
+    p_sum.add_argument("--human", action="store_true", help="Generate human-readable report.md")
+    p_sum.set_defaults(func=_cmd_summarize)
+
+    # init
+    p_init = sub.add_parser("init", help="Scaffold a CSC skeleton project")
+    p_init.add_argument("target_dir", help="Target directory to initialize")
+    p_init.set_defaults(func=_cmd_init)
+
+    # doctor
+    p_doc = sub.add_parser("doctor", help="Sanity check a CSC spec file")
+    p_doc.add_argument(
+        "--spec", dest="spec", default=None, help="Path to spec.json (default: spec.json)"
+    )
+    p_doc.set_defaults(func=_cmd_doctor)
 
     # validate
     p_val = sub.add_parser("validate", help="Validate a strategy spec (JSON or YAML)")
