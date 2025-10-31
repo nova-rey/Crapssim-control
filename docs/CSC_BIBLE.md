@@ -898,3 +898,6 @@ Added `--explain` mode and a deterministic `decisions.csv` written per legal dec
 - Per-run runs now write `summary.json`, `manifest.json`, and the DSL decisions trace beside `journal.csv` in `artifacts/<run_id>/`.
 - Added the `python -m csc` module alias for the CLI (still mirrored by `python -m crapssim_control.cli`).
 - `csc init` skeleton seeds a pass line bet so explain-mode runs emit immediate decisions.
+
+### Phase 15 · C2b — Per-run artifacts hotfix
+Ensured `summary.json` and `manifest.json` are always written into `artifacts/<run_id>/` at the end of a CLI run (with `--explain` or not). Uses atomic writes; emits a clearly marked fallback summary when the normal summary is unavailable. No default behavior change.

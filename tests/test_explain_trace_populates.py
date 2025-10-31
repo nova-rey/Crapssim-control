@@ -69,5 +69,9 @@ def test_explain_populates_decisions_and_artifacts(tmp_path):
     manifest_path = run_dir / "manifest.json"
     journal_path = run_dir / "journal.csv"
     assert summary_path.exists()
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    assert isinstance(summary, dict)
+    if "summary_status" in summary:
+        assert summary["summary_status"] == "fallback"
     assert manifest_path.exists()
     assert journal_path.exists()

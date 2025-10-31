@@ -10,6 +10,7 @@ import os
 import random
 import sys
 import traceback
+from shutil import copyfile
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -35,6 +36,7 @@ from .rules_engine.author import RuleBuilder
 from .schemas import JOURNAL_SCHEMA_VERSION, SUMMARY_SCHEMA_VERSION
 from .run.decisions_trace import DecisionsTrace
 from .manifest import generate_manifest
+from .utils.io_atomic import write_json_atomic
 
 log = logging.getLogger("crapssim-ctl")
 
@@ -630,6 +632,25 @@ def _fallback_summary_payload(
     return payload
 
 
+def _missing_summary_payload(run_id: str) -> Dict[str, Any]:
+    return {
+        "run_id": run_id,
+        "summary_status": "fallback",
+        "incomplete": True,
+        "errors": [
+            {
+                "phase": "summary",
+                "type": "MissingSummary",
+                "message": "controller returned no summary",
+            }
+        ],
+        "stats": {},
+        "bankroll": {},
+        "schema_version": SUMMARY_SCHEMA_VERSION,
+        "summary_schema_version": SUMMARY_SCHEMA_VERSION,
+    }
+
+
 def _finalize_run_artifacts(
     run_dir: Path,
     run_id: str,
@@ -638,68 +659,69 @@ def _finalize_run_artifacts(
     *,
     explain_mode: bool,
     explain_source: str,
-    summary: Dict[str, Any],
+    summary: Mapping[str, Any] | None,
     decisions_writer: Optional[DecisionsTrace],
 ) -> None:
     run_dir.mkdir(parents=True, exist_ok=True)
 
+    if isinstance(summary, Mapping):
+        summary_payload: Dict[str, Any] = dict(summary)
+    else:
+        summary_payload = {}
+
+    if not summary_payload:
+        summary_payload = _missing_summary_payload(run_id)
+
+    summary_payload.setdefault("run_id", run_id)
+
     if decisions_writer is not None:
         prev_rows = decisions_writer.rows_written
-        decisions_writer.ensure_summary_row(summary)
+        decisions_writer.ensure_summary_row(summary_payload)
         if prev_rows == 0:
-            summary["decisions_rows"] = decisions_writer.rows_written
+            summary_payload["decisions_rows"] = decisions_writer.rows_written
         else:
-            summary.setdefault("decisions_rows", decisions_writer.rows_written)
+            summary_payload.setdefault("decisions_rows", decisions_writer.rows_written)
 
-    summary.setdefault("last_roll", summary.get("rolls"))
+    summary_payload.setdefault("last_roll", summary_payload.get("rolls"))
+
+    journal_source: Optional[str | Path] = None
+    raw_journal = summary_payload.get("journal_path")
+    if isinstance(raw_journal, (str, Path)) and str(raw_journal).strip():
+        journal_source = str(raw_journal)
+    elif isinstance(summary_payload.get("csv"), Mapping):
+        csv_info = summary_payload.get("csv")
+        if isinstance(csv_info, Mapping):
+            candidate = csv_info.get("path")
+            if isinstance(candidate, (str, Path)) and str(candidate).strip():
+                journal_source = str(candidate)
 
     summary_path = run_dir / "summary.json"
     serialization_error: Optional[Exception] = None
 
     try:
-        summary_payload = _ensure_json_serializable(summary)
+        serializable_summary = _ensure_json_serializable(summary_payload)
     except Exception as exc:  # pragma: no cover - defensive
         serialization_error = exc
         log.debug("summary serialization failed; writing fallback", exc_info=True)
-        summary_payload = _fallback_summary_payload(
+        serializable_summary = _fallback_summary_payload(
             run_id,
-            summary,
+            summary_payload,
             stage="serialize",
             error=exc,
         )
 
     try:
-        summary_json = json.dumps(summary_payload, ensure_ascii=False, indent=2)
-    except Exception as exc:  # pragma: no cover - defensive
-        log.debug("summary encoding failed; writing fallback", exc_info=True)
-        summary_json = json.dumps(
-            _fallback_summary_payload(
-                run_id,
-                summary,
-                stage="encode",
-                error=exc,
-                cause=serialization_error,
-            ),
-            ensure_ascii=False,
-            indent=2,
-        )
-
-    try:
-        summary_path.write_text(summary_json, encoding="utf-8")
+        write_json_atomic(summary_path, serializable_summary)
     except Exception as exc:  # pragma: no cover - defensive
         log.debug("summary write failed; writing fallback payload", exc_info=True)
-        fallback_json = json.dumps(
-            _fallback_summary_payload(
-                run_id,
-                summary,
-                stage="write",
-                error=exc,
-                cause=serialization_error,
-            ),
-            ensure_ascii=False,
-            indent=2,
+        fallback_payload = _fallback_summary_payload(
+            run_id,
+            summary_payload,
+            stage="write",
+            error=exc,
+            cause=serialization_error,
         )
-        summary_path.write_text(fallback_json, encoding="utf-8")
+        write_json_atomic(summary_path, fallback_payload)
 
     journal_path = run_dir / "journal.csv"
     ensure_journal = False
@@ -707,6 +729,15 @@ def _finalize_run_artifacts(
         ensure_journal = not journal_path.exists() or journal_path.stat().st_size == 0
     except OSError:
         ensure_journal = True
+
+    if not ensure_journal and journal_source:
+        try:
+            src_path = Path(journal_source)
+            if src_path.exists():
+                if src_path.resolve() != journal_path.resolve():
+                    copyfile(src_path, journal_path)
+        except Exception:
+            ensure_journal = True
 
     if ensure_journal:
         try:
@@ -757,10 +788,14 @@ def _finalize_run_artifacts(
     )
 
     manifest_path = run_dir / "manifest.json"
-    manifest_path.write_text(
-        json.dumps(manifest_payload, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
+    try:
+        run_manifest = manifest_payload.setdefault("run", {})
+        flags_block = run_manifest.setdefault("flags", {})
+        flags_block["explain"] = bool(explain_mode)
+    except Exception:
+        pass
+
+    write_json_atomic(manifest_path, manifest_payload)
 
 
 def _capture_control_surface_artifacts(
