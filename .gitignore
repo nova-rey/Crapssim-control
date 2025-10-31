@@ -15,6 +15,7 @@ build/
 *.egg-info/
 *.egg
 artifacts/
+!HEALTH_REPORT_*.md
 
 # Generated baseline artifacts (created by simulate_rounds)
 baselines/*
@@ -43,6 +44,3 @@ Thumbs.db
 coverage.xml
 htmlcov/
 *.log
-*.md
-!docs/*.md
-!docs/**/*.md

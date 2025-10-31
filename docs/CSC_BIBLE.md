@@ -893,3 +893,8 @@ Added `--explain` mode and a deterministic `decisions.csv` written per legal dec
 - Added `csc init <dir>` scaffold for a runnable skeleton (spec + DSL + profiles/).
 - Added `csc doctor` to validate basic spec shape with actionable messages.
 - All features are additive and flag-gated; no default behavior changes.
+
+### Phase 15 · C2a — Explain trace hotfix & CLI polish
+- Per-run runs now write `summary.json`, `manifest.json`, and the DSL decisions trace beside `journal.csv` in `artifacts/<run_id>/`.
+- Added the `python -m csc` module alias for the CLI (still mirrored by `python -m crapssim_control.cli`).
+- `csc init` skeleton seeds a pass line bet so explain-mode runs emit immediate decisions.
