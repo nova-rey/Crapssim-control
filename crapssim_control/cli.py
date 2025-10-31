@@ -12,6 +12,7 @@ import sys
 import traceback
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+from uuid import uuid4
 
 from . import __version__ as CSC_VERSION
 from .cli_flags import CLIFlags, parse_flags
@@ -31,6 +32,8 @@ from .spec_validation import VALIDATION_ENGINE_VERSION
 from .spec_loader import load_spec_file
 from .rules_engine.author import RuleBuilder
 from .schemas import JOURNAL_SCHEMA_VERSION, SUMMARY_SCHEMA_VERSION
+from .run.decisions_trace import DecisionsTrace
+from .manifest import generate_manifest
 
 log = logging.getLogger("crapssim-ctl")
 
@@ -467,6 +470,191 @@ def _merge_cli_run_flags(spec: Dict[str, Any], args: argparse.Namespace) -> None
         spec["run"] = run_dict
 
 
+def _prepare_run_artifacts(
+    spec: Dict[str, Any],
+    spec_path: Path,
+    args: argparse.Namespace,
+) -> Tuple[Path, str, Optional[DecisionsTrace], bool, str]:
+    """Ensure per-run artifact directories and tracing writers are ready."""
+
+    run_block = spec.setdefault("run", {}) if isinstance(spec, dict) else {}
+    if not isinstance(run_block, dict):
+        run_block = {}
+        spec["run"] = run_block
+
+    csv_blk = run_block.setdefault("csv", {}) if isinstance(run_block, dict) else {}
+    if not isinstance(csv_blk, dict):
+        csv_blk = {}
+        run_block["csv"] = csv_blk
+
+    run_id_raw = str(csv_blk.get("run_id") or run_block.get("run_id") or "").strip()
+    run_id = run_id_raw or uuid4().hex
+    csv_blk["run_id"] = run_id
+
+    raw_artifacts_dir = run_block.get("artifacts_dir")
+    if isinstance(raw_artifacts_dir, (str, Path)) and str(raw_artifacts_dir).strip():
+        artifacts_root = Path(raw_artifacts_dir)
+        if not artifacts_root.is_absolute():
+            artifacts_root = spec_path.parent / artifacts_root
+    else:
+        artifacts_root = spec_path.parent / "artifacts"
+    artifacts_root.mkdir(parents=True, exist_ok=True)
+
+    run_dir = artifacts_root / run_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    if not run_block.get("artifacts_dir"):
+        run_block["artifacts_dir"] = str(run_dir)
+
+    csv_blk.setdefault("enabled", True)
+    csv_blk.setdefault("append", False)
+    if not str(csv_blk.get("path", "")).strip():
+        csv_blk["path"] = str(run_dir / "journal.csv")
+    if args.seed is not None and "seed" not in csv_blk:
+        csv_blk["seed"] = args.seed
+
+    journal_blk = run_block.get("journal") if isinstance(run_block, dict) else None
+    explain_cli = bool(getattr(args, "explain", False))
+    explain_spec = bool(journal_blk.get("dsl_trace")) if isinstance(journal_blk, dict) else False
+    explain_mode = explain_cli or explain_spec
+    explain_source = "cli" if explain_cli else ("spec" if explain_spec else "default")
+
+    decisions_writer = DecisionsTrace(run_dir) if explain_mode else None
+
+    return run_dir, run_id, decisions_writer, explain_mode, explain_source
+
+
+def _manifest_cli_flags(
+    args: argparse.Namespace,
+    *,
+    explain_mode: bool,
+    explain_source: str,
+) -> Dict[str, Any]:
+    flags: Dict[str, Any] = {}
+    cli_flags_obj = getattr(args, "_cli_flags", None)
+    if isinstance(cli_flags_obj, CLIFlags):
+        flags.update({k: getattr(cli_flags_obj, k) for k in vars(cli_flags_obj)})
+    flags.setdefault("strict", False)
+    flags.setdefault("demo_fallbacks", False)
+    flags.setdefault("embed_analytics", True)
+    flags.setdefault("export", False)
+    flags["explain"] = explain_mode
+    flags["explain_source"] = explain_source or "default"
+    flags.setdefault("human_summary", False)
+    flags.setdefault("human_summary_source", "default")
+    flags.setdefault("webhook_enabled", False)
+    flags.setdefault("webhook_timeout", 2.0)
+    flags.setdefault("webhook_url", None)
+    flags.setdefault("webhook_url_source", "default")
+    flags.setdefault("webhook_enabled_source", "default")
+    flags.setdefault("evo_enabled", False)
+    flags.setdefault("trial_tag", None)
+    return flags
+
+
+def _finalize_run_artifacts(
+    run_dir: Path,
+    run_id: str,
+    spec_path: Path,
+    args: argparse.Namespace,
+    *,
+    explain_mode: bool,
+    explain_source: str,
+    summary: Dict[str, Any],
+    decisions_writer: Optional[DecisionsTrace],
+) -> None:
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    if decisions_writer is not None and decisions_writer.rows_written == 0:
+        decisions_writer.write(
+            {
+                "roll": summary.get("last_roll", ""),
+                "window": "run_complete",
+                "rule_id": "summary",
+                "when_expr": "true",
+                "evaluated_true": True,
+                "applied": False,
+                "reason": "RUN_COMPLETE",
+                "bankroll": summary.get("final_bankroll", ""),
+                "point_on": "",
+                "hand_id": "",
+                "roll_in_hand": "",
+            }
+        )
+        summary["decisions_rows"] = decisions_writer.rows_written
+    elif decisions_writer is not None:
+        summary.setdefault("decisions_rows", decisions_writer.rows_written)
+
+    summary.setdefault("last_roll", summary.get("rolls"))
+
+    summary_path = run_dir / "summary.json"
+    summary_path.write_text(
+        json.dumps(summary, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+    journal_path = run_dir / "journal.csv"
+    ensure_journal = False
+    try:
+        ensure_journal = not journal_path.exists() or journal_path.stat().st_size == 0
+    except OSError:
+        ensure_journal = True
+
+    if ensure_journal:
+        try:
+            from .csv_journal import CSVJournal  # lazy import to avoid cycles
+
+            journal = CSVJournal(
+                str(journal_path),
+                append=False,
+                run_id=str(summary.get("run_id", run_id) or ""),
+                seed=summary.get("seed"),
+            )
+            fallback_summary = {
+                key: summary.get(key)
+                for key in ("result", "rolls", "final_bankroll", "decisions_rows")
+                if summary.get(key) is not None
+            }
+            snapshot = {
+                "mode": summary.get("mode"),
+                "units": summary.get("units"),
+                "bankroll": summary.get("final_bankroll"),
+            }
+            journal.write_summary(fallback_summary, snapshot=snapshot)
+        except Exception:
+            journal_path.write_text(
+                f"# journal_schema_version: {JOURNAL_SCHEMA_VERSION}\n",
+                encoding="utf-8",
+            )
+
+    outputs = {
+        "summary": "summary.json",
+        "manifest": "manifest.json",
+    }
+    outputs["journal"] = "journal.csv"
+    if decisions_writer is not None:
+        outputs["decisions"] = "decisions.csv"
+
+    cli_flags = _manifest_cli_flags(
+        args,
+        explain_mode=explain_mode,
+        explain_source=explain_source,
+    )
+
+    manifest_payload = generate_manifest(
+        str(spec_path),
+        cli_flags,
+        outputs,
+        run_id=run_id,
+    )
+
+    manifest_path = run_dir / "manifest.json"
+    manifest_path.write_text(
+        json.dumps(manifest_payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+
 def _capture_control_surface_artifacts(
     spec: Dict[str, Any],
     spec_path: Path,
@@ -474,6 +662,9 @@ def _capture_control_surface_artifacts(
     seed: Optional[int],
     rolls: int,
     bankroll: Optional[float],
+    *,
+    decisions_writer: Optional[DecisionsTrace] = None,
+    explain_mode: bool = False,
 ) -> None:
     """Best-effort capture of journal/report/manifest artifacts."""
 
@@ -539,6 +730,8 @@ def _capture_control_surface_artifacts(
         spec_copy,
         spec_path=str(spec_path),
         cli_flags=getattr(args, "_cli_flags", None),
+        explain=bool(explain_mode),
+        decisions_writer=decisions_writer,
     )
     if seed is not None:
         try:
@@ -604,7 +797,27 @@ def run(args: argparse.Namespace) -> int:
       5) Print result summary
     """
     # Load spec
-    spec_path = Path(args.spec)
+    run_artifacts_dir: Optional[Path] = None
+    run_id: str = ""
+    decisions_writer: Optional[DecisionsTrace] = None
+    explain_mode = False
+    explain_source = "default"
+
+    def _close_decisions_trace() -> None:
+        nonlocal decisions_writer
+        if decisions_writer is not None:
+            try:
+                decisions_writer.close()
+            except Exception:
+                pass
+            decisions_writer = None
+
+    spec_arg = getattr(args, "spec_override", None) or getattr(args, "spec", None)
+    if not spec_arg:
+        print("error: spec path is required", file=sys.stderr)
+        _close_decisions_trace()
+        return 2
+    spec_path = Path(spec_arg)
     spec = _load_spec_file(spec_path)
     try:
         spec["_csc_spec_path"] = str(spec_path)
@@ -621,6 +834,13 @@ def run(args: argparse.Namespace) -> int:
     if not isinstance(run_block, dict):
         run_block = {}
         spec["run"] = run_block
+    run_artifacts_dir, run_id, decisions_writer, explain_mode, explain_source = (
+        _prepare_run_artifacts(
+            spec,
+            spec_path,
+            args,
+        )
+    )
     risk_block = run_block.get("risk")
     if not isinstance(risk_block, dict):
         risk_block = {}
@@ -740,6 +960,7 @@ def run(args: argparse.Namespace) -> int:
             print("failed validation:", file=sys.stderr)
             for e in hard_errs:
                 print(f"- {e}", file=sys.stderr)
+            _close_decisions_trace()
             return 2
         for w in soft_warns:
             log.warning("spec warning: %s", w)
@@ -809,6 +1030,7 @@ def run(args: argparse.Namespace) -> int:
             print("\n--- CSC DEBUG TRACEBACK (attach) ---", flush=True)
             traceback.print_exc()
             print("--- END CSC DEBUG ---\n", flush=True)
+        _close_decisions_trace()
         return _engine_unavailable(e)
 
     # Drive the table
@@ -818,6 +1040,7 @@ def run(args: argparse.Namespace) -> int:
         msg = f"Could not run {rolls} rolls. {used}."
         if os.environ.get("CSC_DEBUG", "0").lower() in ("1", "true", "yes"):
             print("\n--- CSC DEBUG: run failure ---", msg, "\n", flush=True)
+        _close_decisions_trace()
         return _engine_unavailable(msg)
 
     # Summarize
@@ -834,6 +1057,17 @@ def run(args: argparse.Namespace) -> int:
         print(f"RESULT: rolls={rolls} bankroll={float(bankroll):.2f}")
     else:
         print(f"RESULT: rolls={rolls}")
+
+    summary_payload: Dict[str, Any] = {
+        "run_id": run_id,
+        "spec": str(spec_path),
+        "rolls": rolls,
+        "seed": seed_int,
+        "final_bankroll": float(bankroll) if bankroll is not None else None,
+        "artifacts_dir": str(run_artifacts_dir) if run_artifacts_dir is not None else None,
+        "decisions_rows": decisions_writer.rows_written if decisions_writer is not None else 0,
+        "result": "ok",
+    }
 
     run_config = spec_run
     run_config["dsl"] = bool(getattr(args, "dsl", False))
@@ -875,12 +1109,31 @@ def run(args: argparse.Namespace) -> int:
             seed_int,
             rolls,
             float(bankroll) if bankroll is not None else None,
+            decisions_writer=decisions_writer,
+            explain_mode=explain_mode,
         )
     except Exception:
         if os.environ.get("CSC_DEBUG", "0").lower() in ("1", "true", "yes"):
             print("warn: control-surface capture failed", file=sys.stderr)
         log.debug("control surface capture failed", exc_info=True)
 
+    try:
+        _finalize_run_artifacts(
+            run_artifacts_dir or (spec_path.parent / "artifacts" / run_id),
+            run_id,
+            spec_path,
+            args,
+            explain_mode=explain_mode,
+            explain_source=explain_source,
+            summary=summary_payload,
+            decisions_writer=decisions_writer,
+        )
+    except Exception:
+        if os.environ.get("CSC_DEBUG", "0").lower() in ("1", "true", "yes"):
+            print("warn: finalize artifacts failed", file=sys.stderr)
+        log.debug("finalize run artifacts failed", exc_info=True)
+
+    _close_decisions_trace()
     return 0
 
 
@@ -965,6 +1218,7 @@ def _build_parser() -> argparse.ArgumentParser:
         prog="crapssim-ctl",
         description="Crapssim Control - validate specs and run simulations",
     )
+    parser.epilog = "Use `run --explain` to emit decisions.csv alongside run artifacts."
     parser.add_argument(
         "-v",
         "--verbose",
@@ -1027,7 +1281,8 @@ def _build_parser() -> argparse.ArgumentParser:
 
     # run
     p_run = sub.add_parser("run", help="Run a simulation for a given spec")
-    p_run.add_argument("spec", help="Path to spec file")
+    p_run.add_argument("spec", nargs="?", help="Path to spec file")
+    p_run.add_argument("--spec", dest="spec_override", metavar="SPEC", help="Path to spec file")
     p_run.add_argument("--rolls", type=int, help="Number of rolls (overrides spec)")
     p_run.add_argument("--seed", type=int, help="Seed RNG for reproducibility")
     p_run.add_argument(

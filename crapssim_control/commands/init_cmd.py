@@ -5,8 +5,16 @@ from textwrap import dedent
 SKELETON_SPEC = {
     "schema_version": "1.0",
     "table": {"min_bet": 5, "odds": "3-4-5x"},
-    "profiles": {"default": {"bets": []}},
+    "profiles": {
+        "default": {
+            "bets": [
+                {"type": "pass_line", "amount": 5},
+            ]
+        }
+    },
+    "modes": {"Default": {"template": {}}},
     "behavior": {"schema_version": "1.0", "rules": []},
+    "rules": [],
     "run": {"strict": False, "demo_fallbacks": False, "csv": {"embed_analytics": True}},
 }
 

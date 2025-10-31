@@ -22,9 +22,20 @@ class DecisionsTrace:
         self._fp = open(path, "w", newline="", encoding="utf-8")
         self._w = csv.DictWriter(self._fp, fieldnames=FIELDS)
         self._w.writeheader()
+        self._fp.flush()
+        self._rows_written = 0
+
+    @property
+    def rows_written(self) -> int:
+        return self._rows_written
 
     def write(self, row: dict):
         self._w.writerow({k: row.get(k, "") for k in FIELDS})
+        self._fp.flush()
+        self._rows_written += 1
 
     def close(self):
-        self._fp.close()
+        try:
+            self._fp.flush()
+        finally:
+            self._fp.close()
