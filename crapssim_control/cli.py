@@ -565,25 +565,13 @@ def _finalize_run_artifacts(
 ) -> None:
     run_dir.mkdir(parents=True, exist_ok=True)
 
-    if decisions_writer is not None and decisions_writer.rows_written == 0:
-        decisions_writer.write(
-            {
-                "roll": summary.get("last_roll", ""),
-                "window": "run_complete",
-                "rule_id": "summary",
-                "when_expr": "true",
-                "evaluated_true": True,
-                "applied": False,
-                "reason": "RUN_COMPLETE",
-                "bankroll": summary.get("final_bankroll", ""),
-                "point_on": "",
-                "hand_id": "",
-                "roll_in_hand": "",
-            }
-        )
-        summary["decisions_rows"] = decisions_writer.rows_written
-    elif decisions_writer is not None:
-        summary.setdefault("decisions_rows", decisions_writer.rows_written)
+    if decisions_writer is not None:
+        prev_rows = decisions_writer.rows_written
+        decisions_writer.ensure_summary_row(summary)
+        if prev_rows == 0:
+            summary["decisions_rows"] = decisions_writer.rows_written
+        else:
+            summary.setdefault("decisions_rows", decisions_writer.rows_written)
 
     summary.setdefault("last_roll", summary.get("rolls"))
 
