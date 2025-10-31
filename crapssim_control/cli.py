@@ -563,6 +563,13 @@ def _finalize_run_artifacts(
     summary: Dict[str, Any],
     decisions_writer: Optional[DecisionsTrace],
 ) -> None:
+    # Defensive coercion – earlier stages guarantee Path objects, but callers may still
+    # pass strings when Specs embed serialized values (e.g., from manifests).  Treating
+    # everything as a Path avoids "unsupported operand type(s) for /" issues when
+    # composing child artifact paths.
+    run_dir = Path(run_dir)
+    spec_path = Path(spec_path)
+
     run_dir.mkdir(parents=True, exist_ok=True)
 
     if decisions_writer is not None:
