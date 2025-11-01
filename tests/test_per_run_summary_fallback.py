@@ -4,6 +4,8 @@ import sys
 import subprocess
 from pathlib import Path
 
+from crapssim_control.commands.run_cmd import _emit_per_run_artifacts
+
 
 def test_per_run_summary_is_written_even_without_export(tmp_path: Path) -> None:
     spec = {
@@ -40,3 +42,19 @@ def test_per_run_summary_is_written_even_without_export(tmp_path: Path) -> None:
     assert summary_path.exists()
     summary = json.loads(summary_path.read_text(encoding="utf-8"))
     assert isinstance(summary, dict)
+
+
+def test_emit_per_run_artifacts_writes_summary_for_truthy_empty_mapping(tmp_path: Path) -> None:
+    class TruthyMapping(dict):
+        def __bool__(self) -> bool:
+            return True
+
+    run_dir = tmp_path / "run"
+    manifest = {"ok": True}
+
+    _emit_per_run_artifacts(run_dir, manifest, summary=TruthyMapping())
+
+    summary_path = run_dir / "summary.json"
+    assert summary_path.exists()
+    data = json.loads(summary_path.read_text(encoding="utf-8"))
+    assert data == {}
