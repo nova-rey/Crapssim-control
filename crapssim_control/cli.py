@@ -763,6 +763,22 @@ def _finalize_run_artifacts(
             journal_src=None,
         )
 
+    summary_path = run_dir / "summary.json"
+    if not summary_path.exists():
+        try:
+            write_json_atomic(
+                summary_path,
+                _fallback_summary_payload(
+                    run_id,
+                    summary_payload,
+                    stage="ensure",
+                    error=RuntimeError("summary.json missing after emit"),
+                    cause=serialization_error,
+                ),
+            )
+        except Exception:  # pragma: no cover - defensive
+            log.debug("failed to ensure summary.json after emit", exc_info=True)
+
     journal_path = run_dir / "journal.csv"
     ensure_journal = False
     try:
