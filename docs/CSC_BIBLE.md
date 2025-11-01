@@ -901,3 +901,6 @@ Added `--explain` mode and a deterministic `decisions.csv` written per legal dec
 
 ### Phase 15 · C2b — Per-run artifacts hotfix
 Ensured `summary.json` and `manifest.json` are always written into `artifacts/<run_id>/` at the end of a CLI run (with `--explain` or not). Uses atomic writes; emits a clearly marked fallback summary when the normal summary is unavailable. No default behavior change.
+
+### Phase 15 · C2c — Per-run summary/manifest co-location
+CLI now always writes `summary.json` and `manifest.json` into each run's artifacts folder. Uses atomic writes; copies export summary when available; otherwise writes a clearly marked fallback. Exit codes unchanged.

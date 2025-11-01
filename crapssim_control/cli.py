@@ -10,7 +10,6 @@ import os
 import random
 import sys
 import traceback
-from shutil import copyfile
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -34,9 +33,10 @@ from .spec_validation import VALIDATION_ENGINE_VERSION
 from .spec_loader import load_spec_file
 from .rules_engine.author import RuleBuilder
 from .schemas import JOURNAL_SCHEMA_VERSION, SUMMARY_SCHEMA_VERSION
+from .commands.run_cmd import _emit_per_run_artifacts, _fallback_summary
+from .run.controller import ControllerRunResult
 from .run.decisions_trace import DecisionsTrace
 from .manifest import generate_manifest
-from .utils.io_atomic import write_json_atomic
 
 log = logging.getLogger("crapssim-ctl")
 
@@ -607,48 +607,46 @@ def _fallback_summary_payload(
 ) -> Dict[str, Any]:
     """Produce a minimal summary payload when serialization fails."""
 
-    payload: Dict[str, Any] = {
-        "run_id": str(summary.get("run_id") or run_id),
-        "result": summary.get("result") or "error",
-    }
+    payload = _fallback_summary(f"{stage} failure: {error}")
+    payload["run_id"] = str(summary.get("run_id") or run_id)
 
-    for key in ("rolls", "seed", "final_bankroll"):
-        value = summary.get(key)
-        if value is not None:
-            payload[key] = value
+    error_details = payload.setdefault("errors", [{}])[0].setdefault("details", {})
+    error_details.update({"stage": stage, "message": str(error)})
+    if cause is not None and cause is not error:
+        error_details["cause"] = {
+            "type": type(cause).__name__,
+            "message": str(cause),
+        }
 
     payload["error"] = {
         "stage": stage,
         "type": type(error).__name__,
         "message": str(error),
     }
-
     if cause is not None and cause is not error:
         payload["error"]["cause"] = {
             "type": type(cause).__name__,
             "message": str(cause),
         }
 
+    for key in ("rolls", "seed", "final_bankroll", "result", "note"):
+        value = summary.get(key)
+        if value is not None:
+            payload[key] = value
+
+    payload.setdefault("stats", {})
+    payload.setdefault("bankroll", {})
+    payload.setdefault("schema_version", SUMMARY_SCHEMA_VERSION)
+    payload.setdefault("summary_schema_version", SUMMARY_SCHEMA_VERSION)
     return payload
 
 
 def _missing_summary_payload(run_id: str) -> Dict[str, Any]:
-    return {
-        "run_id": run_id,
-        "summary_status": "fallback",
-        "incomplete": True,
-        "errors": [
-            {
-                "phase": "summary",
-                "type": "MissingSummary",
-                "message": "controller returned no summary",
-            }
-        ],
-        "stats": {},
-        "bankroll": {},
-        "schema_version": SUMMARY_SCHEMA_VERSION,
-        "summary_schema_version": SUMMARY_SCHEMA_VERSION,
-    }
+    payload = _fallback_summary("controller returned no summary")
+    payload["run_id"] = run_id
+    payload["schema_version"] = SUMMARY_SCHEMA_VERSION
+    payload["summary_schema_version"] = SUMMARY_SCHEMA_VERSION
+    return payload
 
 
 def _finalize_run_artifacts(
@@ -661,6 +659,8 @@ def _finalize_run_artifacts(
     explain_source: str,
     summary: Mapping[str, Any] | None,
     decisions_writer: Optional[DecisionsTrace],
+    summary_defaults: Optional[Mapping[str, Any]] = None,
+    journal_src: Optional[Path] = None,
 ) -> None:
     run_dir.mkdir(parents=True, exist_ok=True)
 
@@ -668,6 +668,10 @@ def _finalize_run_artifacts(
         summary_payload: Dict[str, Any] = dict(summary)
     else:
         summary_payload = {}
+
+    if isinstance(summary_defaults, Mapping):
+        for key, value in summary_defaults.items():
+            summary_payload.setdefault(key, value)
 
     if not summary_payload:
         summary_payload = _missing_summary_payload(run_id)
@@ -684,18 +688,19 @@ def _finalize_run_artifacts(
 
     summary_payload.setdefault("last_roll", summary_payload.get("rolls"))
 
-    journal_source: Optional[str | Path] = None
-    raw_journal = summary_payload.get("journal_path")
-    if isinstance(raw_journal, (str, Path)) and str(raw_journal).strip():
-        journal_source = str(raw_journal)
-    elif isinstance(summary_payload.get("csv"), Mapping):
+    journal_source: Optional[Path] = None
+    if isinstance(journal_src, Path):
+        journal_source = journal_src
+    raw_journal = summary_payload.get("journal_path") if journal_source is None else None
+    if raw_journal and isinstance(raw_journal, (str, Path)) and str(raw_journal).strip():
+        journal_source = Path(raw_journal)
+    elif journal_source is None and isinstance(summary_payload.get("csv"), Mapping):
         csv_info = summary_payload.get("csv")
         if isinstance(csv_info, Mapping):
             candidate = csv_info.get("path")
             if isinstance(candidate, (str, Path)) and str(candidate).strip():
-                journal_source = str(candidate)
+                journal_source = Path(candidate)
 
-    summary_path = run_dir / "summary.json"
     serialization_error: Optional[Exception] = None
 
     try:
@@ -710,10 +715,38 @@ def _finalize_run_artifacts(
             error=exc,
         )
 
+    if not isinstance(serializable_summary, Mapping):
+        serializable_summary = {"summary": serializable_summary}
+
     try:
-        write_json_atomic(summary_path, serializable_summary)
+        serializable_summary = dict(serializable_summary)
+    except Exception:
+        serializable_summary = _fallback_summary_payload(
+            run_id,
+            summary_payload,
+            stage="coerce",
+            error=serialization_error or Exception("non-mapping summary"),
+        )
+
+    manifest_payload = _build_manifest_payload(
+        spec_path,
+        args,
+        explain_mode=explain_mode,
+        explain_source=explain_source,
+        decisions_writer=decisions_writer,
+        run_id=run_id,
+    )
+
+    try:
+        _emit_per_run_artifacts(
+            run_dir,
+            manifest_payload,
+            summary=serializable_summary,
+            export_summary_path=None,
+            journal_src=journal_source if journal_source and journal_source.exists() else None,
+        )
     except Exception as exc:  # pragma: no cover - defensive
-        log.debug("summary write failed; writing fallback payload", exc_info=True)
+        log.debug("emit per-run artifacts failed; writing fallback payload", exc_info=True)
         fallback_payload = _fallback_summary_payload(
             run_id,
             summary_payload,
@@ -721,7 +754,13 @@ def _finalize_run_artifacts(
             error=exc,
             cause=serialization_error,
         )
-        write_json_atomic(summary_path, fallback_payload)
+        _emit_per_run_artifacts(
+            run_dir,
+            manifest_payload,
+            summary=fallback_payload,
+            export_summary_path=None,
+            journal_src=None,
+        )
 
     journal_path = run_dir / "journal.csv"
     ensure_journal = False
@@ -730,15 +769,6 @@ def _finalize_run_artifacts(
     except OSError:
         ensure_journal = True
 
-    if not ensure_journal and journal_source:
-        try:
-            src_path = Path(journal_source)
-            if src_path.exists():
-                if src_path.resolve() != journal_path.resolve():
-                    copyfile(src_path, journal_path)
-        except Exception:
-            ensure_journal = True
-
     if ensure_journal:
         try:
             from .csv_journal import CSVJournal  # lazy import to avoid cycles
@@ -746,18 +776,18 @@ def _finalize_run_artifacts(
             journal = CSVJournal(
                 str(journal_path),
                 append=False,
-                run_id=str(summary.get("run_id", run_id) or ""),
-                seed=summary.get("seed"),
+                run_id=str(summary_payload.get("run_id", run_id) or ""),
+                seed=summary_payload.get("seed"),
             )
             fallback_summary = {
-                key: summary.get(key)
+                key: summary_payload.get(key)
                 for key in ("result", "rolls", "final_bankroll", "decisions_rows")
-                if summary.get(key) is not None
+                if summary_payload.get(key) is not None
             }
             snapshot = {
-                "mode": summary.get("mode"),
-                "units": summary.get("units"),
-                "bankroll": summary.get("final_bankroll"),
+                "mode": summary_payload.get("mode"),
+                "units": summary_payload.get("units"),
+                "bankroll": summary_payload.get("final_bankroll"),
             }
             journal.write_summary(fallback_summary, snapshot=snapshot)
         except Exception:
@@ -766,6 +796,16 @@ def _finalize_run_artifacts(
                 encoding="utf-8",
             )
 
+
+def _build_manifest_payload(
+    spec_path: Path,
+    args: argparse.Namespace,
+    *,
+    explain_mode: bool,
+    explain_source: str,
+    decisions_writer: Optional[DecisionsTrace],
+    run_id: str,
+) -> Dict[str, Any]:
     outputs = {
         "summary": "summary.json",
         "manifest": "manifest.json",
@@ -787,7 +827,6 @@ def _finalize_run_artifacts(
         run_id=run_id,
     )
 
-    manifest_path = run_dir / "manifest.json"
     try:
         run_manifest = manifest_payload.setdefault("run", {})
         flags_block = run_manifest.setdefault("flags", {})
@@ -795,7 +834,7 @@ def _finalize_run_artifacts(
     except Exception:
         pass
 
-    write_json_atomic(manifest_path, manifest_payload)
+    return manifest_payload
 
 
 def _capture_control_surface_artifacts(
@@ -808,18 +847,18 @@ def _capture_control_surface_artifacts(
     *,
     decisions_writer: Optional[DecisionsTrace] = None,
     explain_mode: bool = False,
-) -> None:
+) -> Optional[ControllerRunResult]:
     """Best-effort capture of journal/report/manifest artifacts."""
 
     try:
         from .controller import ControlStrategy
         from .csv_journal import CSVJournal
     except Exception:
-        return
+        return None
 
     spec_copy: Dict[str, Any] = copy.deepcopy(spec)
     if not isinstance(spec_copy, dict):
-        return
+        return None
 
     export_dir = Path("export")
     export_dir.mkdir(parents=True, exist_ok=True)
@@ -919,15 +958,28 @@ def _capture_control_surface_artifacts(
     except Exception:
         pass
 
+    report_result: Optional[Dict[str, Any]] = None
     try:
-        ctrl.generate_report(
+        report_result = ctrl.generate_report(
             report_path=export_paths["report"],
             spec_path=str(spec_path),
             cli_flags=getattr(args, "_cli_flags", None),
             export_paths=export_paths,
         )
     except Exception:
-        pass
+        report_result = None
+
+    summary_result: Optional[Dict[str, Any]] = None
+    if isinstance(report_result, dict):
+        maybe_summary = report_result.get("summary")
+        if isinstance(maybe_summary, dict):
+            summary_result = maybe_summary
+
+    journal_file = Path(export_paths["journal"]) if export_paths.get("journal") else None
+    if journal_file is not None and not journal_file.exists():
+        journal_file = None
+
+    return ControllerRunResult(summary=summary_result, journal_path=journal_file)
 
 
 def run(args: argparse.Namespace) -> int:
@@ -945,6 +997,7 @@ def run(args: argparse.Namespace) -> int:
     decisions_writer: Optional[DecisionsTrace] = None
     explain_mode = False
     explain_source = "default"
+    control_result: Optional[ControllerRunResult] = None
 
     def _close_decisions_trace() -> None:
         nonlocal decisions_writer
@@ -1245,7 +1298,7 @@ def run(args: argparse.Namespace) -> int:
             print(f"warn: export failed: {e}", file=sys.stderr)
 
     try:
-        _capture_control_surface_artifacts(
+        control_result = _capture_control_surface_artifacts(
             spec,
             spec_path,
             args,
@@ -1260,6 +1313,12 @@ def run(args: argparse.Namespace) -> int:
             print("warn: control-surface capture failed", file=sys.stderr)
         log.debug("control surface capture failed", exc_info=True)
 
+    summary_source: Optional[Mapping[str, Any]] = None
+    if control_result and isinstance(control_result.summary, Mapping):
+        summary_source = control_result.summary
+    else:
+        summary_source = summary_payload
+
     try:
         _finalize_run_artifacts(
             run_artifacts_dir or (spec_path.parent / "artifacts" / run_id),
@@ -1268,8 +1327,10 @@ def run(args: argparse.Namespace) -> int:
             args,
             explain_mode=explain_mode,
             explain_source=explain_source,
-            summary=summary_payload,
+            summary=summary_source,
             decisions_writer=decisions_writer,
+            summary_defaults=summary_payload,
+            journal_src=(control_result.journal_path if control_result else None),
         )
     except Exception:
         if os.environ.get("CSC_DEBUG", "0").lower() in ("1", "true", "yes"):
