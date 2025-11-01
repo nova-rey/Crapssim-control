@@ -16,6 +16,17 @@ from types import SimpleNamespace
 from typing import Any, Dict, List, Optional, Tuple
 from uuid import uuid4
 
+try:
+    import click  # type: ignore
+except Exception:  # pragma: no cover - fallback when click is unavailable
+    class _ClickShim:
+        @staticmethod
+        def echo(message: str, err: bool = False) -> None:
+            stream = sys.stderr if err else sys.stdout
+            print(message, file=stream)
+
+    click = _ClickShim()  # type: ignore
+
 from . import __version__ as CSC_VERSION
 from .cli_flags import CLIFlags, parse_flags
 from .config import (
@@ -1234,15 +1245,23 @@ def run(args: argparse.Namespace) -> int:
             )
 
         # Validate (can be bypassed by workflow env)
+        validation_errors: List[str] = []
         if os.environ.get("CSC_SKIP_VALIDATE", "0").lower() not in ("1", "true", "yes"):
             ok, hard_errs, soft_warns = _lazy_validate_spec(spec)
             if not ok or hard_errs:
                 print("failed validation:", file=sys.stderr)
                 for e in hard_errs:
                     print(f"- {e}", file=sys.stderr)
-                return 2
+                validation_errors.extend(hard_errs if hard_errs else ["unknown validation error"])
             for w in soft_warns:
                 log.warning("spec warning: %s", w)
+
+        if validation_errors and not getattr(args, "no_strict_exit", False):
+            click.echo(
+                "Validation errors detected — exiting with non-zero status.",
+                err=True,
+            )
+            sys.exit(1)
 
         print(f"validation_engine: {VALIDATION_ENGINE_VERSION}")
 
@@ -1764,6 +1783,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "--rng-audit",
         action="store_true",
         help="(scaffold) Print RNG inspection info (does not affect results).",
+    )
+    p_run.add_argument(
+        "--no-strict-exit",
+        action="store_true",
+        help="Allow run to continue even if validation errors occur.",
     )
     p_run.add_argument(
         "--explain",
