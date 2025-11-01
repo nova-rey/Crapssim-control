@@ -1,0 +1,11 @@
+body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 2rem; }
+header { display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem; }
+nav a { margin-right: 1rem; text-decoration:none; }
+table { border-collapse: collapse; width: 100%; }
+th, td { border: 1px solid #ddd; padding: .5rem; text-align:left; }
+.badges li { display:inline-block; margin-right: .75rem; }
+button { padding: .5rem .9rem; }
+pre { background:#f7f7f9; padding: .75rem; overflow:auto; }
+pre.err { background:#fff0f0; }
+.report { border:1px solid #ddd; padding: .6rem; background: #fff; }
+label { display:block; margin:.5rem 0; }

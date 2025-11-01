@@ -17,6 +17,7 @@ dependencies = [
   "uvicorn>=0.23",
   "httpx>=0.27",
   "requests>=2.31",
+  "Jinja2>=3.1",
 ]
 
 # Optional extras: YAML loading for specs
@@ -37,7 +38,7 @@ exclude = ["tests*", "specs*"]
 [tool.setuptools.package-data]
 # Ship schema/docs/spec examples inside the package (read-only)
 crapssim_control = [
-  "**/*.yml", "**/*.yaml", "**/*.json", "**/*.md",
+  "**/*.yml", "**/*.yaml", "**/*.json", "**/*.md", "**/*.html", "**/*.css",
 ]
 
 [tool.ruff]
