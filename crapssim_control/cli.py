@@ -114,6 +114,40 @@ def _normalize_validate_result(res):
     return ok, hard_errs, []
 
 
+def _ensure_journal_stub(journal_path: Path) -> None:
+    """Write a minimal journal.csv stub if no data was materialized."""
+
+    try:
+        journal_path.parent.mkdir(parents=True, exist_ok=True)
+    except Exception:  # pragma: no cover - defensive
+        log.debug("failed to ensure journal.csv parent directory", exc_info=True)
+        return
+
+    try:
+        journal_path.write_text(
+            f"# journal_schema_version: {JOURNAL_SCHEMA_VERSION}\n",
+            encoding="utf-8",
+        )
+    except Exception:  # pragma: no cover - defensive
+        log.debug("failed to write journal.csv stub", exc_info=True)
+
+
+def _ensure_journal_present(journal_path: Path) -> None:
+    """Ensure journal.csv exists and is non-empty."""
+
+    needs_stub = False
+    try:
+        if not journal_path.exists():
+            needs_stub = True
+        else:
+            needs_stub = journal_path.stat().st_size == 0
+    except OSError:
+        needs_stub = True
+
+    if needs_stub:
+        _ensure_journal_stub(journal_path)
+
+
 def _engine_unavailable(reason: str | Exception = "missing or incompatible engine") -> int:
     """
     Standardized failure for tests, while logging the real reason.
@@ -791,6 +825,7 @@ def _finalize_run_artifacts(
         ensure_journal = True
 
     if ensure_journal:
+        wrote_summary = False
         try:
             from .csv_journal import CSVJournal  # lazy import to avoid cycles
 
@@ -810,24 +845,16 @@ def _finalize_run_artifacts(
                 "units": summary_payload.get("units"),
                 "bankroll": summary_payload.get("final_bankroll"),
             }
-            journal.write_summary(fallback_summary, snapshot=snapshot)
-        except Exception:
-            journal_path.write_text(
-                f"# journal_schema_version: {JOURNAL_SCHEMA_VERSION}\n",
-                encoding="utf-8",
-            )
+            wrote_summary = bool(journal.write_summary(fallback_summary, snapshot=snapshot))
+        except Exception:  # pragma: no cover - defensive
+            log.debug("failed to materialize journal summary; using stub", exc_info=True)
+
+        if not wrote_summary:
+            _ensure_journal_stub(journal_path)
 
     # A final safeguard: if no journal was materialized above, emit an empty
     # stub so downstream tooling still finds the expected file.
-    if not journal_path.exists():
-        try:
-            journal_path.parent.mkdir(parents=True, exist_ok=True)
-            journal_path.write_text(
-                f"# journal_schema_version: {JOURNAL_SCHEMA_VERSION}\n",
-                encoding="utf-8",
-            )
-        except Exception:  # pragma: no cover - defensive
-            log.debug("failed to ensure journal.csv fallback", exc_info=True)
+    _ensure_journal_present(journal_path)
 
     try:
         result.summary = dict(serializable_summary)
