@@ -19,7 +19,8 @@ FIELDS = [
 
 class DecisionsTrace:
     def __init__(self, folder):
-        path = pathlib.Path(folder) / "decisions.csv"
+        self.output_dir = pathlib.Path(folder)
+        path = self.output_dir / "decisions.csv"
         self._fp = open(path, "w", newline="", encoding="utf-8")
         self._w = csv.DictWriter(self._fp, fieldnames=FIELDS)
         self._w.writeheader()

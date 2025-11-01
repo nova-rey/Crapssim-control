@@ -22,67 +22,53 @@ def _fallback_summary(err_msg: str) -> dict[str, Any]:
     }
 
 
-def _emit_per_run_artifacts(
+def _finalize_per_run_artifacts(
+    *,
     run_dir: Path,
-    manifest: dict[str, Any],
-    summary: Optional[dict[str, Any]] = None,
-    export_summary_path: Optional[Path] = None,
-    journal_src: Optional[Path] = None,
+    manifest: Optional[dict[str, Any]],
+    summary: Optional[dict[str, Any]],
+    export_summary_path: Optional[Path],
+    journal_src: Optional[Path],
 ) -> None:
-    """Ensure summary.json + manifest.json live in run_dir. Copy journal if available."""
+    """Always materialize manifest.json and summary.json beside decisions.csv."""
 
     run_dir.mkdir(parents=True, exist_ok=True)
 
     summary_path = run_dir / "summary.json"
     manifest_path = run_dir / "manifest.json"
 
-    summary_error: Optional[Exception] = None
     normalized_summary: Optional[dict[str, Any]] = None
+    if isinstance(summary, Mapping) and summary:
+        normalized_summary = dict(summary)
 
-    if summary:
-        if isinstance(summary, Mapping):
-            normalized_summary = dict(summary)
-        else:
+    if normalized_summary is not None:
+        write_json_atomic(summary_path, normalized_summary)
+    elif export_summary_path is not None and Path(export_summary_path).exists():
+        copyfile(Path(export_summary_path), summary_path)
+    else:
+        write_json_atomic(
+            summary_path,
+            _fallback_summary("no summary returned by controller"),
+        )
+
+    manifest_payload: dict[str, Any]
+    if isinstance(manifest, Mapping) and manifest:
+        manifest_payload = dict(manifest)
+    else:
+        manifest_payload = {"run": {"flags": {}}, "identity": {"source": "fallback"}}
+
+    write_json_atomic(manifest_path, manifest_payload)
+
+    if journal_src:
+        journal_path = Path(journal_src)
+        if journal_path.exists():
+            dest = run_dir / "journal.csv"
             try:
-                normalized_summary = dict(summary)  # type: ignore[arg-type]
-            except Exception as exc:  # pragma: no cover - defensive
-                summary_error = exc
-                normalized_summary = None
-
-    if normalized_summary:
-        try:
-            write_json_atomic(summary_path, normalized_summary)
-            summary_error = None
-        except Exception as exc:  # pragma: no cover - defensive
-            summary_error = exc
-
-    summary_written = summary_error is None and normalized_summary is not None
-
-    if not summary_written and export_summary_path and export_summary_path.exists():
-        try:
-            copyfile(export_summary_path, summary_path)
-            summary_written = True
-            summary_error = None
-        except Exception as exc:  # pragma: no cover - defensive
-            summary_error = exc
-
-    if not summary_written:
-        err_msg = "controller returned no summary"
-        if summary_error is not None:
-            err_msg = f"failed to write summary: {summary_error}"
-        write_json_atomic(summary_path, _fallback_summary(err_msg))
-
-    write_json_atomic(manifest_path, manifest)
-
-    if journal_src and journal_src.exists():
-        dest = run_dir / "journal.csv"
-        try:
-            if dest.resolve() == journal_src.resolve():
-                return
-        except FileNotFoundError:
-            # One of the paths might not exist yet; fall back to copy
-            pass
-        copyfile(journal_src, dest)
+                if dest.resolve() == journal_path.resolve():
+                    return
+            except FileNotFoundError:
+                pass
+            copyfile(journal_path, dest)
 
 
-__all__ = ["_emit_per_run_artifacts", "_fallback_summary"]
+__all__ = ["_finalize_per_run_artifacts", "_fallback_summary"]

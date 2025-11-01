@@ -904,3 +904,6 @@ Ensured `summary.json` and `manifest.json` are always written into `artifacts/<r
 
 ### Phase 15 · C2c — Per-run summary/manifest co-location
 CLI now always writes `summary.json` and `manifest.json` into each run's artifacts folder. Uses atomic writes; copies export summary when available; otherwise writes a clearly marked fallback. Exit codes unchanged.
+
+### Phase 15 · C2d — Guaranteed per-run summary/manifest
+`run` now finalizes per-run artifacts in a `finally:` block, always writing `summary.json` and `manifest.json` into `artifacts/<run_id>/` (copy real summary if available; otherwise fallback). Exit codes unchanged.
