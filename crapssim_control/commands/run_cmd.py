@@ -38,8 +38,9 @@ def _emit_per_run_artifacts(
 
     summary_error: Optional[Exception] = None
     normalized_summary: Optional[dict[str, Any]] = None
+    summary_written = False
 
-    if summary:
+    if summary is not None:
         if isinstance(summary, Mapping):
             normalized_summary = dict(summary)
         else:
@@ -49,14 +50,13 @@ def _emit_per_run_artifacts(
                 summary_error = exc
                 normalized_summary = None
 
-    if normalized_summary:
+    if normalized_summary is not None:
         try:
             write_json_atomic(summary_path, normalized_summary)
             summary_error = None
+            summary_written = True
         except Exception as exc:  # pragma: no cover - defensive
             summary_error = exc
-
-    summary_written = summary_error is None and normalized_summary is not None
 
     if not summary_written and export_summary_path and export_summary_path.exists():
         try:
