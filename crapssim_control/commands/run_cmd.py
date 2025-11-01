@@ -5,7 +5,25 @@ from pathlib import Path
 from shutil import copyfile
 from typing import Any, Optional
 
+from crapssim_control.schemas import JOURNAL_SCHEMA_VERSION
 from crapssim_control.utils.io_atomic import write_json_atomic
+
+
+def _ensure_journal_stub(journal_path: Path) -> None:
+    """Write a minimal journal.csv stub when no source data is available."""
+
+    try:
+        journal_path.parent.mkdir(parents=True, exist_ok=True)
+    except Exception:  # pragma: no cover - defensive
+        return
+
+    try:
+        journal_path.write_text(
+            f"# journal_schema_version: {JOURNAL_SCHEMA_VERSION}\n",
+            encoding="utf-8",
+        )
+    except Exception:  # pragma: no cover - defensive
+        pass
 
 
 def _fallback_summary(err_msg: str) -> dict[str, Any]:
@@ -59,16 +77,27 @@ def _finalize_per_run_artifacts(
 
     write_json_atomic(manifest_path, manifest_payload)
 
+    dest = run_dir / "journal.csv"
+
     if journal_src:
         journal_path = Path(journal_src)
         if journal_path.exists():
-            dest = run_dir / "journal.csv"
             try:
                 if dest.resolve() == journal_path.resolve():
                     return
             except FileNotFoundError:
                 pass
             copyfile(journal_path, dest)
+            return
+
+    needs_stub = False
+    try:
+        needs_stub = not dest.exists() or dest.stat().st_size == 0
+    except OSError:
+        needs_stub = True
+
+    if needs_stub:
+        _ensure_journal_stub(dest)
 
 
 __all__ = ["_finalize_per_run_artifacts", "_fallback_summary"]
