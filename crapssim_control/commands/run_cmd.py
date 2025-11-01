@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from __future__ import annotations
-
+from collections.abc import Mapping
 from pathlib import Path
 from shutil import copyfile
 from typing import Any, Optional
@@ -37,15 +36,41 @@ def _emit_per_run_artifacts(
     summary_path = run_dir / "summary.json"
     manifest_path = run_dir / "manifest.json"
 
-    if summary and isinstance(summary, dict):
-        write_json_atomic(summary_path, summary)
-    elif export_summary_path and export_summary_path.exists():
-        copyfile(export_summary_path, summary_path)
-    else:
-        write_json_atomic(
-            summary_path,
-            _fallback_summary("controller returned no summary"),
-        )
+    summary_error: Optional[Exception] = None
+    normalized_summary: Optional[dict[str, Any]] = None
+
+    if summary:
+        if isinstance(summary, Mapping):
+            normalized_summary = dict(summary)
+        else:
+            try:
+                normalized_summary = dict(summary)  # type: ignore[arg-type]
+            except Exception as exc:  # pragma: no cover - defensive
+                summary_error = exc
+                normalized_summary = None
+
+    if normalized_summary:
+        try:
+            write_json_atomic(summary_path, normalized_summary)
+            summary_error = None
+        except Exception as exc:  # pragma: no cover - defensive
+            summary_error = exc
+
+    summary_written = summary_error is None and normalized_summary is not None
+
+    if not summary_written and export_summary_path and export_summary_path.exists():
+        try:
+            copyfile(export_summary_path, summary_path)
+            summary_written = True
+            summary_error = None
+        except Exception as exc:  # pragma: no cover - defensive
+            summary_error = exc
+
+    if not summary_written:
+        err_msg = "controller returned no summary"
+        if summary_error is not None:
+            err_msg = f"failed to write summary: {summary_error}"
+        write_json_atomic(summary_path, _fallback_summary(err_msg))
 
     write_json_atomic(manifest_path, manifest)
 
