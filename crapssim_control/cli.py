@@ -8,6 +8,7 @@ import json
 import logging
 import os
 import random
+import uvicorn
 import sys
 import traceback
 from collections.abc import Mapping, Sequence
@@ -1584,6 +1585,14 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     return int(result)
 
 
+def _cmd_ui(args: argparse.Namespace) -> int:
+    from .http_app import create_app
+
+    app = create_app(mount_ui=True)
+    uvicorn.run(app, host=args.host, port=args.port)
+    return 0
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="crapssim-ctl",
@@ -1633,6 +1642,12 @@ def _build_parser() -> argparse.ArgumentParser:
         "--spec", dest="spec", default=None, help="Path to spec.json (default: spec.json)"
     )
     p_doc.set_defaults(func=_cmd_doctor)
+
+    # ui
+    p_ui = sub.add_parser("ui", help="Launch the CSC UI (FastAPI)")
+    p_ui.add_argument("--host", default="127.0.0.1", help="Host interface to bind")
+    p_ui.add_argument("--port", type=int, default=8088, help="Port to bind")
+    p_ui.set_defaults(func=_cmd_ui)
 
     # validate
     p_val = sub.add_parser("validate", help="Validate a strategy spec (JSON or YAML)")

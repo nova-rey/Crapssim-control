@@ -1,0 +1,40 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <title>CSC — Runs</title>
+  <link rel="stylesheet" href="/static/style.css"/>
+</head>
+<body>
+<header>
+  <h1>CSC Dashboard</h1>
+  <nav>
+    <a href="/ui">Runs</a>
+    <a href="/ui/launch">Launch</a>
+    <a href="/ui/doctor">Doctor</a>
+  </nav>
+</header>
+
+<section>
+  <h2>Recent Runs</h2>
+  {% if runs %}
+  <table>
+    <thead><tr><th>Run ID</th><th>Decisions</th><th>Summary</th><th>Manifest</th><th>Report</th></tr></thead>
+    <tbody>
+    {% for r in runs %}
+      <tr>
+        <td><a href="/ui/runs/{{ r.id }}">{{ r.id }}</a></td>
+        <td>{{ "✓" if r.has_decisions else "—" }}</td>
+        <td>{{ "✓" if r.has_summary else "—" }}</td>
+        <td>{{ "✓" if r.has_manifest else "—" }}</td>
+        <td>{{ "✓" if r.has_report else "—" }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p>No runs yet. Try <a href="/ui/launch">launching</a> your first run.</p>
+  {% endif %}
+</section>
+</body>
+</html>

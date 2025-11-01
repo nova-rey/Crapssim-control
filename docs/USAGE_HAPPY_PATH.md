@@ -14,3 +14,11 @@ python -m csc summarize --artifacts artifacts/latest --human
 - `1`  = Validation failure or unrecoverable runtime error.
 
 Use `--no-strict-exit` if you wish to suppress the validation-error exit for exploratory runs.
+
+## Web UI (since P16·C1)
+Launch the minimal dashboard:
+```bash
+python -m csc ui --host 127.0.0.1 --port 8088
+```
+
+Open http://127.0.0.1:8088/ui. From there you can list runs, validate a spec, launch a run with --explain, and view/download per-run artifacts. The UI is a thin layer over the CLI, so results are identical to command-line usage.

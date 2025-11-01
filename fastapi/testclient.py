@@ -1,9 +1,10 @@
-"""Minimal TestClient for the FastAPI compatibility shim."""
+"""Minimal TestClient compatible with the FastAPI shim."""
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Dict
 
 from . import FastAPI
 
@@ -11,10 +12,23 @@ from . import FastAPI
 @dataclass
 class _Response:
     status_code: int
-    payload: Any
+    content: Any
+    headers: Dict[str, str]
 
     def json(self) -> Any:
-        return self.payload
+        if isinstance(self.content, (bytes, bytearray)):
+            data = self.content.decode("utf-8")
+        else:
+            data = self.content
+        if isinstance(data, (dict, list)):
+            return data
+        return json.loads(data)
+
+    @property
+    def text(self) -> str:
+        if isinstance(self.content, (bytes, bytearray)):
+            return self.content.decode("utf-8")
+        return str(self.content)
 
 
 class TestClient:
@@ -22,9 +36,9 @@ class TestClient:
         self.app = app
 
     def post(self, path: str, json: Any | None = None, **_: Any) -> _Response:
-        status, payload = self.app._dispatch("POST", path, json or {})
-        return _Response(status_code=status, payload=payload)
+        status, payload, headers = self.app._dispatch("POST", path, json or {})
+        return _Response(status_code=status, content=payload, headers=headers)
 
     def get(self, path: str, params: Any | None = None, **_: Any) -> _Response:
-        status, payload = self.app._dispatch("GET", path, params or {})
-        return _Response(status_code=status, payload=payload)
+        status, payload, headers = self.app._dispatch("GET", path, params or {})
+        return _Response(status_code=status, content=payload, headers=headers)

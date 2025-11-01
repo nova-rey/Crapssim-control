@@ -1,0 +1,32 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <title>CSC — Doctor</title>
+  <link rel="stylesheet" href="/static/style.css"/>
+</head>
+<body>
+<header>
+  <h1>Spec Doctor</h1>
+  <nav>
+    <a href="/ui">Runs</a>
+    <a href="/ui/launch">Launch</a>
+    <a href="/ui/doctor">Doctor</a>
+  </nav>
+</header>
+
+<form method="post" action="/ui/doctor">
+  <label>Spec path <input type="text" name="spec_path" placeholder="/path/to/spec.json" required></label>
+  <button type="submit">Validate</button>
+</form>
+
+{% if spec_path %}
+  <h3>Result for {{ spec_path }}</h3>
+  <pre>{{ stdout }}</pre>
+  {% if stderr %}
+  <h4>Errors</h4><pre class="err">{{ stderr }}</pre>
+  {% endif %}
+  <p>Return code: {{ returncode }}</p>
+{% endif %}
+</body>
+</html>
