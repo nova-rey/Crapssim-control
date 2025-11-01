@@ -12,6 +12,7 @@ import sys
 import traceback
 from collections.abc import Mapping, Sequence
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Dict, List, Optional, Tuple
 from uuid import uuid4
 
@@ -33,7 +34,7 @@ from .spec_validation import VALIDATION_ENGINE_VERSION
 from .spec_loader import load_spec_file
 from .rules_engine.author import RuleBuilder
 from .schemas import JOURNAL_SCHEMA_VERSION, SUMMARY_SCHEMA_VERSION
-from .commands.run_cmd import _emit_per_run_artifacts, _fallback_summary
+from .commands.run_cmd import _finalize_per_run_artifacts, _fallback_summary
 from .run.controller import ControllerRunResult
 from .run.decisions_trace import DecisionsTrace
 from .manifest import generate_manifest
@@ -662,8 +663,10 @@ def _finalize_run_artifacts(
     decisions_writer: Optional[DecisionsTrace],
     summary_defaults: Optional[Mapping[str, Any]] = None,
     journal_src: Optional[Path] = None,
-) -> None:
+) -> SimpleNamespace:
     run_dir.mkdir(parents=True, exist_ok=True)
+
+    result = SimpleNamespace(summary=None, manifest=None, journal_src=None)
 
     if isinstance(summary, Mapping):
         summary_payload: Dict[str, Any] = dict(summary)
@@ -739,9 +742,9 @@ def _finalize_run_artifacts(
     )
 
     try:
-        _emit_per_run_artifacts(
-            run_dir,
-            manifest_payload,
+        _finalize_per_run_artifacts(
+            run_dir=run_dir,
+            manifest=manifest_payload,
             summary=serializable_summary,
             export_summary_path=None,
             journal_src=journal_source if journal_source and journal_source.exists() else None,
@@ -755,9 +758,10 @@ def _finalize_run_artifacts(
             error=exc,
             cause=serialization_error,
         )
-        _emit_per_run_artifacts(
-            run_dir,
-            manifest_payload,
+        serializable_summary = fallback_payload
+        _finalize_per_run_artifacts(
+            run_dir=run_dir,
+            manifest=manifest_payload,
             summary=fallback_payload,
             export_summary_path=None,
             journal_src=None,
@@ -812,6 +816,21 @@ def _finalize_run_artifacts(
                 f"# journal_schema_version: {JOURNAL_SCHEMA_VERSION}\n",
                 encoding="utf-8",
             )
+
+    try:
+        result.summary = dict(serializable_summary)
+    except Exception:
+        result.summary = dict(_missing_summary_payload(run_id))
+
+    try:
+        result.manifest = dict(manifest_payload)
+    except Exception:
+        result.manifest = {"run": {"flags": {}}, "identity": {"source": "fallback"}}
+
+    if journal_source and journal_source.exists():
+        result.journal_src = journal_source
+
+    return result
 
 
 def _build_manifest_payload(
@@ -1015,6 +1034,13 @@ def run(args: argparse.Namespace) -> int:
     explain_mode = False
     explain_source = "default"
     control_result: Optional[ControllerRunResult] = None
+    finalization_state = SimpleNamespace(
+        run_dir=None,
+        summary=None,
+        manifest=None,
+        export_summary_path=None,
+        journal_src=None,
+    )
 
     def _close_decisions_trace() -> None:
         nonlocal decisions_writer
@@ -1054,325 +1080,374 @@ def run(args: argparse.Namespace) -> int:
             args,
         )
     )
-    risk_block = run_block.get("risk")
-    if not isinstance(risk_block, dict):
-        risk_block = {}
-        run_block["risk"] = risk_block
+    try:
+        finalization_state.run_dir = run_artifacts_dir
+        risk_block = run_block.get("risk")
+        if not isinstance(risk_block, dict):
+            risk_block = {}
+            run_block["risk"] = risk_block
 
-    policy_path = getattr(args, "risk_policy", None)
-    if isinstance(policy_path, str) and policy_path and os.path.exists(policy_path):
-        data: Dict[str, Any] | None = None
+        policy_path = getattr(args, "risk_policy", None)
+        if isinstance(policy_path, str) and policy_path and os.path.exists(policy_path):
+            data: Dict[str, Any] | None = None
+            try:
+                if policy_path.lower().endswith((".yml", ".yaml")) and yaml is not None:
+                    with open(policy_path, "r", encoding="utf-8") as f:
+                        data = yaml.safe_load(f) or {}
+                else:
+                    with open(policy_path, "r", encoding="utf-8") as f:
+                        try:
+                            data = json.load(f)
+                        except Exception:
+                            data = None
+            except Exception:
+                data = None
+            if isinstance(data, dict) and data:
+                nested = data.get("run") if isinstance(data.get("run"), dict) else None
+                source = (
+                    nested.get("risk")
+                    if isinstance(nested, dict) and isinstance(nested.get("risk"), dict)
+                    else data
+                )
+                if isinstance(source, dict):
+                    risk_block.update(source)
+                    risk_overrides["from_file"] = policy_path
+
+        max_drawdown = getattr(args, "max_drawdown", None)
+        if max_drawdown is not None:
+            risk_block["max_drawdown_pct"] = float(max_drawdown)
+            risk_overrides["max_drawdown_pct"] = float(max_drawdown)
+
+        max_heat = getattr(args, "max_heat", None)
+        if max_heat is not None:
+            risk_block["max_heat"] = float(max_heat)
+            risk_overrides["max_heat"] = float(max_heat)
+
+        bet_caps_cli = getattr(args, "bet_cap", None) or []
+        if bet_caps_cli:
+            caps = risk_block.get("bet_caps")
+            if not isinstance(caps, dict):
+                caps = {}
+            for cap in bet_caps_cli:
+                if not isinstance(cap, str) or ":" not in cap:
+                    continue
+                key, raw_value = cap.split(":", 1)
+                key = key.strip()
+                raw_value = raw_value.strip()
+                if not key:
+                    continue
+                try:
+                    value = float(raw_value)
+                except ValueError:
+                    continue
+                caps[key] = value
+                risk_overrides[f"bet_cap_{key}"] = value
+            if caps:
+                risk_block["bet_caps"] = caps
+
+        recovery_mode = getattr(args, "recovery", None)
+        if recovery_mode:
+            mode = (
+                "none"
+                if recovery_mode == "none"
+                else ("flat_recovery" if recovery_mode == "flat" else "step_recovery")
+            )
+            risk_block["recovery"] = {"enabled": mode != "none", "mode": mode}
+            risk_overrides["recovery_mode"] = mode
+
+        if getattr(args, "no_policy_enforce", False):
+            policy_block = run_block.setdefault("policy", {})
+            policy_block["enforce"] = False
+        if getattr(args, "policy_report", False):
+            policy_block = run_block.setdefault("policy", {})
+            policy_block["report"] = True
+
+        if getattr(args, "no_stop_on_bankrupt", False):
+            run_block["stop_on_bankrupt"] = False
+        if getattr(args, "no_stop_on_unactionable", False):
+            run_block["stop_on_unactionable"] = False
+
+        # spec-level runtime
+        spec_run_raw = spec.get("run")
+        spec_run = spec_run_raw if isinstance(spec_run_raw, dict) else {}
+        rolls = int(args.rolls) if args.rolls is not None else int(spec_run.get("rolls", 1000))
+        seed = args.seed if args.seed is not None else spec_run.get("seed")
+
+        # Flags (merged with spec)
+        demo_fallbacks = normalize_demo_fallbacks(spec_run)
+        strict_norm, strict_ok = coerce_flag(spec_run.get("strict"), default=STRICT_DEFAULT)
+        strict = bool(strict_norm) if strict_ok and strict_norm is not None else STRICT_DEFAULT
+        csv_blk = spec_run.get("csv") if isinstance(spec_run.get("csv"), dict) else {}
+        embed_norm, embed_ok = coerce_flag(
+            (csv_blk or {}).get("embed_analytics"), default=EMBED_ANALYTICS_DEFAULT
+        )
+        embed_analytics = (
+            bool(embed_norm) if embed_ok and embed_norm is not None else EMBED_ANALYTICS_DEFAULT
+        )
+        rng_audit = bool(getattr(args, "rng_audit", False))
+        if log.isEnabledFor(logging.DEBUG):
+            log.debug(
+                "CLI run flags: demo_fallbacks=%s strict=%s embed_analytics=%s rng_audit=%s",
+                demo_fallbacks,
+                strict,
+                embed_analytics,
+                rng_audit,
+            )
+
+        # Validate (can be bypassed by workflow env)
+        if os.environ.get("CSC_SKIP_VALIDATE", "0").lower() not in ("1", "true", "yes"):
+            ok, hard_errs, soft_warns = _lazy_validate_spec(spec)
+            if not ok or hard_errs:
+                print("failed validation:", file=sys.stderr)
+                for e in hard_errs:
+                    print(f"- {e}", file=sys.stderr)
+                return 2
+            for w in soft_warns:
+                log.warning("spec warning: %s", w)
+
+        print(f"validation_engine: {VALIDATION_ENGINE_VERSION}")
+
+        info = _csv_journal_info(spec)
+        if info:
+            print(info)
+
+        # Seed RNGs under our control
+        seed_int = None
+        if seed is not None:
+            try:
+                seed_int = int(seed)
+            except Exception:
+                seed_int = None
+        _smart_seed(seed_int)
+        _reseed_engine(seed_int)
+
+        # Attach engine
         try:
-            if policy_path.lower().endswith((".yml", ".yaml")) and yaml is not None:
-                with open(policy_path, "r", encoding="utf-8") as f:
-                    data = yaml.safe_load(f) or {}
+            from crapssim_control.engine_adapter import (
+                EngineAdapter,
+                resolve_engine_adapter,
+            )  # lazy
+
+            adapter_cls = None
+            reason = None
+            if "EngineAdapter" in locals() and not inspect.isabstract(EngineAdapter):
+                adapter_cls = EngineAdapter
             else:
-                with open(policy_path, "r", encoding="utf-8") as f:
-                    try:
-                        data = json.load(f)
-                    except Exception:
-                        data = None
-        except Exception:
-            data = None
-        if isinstance(data, dict) and data:
-            nested = data.get("run") if isinstance(data.get("run"), dict) else None
-            source = (
-                nested.get("risk")
-                if isinstance(nested, dict) and isinstance(nested.get("risk"), dict)
-                else data
-            )
-            if isinstance(source, dict):
-                risk_block.update(source)
-                risk_overrides["from_file"] = policy_path
+                adapter_cls, reason = resolve_engine_adapter()
 
-    max_drawdown = getattr(args, "max_drawdown", None)
-    if max_drawdown is not None:
-        risk_block["max_drawdown_pct"] = float(max_drawdown)
-        risk_overrides["max_drawdown_pct"] = float(max_drawdown)
+            if adapter_cls is None:
+                raise RuntimeError(reason or "engine adapter scaffolding not connected")
 
-    max_heat = getattr(args, "max_heat", None)
-    if max_heat is not None:
-        risk_block["max_heat"] = float(max_heat)
-        risk_overrides["max_heat"] = float(max_heat)
+            adapter = adapter_cls()
+            if not hasattr(adapter, "attach"):
+                raise RuntimeError("engine adapter missing attach() implementation")
+            attach_result = adapter.attach(spec)
+            risk_policy = load_risk_policy(spec)
+            adapter._risk_policy = risk_policy  # type: ignore[attr-defined]
+            adapter._policy_engine = PolicyEngine(risk_policy)  # type: ignore[attr-defined]
+            adapter._policy_opts = get_policy_options(spec)  # type: ignore[attr-defined]
+            adapter._stop_opts = get_stop_options(spec)  # type: ignore[attr-defined]
+            adapter._policy_overrides = dict(risk_overrides)
+            if risk_overrides:
+                try:
+                    print(f"Risk policy active: {json.dumps(risk_overrides, separators=(',',':'))}")
+                except Exception:
+                    print("Risk policy active: overrides applied")
+            table = attach_result.table
+            # CRITICAL: seed the actual dice/rng instance now that it exists
+            _force_seed_on_table(table, seed_int)
 
-    bet_caps_cli = getattr(args, "bet_cap", None) or []
-    if bet_caps_cli:
-        caps = risk_block.get("bet_caps")
-        if not isinstance(caps, dict):
-            caps = {}
-        for cap in bet_caps_cli:
-            if not isinstance(cap, str) or ":" not in cap:
-                continue
-            key, raw_value = cap.split(":", 1)
-            key = key.strip()
-            raw_value = raw_value.strip()
-            if not key:
-                continue
-            try:
-                value = float(raw_value)
-            except ValueError:
-                continue
-            caps[key] = value
-            risk_overrides[f"bet_cap_{key}"] = value
-        if caps:
-            risk_block["bet_caps"] = caps
+            if rng_audit:
+                # best-effort introspection only (stdout, ignored by RESULT grep)
+                try:
+                    attrs = {
+                        k: bool(getattr(table, k, None)) for k in ("dice", "_dice", "rng", "_rng")
+                    }
+                    print(f"[rng] seed={seed_int} table_attrs={attrs}")
+                except Exception:
+                    pass
 
-    recovery_mode = getattr(args, "recovery", None)
-    if recovery_mode:
-        mode = (
-            "none"
-            if recovery_mode == "none"
-            else ("flat_recovery" if recovery_mode == "flat" else "step_recovery")
-        )
-        risk_block["recovery"] = {"enabled": mode != "none", "mode": mode}
-        risk_overrides["recovery_mode"] = mode
-
-    if getattr(args, "no_policy_enforce", False):
-        policy_block = run_block.setdefault("policy", {})
-        policy_block["enforce"] = False
-    if getattr(args, "policy_report", False):
-        policy_block = run_block.setdefault("policy", {})
-        policy_block["report"] = True
-
-    if getattr(args, "no_stop_on_bankrupt", False):
-        run_block["stop_on_bankrupt"] = False
-    if getattr(args, "no_stop_on_unactionable", False):
-        run_block["stop_on_unactionable"] = False
-
-    # spec-level runtime
-    spec_run_raw = spec.get("run")
-    spec_run = spec_run_raw if isinstance(spec_run_raw, dict) else {}
-    rolls = int(args.rolls) if args.rolls is not None else int(spec_run.get("rolls", 1000))
-    seed = args.seed if args.seed is not None else spec_run.get("seed")
-
-    # Flags (merged with spec)
-    demo_fallbacks = normalize_demo_fallbacks(spec_run)
-    strict_norm, strict_ok = coerce_flag(spec_run.get("strict"), default=STRICT_DEFAULT)
-    strict = bool(strict_norm) if strict_ok and strict_norm is not None else STRICT_DEFAULT
-    csv_blk = spec_run.get("csv") if isinstance(spec_run.get("csv"), dict) else {}
-    embed_norm, embed_ok = coerce_flag(
-        (csv_blk or {}).get("embed_analytics"), default=EMBED_ANALYTICS_DEFAULT
-    )
-    embed_analytics = (
-        bool(embed_norm) if embed_ok and embed_norm is not None else EMBED_ANALYTICS_DEFAULT
-    )
-    rng_audit = bool(getattr(args, "rng_audit", False))
-    if log.isEnabledFor(logging.DEBUG):
-        log.debug(
-            "CLI run flags: demo_fallbacks=%s strict=%s embed_analytics=%s rng_audit=%s",
-            demo_fallbacks,
-            strict,
-            embed_analytics,
-            rng_audit,
-        )
-
-    # Validate (can be bypassed by workflow env)
-    if os.environ.get("CSC_SKIP_VALIDATE", "0").lower() not in ("1", "true", "yes"):
-        ok, hard_errs, soft_warns = _lazy_validate_spec(spec)
-        if not ok or hard_errs:
-            print("failed validation:", file=sys.stderr)
-            for e in hard_errs:
-                print(f"- {e}", file=sys.stderr)
-            _close_decisions_trace()
-            return 2
-        for w in soft_warns:
-            log.warning("spec warning: %s", w)
-
-    print(f"validation_engine: {VALIDATION_ENGINE_VERSION}")
-
-    info = _csv_journal_info(spec)
-    if info:
-        print(info)
-
-    # Seed RNGs under our control
-    seed_int = None
-    if seed is not None:
-        try:
-            seed_int = int(seed)
-        except Exception:
-            seed_int = None
-    _smart_seed(seed_int)
-    _reseed_engine(seed_int)
-
-    # Attach engine
-    try:
-        from crapssim_control.engine_adapter import EngineAdapter, resolve_engine_adapter  # lazy
-
-        adapter_cls = None
-        reason = None
-        if "EngineAdapter" in locals() and not inspect.isabstract(EngineAdapter):
-            adapter_cls = EngineAdapter
-        else:
-            adapter_cls, reason = resolve_engine_adapter()
-
-        if adapter_cls is None:
-            raise RuntimeError(reason or "engine adapter scaffolding not connected")
-
-        adapter = adapter_cls()
-        if not hasattr(adapter, "attach"):
-            raise RuntimeError("engine adapter missing attach() implementation")
-        attach_result = adapter.attach(spec)
-        risk_policy = load_risk_policy(spec)
-        adapter._risk_policy = risk_policy  # type: ignore[attr-defined]
-        adapter._policy_engine = PolicyEngine(risk_policy)  # type: ignore[attr-defined]
-        adapter._policy_opts = get_policy_options(spec)  # type: ignore[attr-defined]
-        adapter._stop_opts = get_stop_options(spec)  # type: ignore[attr-defined]
-        adapter._policy_overrides = dict(risk_overrides)
-        if risk_overrides:
-            try:
-                print(f"Risk policy active: {json.dumps(risk_overrides, separators=(',',':'))}")
-            except Exception:
-                print("Risk policy active: overrides applied")
-        table = attach_result.table
-        # CRITICAL: seed the actual dice/rng instance now that it exists
-        _force_seed_on_table(table, seed_int)
-
-        if rng_audit:
-            # best-effort introspection only (stdout, ignored by RESULT grep)
-            try:
-                attrs = {k: bool(getattr(table, k, None)) for k in ("dice", "_dice", "rng", "_rng")}
-                print(f"[rng] seed={seed_int} table_attrs={attrs}")
-            except Exception:
-                pass
-
-        log.debug("attach meta: %s", getattr(attach_result, "meta", {}))
-        if os.environ.get("CSC_DEBUG", "0").lower() in ("1", "true", "yes"):
-            print("DEBUG attach_result:", getattr(attach_result, "meta", {}))
-    except Exception as e:
-        if os.environ.get("CSC_DEBUG", "0").lower() in ("1", "true", "yes"):
-            print("\n--- CSC DEBUG TRACEBACK (attach) ---", flush=True)
-            traceback.print_exc()
-            print("--- END CSC DEBUG ---\n", flush=True)
-        _close_decisions_trace()
-        return _engine_unavailable(e)
-
-    # Drive the table
-    log.info("Starting run: rolls=%s seed=%s", rolls, seed_int)
-    ok, used = _run_table_rolls(table, rolls)
-    if not ok:
-        msg = f"Could not run {rolls} rolls. {used}."
-        if os.environ.get("CSC_DEBUG", "0").lower() in ("1", "true", "yes"):
-            print("\n--- CSC DEBUG: run failure ---", msg, "\n", flush=True)
-        _close_decisions_trace()
-        return _engine_unavailable(msg)
-
-    # Summarize
-    bankroll = None
-    try:
-        players = getattr(table, "players", None)
-        if players and len(players) > 0:
-            p0 = players[0]
-            bankroll = getattr(p0, "bankroll", None)
-    except Exception:
-        pass
-
-    if bankroll is not None:
-        print(f"RESULT: rolls={rolls} bankroll={float(bankroll):.2f}")
-    else:
-        print(f"RESULT: rolls={rolls}")
-
-    summary_payload: Dict[str, Any] = {
-        "run_id": run_id,
-        "spec": str(spec_path),
-        "rolls": rolls,
-        "seed": seed_int,
-        "final_bankroll": float(bankroll) if bankroll is not None else None,
-        "artifacts_dir": str(run_artifacts_dir) if run_artifacts_dir is not None else None,
-        "decisions_rows": decisions_writer.rows_written if decisions_writer is not None else 0,
-        "result": "ok",
-    }
-
-    run_config = spec_run
-    run_config["dsl"] = bool(getattr(args, "dsl", False))
-    run_config["dsl_once_per_window"] = bool(getattr(args, "dsl_once_per_window", True))
-    run_config["dsl_verbose_journal"] = bool(getattr(args, "dsl_verbose_journal", False))
-    print(
-        "Schema versions → "
-        f"journal={run_config.get('journal_schema_version', JOURNAL_SCHEMA_VERSION)} "
-        f"summary={run_config.get('summary_schema_version', SUMMARY_SCHEMA_VERSION)}"
-    )
-    print(f"CSC version → {CSC_VERSION}")
-
-    # Optional CSV export
-    if getattr(args, "export", None):
-        try:
-            _write_csv_summary(
-                args.export,
-                {
-                    "spec": str(spec_path),
-                    "rolls": rolls,
-                    "final_bankroll": float(bankroll) if bankroll is not None else None,
-                    "seed": seed_int,
-                    "note": getattr(
-                        getattr(attach_result, "meta", {}), "get", lambda _k, _d=None: _d
-                    )("mode", ""),
-                },
-            )
-            log.info("Exported summary CSV → %s", args.export)
+            log.debug("attach meta: %s", getattr(attach_result, "meta", {}))
             if os.environ.get("CSC_DEBUG", "0").lower() in ("1", "true", "yes"):
-                print(f"[CSV] wrote summary to {args.export}")
+                print("DEBUG attach_result:", getattr(attach_result, "meta", {}))
         except Exception as e:
-            print(f"warn: export failed: {e}", file=sys.stderr)
+            if os.environ.get("CSC_DEBUG", "0").lower() in ("1", "true", "yes"):
+                print("\n--- CSC DEBUG TRACEBACK (attach) ---", flush=True)
+                traceback.print_exc()
+                print("--- END CSC DEBUG ---\n", flush=True)
+            return _engine_unavailable(e)
 
-    try:
-        control_result = _capture_control_surface_artifacts(
-            spec,
-            spec_path,
-            args,
-            seed_int,
-            rolls,
-            float(bankroll) if bankroll is not None else None,
-            decisions_writer=decisions_writer,
-            explain_mode=explain_mode,
-        )
-    except Exception:
-        if os.environ.get("CSC_DEBUG", "0").lower() in ("1", "true", "yes"):
-            print("warn: control-surface capture failed", file=sys.stderr)
-        log.debug("control surface capture failed", exc_info=True)
+        # Drive the table
+        log.info("Starting run: rolls=%s seed=%s", rolls, seed_int)
+        ok, used = _run_table_rolls(table, rolls)
+        if not ok:
+            msg = f"Could not run {rolls} rolls. {used}."
+            if os.environ.get("CSC_DEBUG", "0").lower() in ("1", "true", "yes"):
+                print("\n--- CSC DEBUG: run failure ---", msg, "\n", flush=True)
+            return _engine_unavailable(msg)
 
-    summary_source: Optional[Mapping[str, Any]] = None
-    if control_result and isinstance(control_result.summary, Mapping):
-        summary_source = control_result.summary
-    else:
-        summary_source = summary_payload
-
-    final_run_dir = run_artifacts_dir or (spec_path.parent / "artifacts" / run_id)
-
-    try:
-        _finalize_run_artifacts(
-            final_run_dir,
-            run_id,
-            spec_path,
-            args,
-            explain_mode=explain_mode,
-            explain_source=explain_source,
-            summary=summary_source,
-            decisions_writer=decisions_writer,
-            summary_defaults=summary_payload,
-            journal_src=(control_result.journal_path if control_result else None),
-        )
-    except Exception:
-        if os.environ.get("CSC_DEBUG", "0").lower() in ("1", "true", "yes"):
-            print("warn: finalize artifacts failed", file=sys.stderr)
-        log.debug("finalize run artifacts failed", exc_info=True)
-
-    summary_file = final_run_dir / "summary.json"
-    if not summary_file.exists():
+        # Summarize
+        bankroll = None
         try:
-            write_json_atomic(
-                summary_file,
-                _fallback_summary_payload(
+            players = getattr(table, "players", None)
+            if players and len(players) > 0:
+                p0 = players[0]
+                bankroll = getattr(p0, "bankroll", None)
+        except Exception:
+            pass
+
+        if bankroll is not None:
+            print(f"RESULT: rolls={rolls} bankroll={float(bankroll):.2f}")
+        else:
+            print(f"RESULT: rolls={rolls}")
+
+        summary_payload: Dict[str, Any] = {
+            "run_id": run_id,
+            "spec": str(spec_path),
+            "rolls": rolls,
+            "seed": seed_int,
+            "final_bankroll": float(bankroll) if bankroll is not None else None,
+            "artifacts_dir": str(run_artifacts_dir) if run_artifacts_dir is not None else None,
+            "decisions_rows": decisions_writer.rows_written if decisions_writer is not None else 0,
+            "result": "ok",
+        }
+
+        finalization_state.summary = dict(summary_payload)
+
+        run_config = spec_run
+        run_config["dsl"] = bool(getattr(args, "dsl", False))
+        run_config["dsl_once_per_window"] = bool(getattr(args, "dsl_once_per_window", True))
+        run_config["dsl_verbose_journal"] = bool(getattr(args, "dsl_verbose_journal", False))
+        print(
+            "Schema versions → "
+            f"journal={run_config.get('journal_schema_version', JOURNAL_SCHEMA_VERSION)} "
+            f"summary={run_config.get('summary_schema_version', SUMMARY_SCHEMA_VERSION)}"
+        )
+        print(f"CSC version → {CSC_VERSION}")
+
+        # Optional CSV export
+        if getattr(args, "export", None):
+            try:
+                _write_csv_summary(
+                    args.export,
+                    {
+                        "spec": str(spec_path),
+                        "rolls": rolls,
+                        "final_bankroll": float(bankroll) if bankroll is not None else None,
+                        "seed": seed_int,
+                        "note": getattr(
+                            getattr(attach_result, "meta", {}), "get", lambda _k, _d=None: _d
+                        )("mode", ""),
+                    },
+                )
+                log.info("Exported summary CSV → %s", args.export)
+                if os.environ.get("CSC_DEBUG", "0").lower() in ("1", "true", "yes"):
+                    print(f"[CSV] wrote summary to {args.export}")
+            except Exception as e:
+                print(f"warn: export failed: {e}", file=sys.stderr)
+
+        try:
+            control_result = _capture_control_surface_artifacts(
+                spec,
+                spec_path,
+                args,
+                seed_int,
+                rolls,
+                float(bankroll) if bankroll is not None else None,
+                decisions_writer=decisions_writer,
+                explain_mode=explain_mode,
+            )
+        except Exception:
+            if os.environ.get("CSC_DEBUG", "0").lower() in ("1", "true", "yes"):
+                print("warn: control-surface capture failed", file=sys.stderr)
+            log.debug("control surface capture failed", exc_info=True)
+
+        if control_result and control_result.journal_path is not None:
+            finalization_state.journal_src = control_result.journal_path
+
+        summary_source: Optional[Mapping[str, Any]] = None
+        if control_result and isinstance(control_result.summary, Mapping):
+            summary_source = control_result.summary
+        else:
+            summary_source = summary_payload
+
+        final_run_dir = run_artifacts_dir or (spec_path.parent / "artifacts" / run_id)
+
+        finalization_state.run_dir = final_run_dir
+
+        try:
+            finalize_result = _finalize_run_artifacts(
+                final_run_dir,
+                run_id,
+                spec_path,
+                args,
+                explain_mode=explain_mode,
+                explain_source=explain_source,
+                summary=summary_source,
+                decisions_writer=decisions_writer,
+                summary_defaults=summary_payload,
+                journal_src=(control_result.journal_path if control_result else None),
+            )
+            finalization_state.summary = finalize_result.summary
+            finalization_state.manifest = finalize_result.manifest
+            if finalize_result.journal_src is not None:
+                finalization_state.journal_src = finalize_result.journal_src
+        except Exception as exc:
+            if os.environ.get("CSC_DEBUG", "0").lower() in ("1", "true", "yes"):
+                print("warn: finalize artifacts failed", file=sys.stderr)
+            log.debug("finalize run artifacts failed", exc_info=True)
+            fallback_payload = _fallback_summary_payload(
+                run_id,
+                summary_payload,
+                stage="finalize",
+                error=exc,
+            )
+            finalization_state.summary = fallback_payload
+            try:
+                finalization_state.manifest = _build_manifest_payload(
+                    spec_path,
+                    args,
+                    explain_mode=explain_mode,
+                    explain_source=explain_source,
+                    decisions_writer=decisions_writer,
+                    run_id=run_id,
+                )
+            except Exception:
+                finalization_state.manifest = None
+
+        summary_file = final_run_dir / "summary.json"
+        if not summary_file.exists():
+            try:
+                fallback_payload = _fallback_summary_payload(
                     run_id,
                     summary_payload,
                     stage="finalize",
                     error=RuntimeError("summary.json missing after finalize"),
-                ),
-            )
-        except Exception:  # pragma: no cover - defensive
-            log.debug("failed to ensure summary.json fallback", exc_info=True)
+                )
+                write_json_atomic(
+                    summary_file,
+                    fallback_payload,
+                )
+                finalization_state.summary = fallback_payload
+            except Exception:  # pragma: no cover - defensive
+                log.debug("failed to ensure summary.json fallback", exc_info=True)
 
-    _close_decisions_trace()
-    return 0
+        return 0
+    finally:
+        run_dir_for_final = finalization_state.run_dir
+        try:
+            if isinstance(run_dir_for_final, Path):
+                _finalize_per_run_artifacts(
+                    run_dir=run_dir_for_final,
+                    manifest=finalization_state.manifest,
+                    summary=finalization_state.summary,
+                    export_summary_path=finalization_state.export_summary_path,
+                    journal_src=finalization_state.journal_src,
+                )
+        except Exception:
+            log.debug("finalize per-run artifacts failed in finally", exc_info=True)
+        finally:
+            _close_decisions_trace()
 
 
 # ------------------------------ Parser/Main --------------------------------- #
