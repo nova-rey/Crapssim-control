@@ -37,6 +37,7 @@ from .commands.run_cmd import _emit_per_run_artifacts, _fallback_summary
 from .run.controller import ControllerRunResult
 from .run.decisions_trace import DecisionsTrace
 from .manifest import generate_manifest
+from .utils.io_atomic import write_json_atomic
 
 log = logging.getLogger("crapssim-ctl")
 
@@ -1319,9 +1320,11 @@ def run(args: argparse.Namespace) -> int:
     else:
         summary_source = summary_payload
 
+    final_run_dir = run_artifacts_dir or (spec_path.parent / "artifacts" / run_id)
+
     try:
         _finalize_run_artifacts(
-            run_artifacts_dir or (spec_path.parent / "artifacts" / run_id),
+            final_run_dir,
             run_id,
             spec_path,
             args,
@@ -1336,6 +1339,21 @@ def run(args: argparse.Namespace) -> int:
         if os.environ.get("CSC_DEBUG", "0").lower() in ("1", "true", "yes"):
             print("warn: finalize artifacts failed", file=sys.stderr)
         log.debug("finalize run artifacts failed", exc_info=True)
+
+    summary_file = final_run_dir / "summary.json"
+    if not summary_file.exists():
+        try:
+            write_json_atomic(
+                summary_file,
+                _fallback_summary_payload(
+                    run_id,
+                    summary_payload,
+                    stage="finalize",
+                    error=RuntimeError("summary.json missing after finalize"),
+                ),
+            )
+        except Exception:  # pragma: no cover - defensive
+            log.debug("failed to ensure summary.json fallback", exc_info=True)
 
     _close_decisions_trace()
     return 0
