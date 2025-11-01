@@ -27,6 +27,7 @@
 | P15·C3 | Live Event Stream Bus | ✅ Complete | Thread-safe queue-based event bus and SSE encoder |
 | P15·C4 | Local UI Stub + Manifest View | ✅ Complete | Minimal HTML stub to watch events and query status |
 | P15·C5 | Baseline & Tag | ✅ Complete | Capture Phase 15 baseline and write tag `v0.44.0-phase15-baseline` |
+| P15·C2d | Per-run artifacts finalizer + strict-exit | ✅ Complete | Writes `summary.json` / `manifest.json` always; exits non-zero on validation failure (unless --no-strict-exit). |
 |   15  | C1         | Explain + decisions.csv | ✅ Complete | run --explain + decisions trace     |
 |   15  | C2         | Human summary + init + doctor | ✅ Complete | summarize --human; init skeleton quick run |
 | P14·C0 | Docs Kickoff & Guardrails | ✅ Active | Initialize Phase 14 docs and guardrails |

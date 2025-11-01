@@ -907,3 +907,8 @@ CLI now always writes `summary.json` and `manifest.json` into each run's artifac
 
 ### Phase 15 · C2d — Guaranteed per-run summary/manifest
 `run` now finalizes per-run artifacts in a `finally:` block, always writing `summary.json` and `manifest.json` into `artifacts/<run_id>/` (copy real summary if available; otherwise fallback). Exit codes unchanged.
+
+### Phase 15 · C2d — Finalizer and Strict Exit (2025-11-01)
+
+Finalizer confirmed: every run now guarantees `summary.json` and `manifest.json` beside `decisions.csv`.
+Added strict-exit logic — when validation fails, `csc run` terminates with exit code 1 unless `--no-strict-exit` is given. This ensures CI and scripted runs can detect invalid specs deterministically.
