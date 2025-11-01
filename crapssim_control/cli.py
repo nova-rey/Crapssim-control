@@ -817,6 +817,18 @@ def _finalize_run_artifacts(
                 encoding="utf-8",
             )
 
+    # A final safeguard: if no journal was materialized above, emit an empty
+    # stub so downstream tooling still finds the expected file.
+    if not journal_path.exists():
+        try:
+            journal_path.parent.mkdir(parents=True, exist_ok=True)
+            journal_path.write_text(
+                f"# journal_schema_version: {JOURNAL_SCHEMA_VERSION}\n",
+                encoding="utf-8",
+            )
+        except Exception:  # pragma: no cover - defensive
+            log.debug("failed to ensure journal.csv fallback", exc_info=True)
+
     try:
         result.summary = dict(serializable_summary)
     except Exception:
