@@ -35,10 +35,26 @@ class TestClient:
     def __init__(self, app: FastAPI) -> None:
         self.app = app
 
-    def post(self, path: str, json: Any | None = None, **_: Any) -> _Response:
-        status, payload, headers = self.app._dispatch("POST", path, json or {})
-        return _Response(status_code=status, content=payload, headers=headers)
+    def post(
+        self,
+        path: str,
+        json: Any | None = None,
+        headers: Dict[str, str] | None = None,
+        **_: Any,
+    ) -> _Response:
+        status, payload, headers_out = self.app._dispatch(
+            "POST", path, json or {}, headers=headers or {}
+        )
+        return _Response(status_code=status, content=payload, headers=headers_out)
 
-    def get(self, path: str, params: Any | None = None, **_: Any) -> _Response:
-        status, payload, headers = self.app._dispatch("GET", path, params or {})
-        return _Response(status_code=status, content=payload, headers=headers)
+    def get(
+        self,
+        path: str,
+        params: Any | None = None,
+        headers: Dict[str, str] | None = None,
+        **_: Any,
+    ) -> _Response:
+        status, payload, headers_out = self.app._dispatch(
+            "GET", path, params or {}, headers=headers or {}
+        )
+        return _Response(status_code=status, content=payload, headers=headers_out)

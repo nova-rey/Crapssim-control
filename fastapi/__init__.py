@@ -9,6 +9,7 @@ import re
 from dataclasses import dataclass
 from types import SimpleNamespace
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
+from urllib.parse import parse_qsl, urlsplit
 
 from .responses import JSONResponse, Response
 
@@ -52,11 +53,23 @@ class _Route:
 class Request:
     """Simple request wrapper providing async ``json`` and ``app`` access."""
 
-    def __init__(self, payload: Any, app: "FastAPI", path_params: Dict[str, str]):
+    def __init__(
+        self,
+        payload: Any,
+        app: "FastAPI",
+        path_params: Dict[str, str],
+        *,
+        headers: Optional[Dict[str, str]] = None,
+        url: str = "/",
+    ):
         self._payload = payload
+        self.payload = payload
         self.app = app
         self.state = app.state
         self.path_params = path_params
+        self.headers = dict(headers or {})
+        self.url = url
+        self.query_params: Dict[str, str] = {}
 
     async def json(self) -> Any:  # pragma: no cover - async helper
         return self._payload
@@ -76,9 +89,7 @@ class _BaseRouter:
         for method in methods:
             normalized = _normalize_path(path)
             pattern, names = _compile_path(normalized)
-            self._routes.append(
-                _Route(method.upper(), normalized, endpoint, pattern, names)
-            )
+            self._routes.append(_Route(method.upper(), normalized, endpoint, pattern, names))
 
     def get(self, path: str, **_: Any) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
         def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
@@ -128,17 +139,24 @@ class FastAPI(_BaseRouter):
         if name:
             self.router[name] = app
 
-    def _dispatch(self, method: str, path: str, payload: Any) -> Tuple[int, Any, Dict[str, str]]:
+    def _dispatch(
+        self, method: str, path: str, payload: Any, headers: Optional[Dict[str, str]] = None
+    ) -> Tuple[int, Any, Dict[str, str]]:
         method = method.upper()
-        path = _normalize_path(path)
+        headers = headers or {}
+        url_info = urlsplit(path)
+        raw_path = url_info.path or "/"
+        normalized_path = _normalize_path(raw_path)
+        query_params = {k: v for k, v in parse_qsl(url_info.query, keep_blank_values=True)}
         for route in self._routes:
             if route.method != method:
                 continue
-            match = route.pattern.match(path)
+            match = route.pattern.match(normalized_path)
             if not match:
                 continue
             params = match.groupdict()
-            request = Request(payload, self, params)
+            request = Request(payload, self, params, headers=headers, url=path)
+            request.query_params = query_params
             kwargs = _extract_kwargs(route.endpoint, params, request)
             result = route.endpoint(**kwargs)
             if asyncio.iscoroutine(result):
@@ -146,7 +164,12 @@ class FastAPI(_BaseRouter):
             return _finalize_response(result)
         raise ValueError(f"No route registered for {method} {path}")
 
-    async def __call__(self, scope: Dict[str, Any], receive: Callable[[], Any], send: Callable[[Dict[str, Any]], Any]) -> None:
+    async def __call__(
+        self,
+        scope: Dict[str, Any],
+        receive: Callable[[], Any],
+        send: Callable[[Dict[str, Any]], Any],
+    ) -> None:
         if scope.get("type") != "http":  # pragma: no cover - basic guard
             await send({"type": "http.response.start", "status": 500, "headers": []})
             await send({"type": "http.response.body", "body": b"Unsupported scope type"})
@@ -171,7 +194,11 @@ class FastAPI(_BaseRouter):
             status, content, headers = self._dispatch(method, path, payload)
         except ValueError:
             await send(
-                {"type": "http.response.start", "status": 404, "headers": [(b"content-type", b"text/plain")]}
+                {
+                    "type": "http.response.start",
+                    "status": 404,
+                    "headers": [(b"content-type", b"text/plain")],
+                }
             )
             await send({"type": "http.response.body", "body": b"Not Found"})
             return

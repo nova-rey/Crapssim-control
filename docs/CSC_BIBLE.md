@@ -912,3 +912,11 @@ CLI now always writes `summary.json` and `manifest.json` into each run's artifac
 
 Finalizer confirmed: every run now guarantees `summary.json` and `manifest.json` beside `decisions.csv`.
 Added strict-exit logic — when validation fails, `csc run` terminates with exit code 1 unless `--no-strict-exit` is given. This ensures CI and scripted runs can detect invalid specs deterministically.
+
+### P16·V1 — API v1 Hardening & UI Prep
+- Added `/api/v1/*` routes; kept unversioned `/api` with deprecation notice.
+- CORS allowlist + optional bearer token (`CSC_API_TOKEN`).
+- Runs: list + get endpoints backed by filesystem artifacts.
+- Replay: sampled pull endpoint for UI dashboards.
+- Unified JSON envelope: `{ ok, error? }`.
+- Optional static UI mount at `/ui` from `ui_static/` or `CSC_UI_STATIC_DIR`.
