@@ -64,7 +64,9 @@ def run_detail(request: Request, run_id: str):
         report = run_dir / "report.md"
         if report.exists():
             try:
-                ctx["report_html"] = "<pre>" + html.escape(report.read_text(encoding="utf-8")) + "</pre>"
+                ctx["report_html"] = (
+                    "<pre>" + html.escape(report.read_text(encoding="utf-8")) + "</pre>"
+                )
             except Exception:  # pragma: no cover - defensive fallback
                 ctx["report_html"] = "<em>Could not read report.md</em>"
     return _templates.TemplateResponse("run_detail.html", ctx)

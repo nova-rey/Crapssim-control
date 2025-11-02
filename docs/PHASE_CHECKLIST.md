@@ -30,6 +30,7 @@
 | P15·C2d | Per-run artifacts finalizer + strict-exit | ✅ Complete | Writes `summary.json` / `manifest.json` always; exits non-zero on validation failure (unless --no-strict-exit). |
 |   15  | C1         | Explain + decisions.csv | ✅ Complete | run --explain + decisions trace     |
 |   15  | C2         | Human summary + init + doctor | ✅ Complete | summarize --human; init skeleton quick run |
+| P16·V1 | API v1 hardening & UI prep | ✅ Complete | Versioned routes, CORS/auth, runs list/detail, replay, static UI hook |
 | P14·C0 | Docs Kickoff & Guardrails | ✅ Active | Initialize Phase 14 docs and guardrails |
 | P14·C1 | Plugin Manifest & Registry | ✅ Complete | Manifest schema and registry foundation established |
 | P14·C2 | Safe Loader & Sandbox Lite | ✅ Complete | Restricted loader with deny-lists and timeouts |

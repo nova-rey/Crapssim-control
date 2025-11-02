@@ -27,6 +27,10 @@ from .bundles import ExportEmptyError, BundleReadError, SchemaMismatchError
 # Phase 5 Cycle 5 — includes report/export integration
 __version__ = "1.0.1-lts"
 
+# HTTP API metadata
+API_VERSION = "v1"
+API_DEPRECATION_NOTICE = "Legacy /api routes are deprecated; use /api/v1"
+
 __all__ = [
     # Core controller
     "ControlStrategy",
@@ -57,4 +61,6 @@ __all__ = [
     "SchemaMismatchError",
     # Package version
     "__version__",
+    "API_VERSION",
+    "API_DEPRECATION_NOTICE",
 ]

@@ -37,7 +37,9 @@ def test_ui_lists_and_shows_run(tmp_path: Path):
     env = os.environ.copy()
     project_root = Path(__file__).resolve().parents[1]
     env["PYTHONPATH"] = os.pathsep.join(
-        [str(project_root), env.get("PYTHONPATH", "")] if env.get("PYTHONPATH") else [str(project_root)]
+        [str(project_root), env.get("PYTHONPATH", "")]
+        if env.get("PYTHONPATH")
+        else [str(project_root)]
     )
     result = subprocess.run(  # noqa: S603,S607 - intentional CLI invocation
         [

@@ -20,6 +20,7 @@ from uuid import uuid4
 try:
     import click  # type: ignore
 except Exception:  # pragma: no cover - fallback when click is unavailable
+
     class _ClickShim:
         @staticmethod
         def echo(message: str, err: bool = False) -> None:
