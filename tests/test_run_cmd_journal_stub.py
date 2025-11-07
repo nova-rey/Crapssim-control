@@ -20,6 +20,10 @@ def test_finalize_per_run_artifacts_creates_journal_stub(tmp_path):
     text = journal_path.read_text(encoding="utf-8")
     assert f"# journal_schema_version: {JOURNAL_SCHEMA_VERSION}" in text
 
+    decisions_path = run_dir / "decisions.csv"
+    assert decisions_path.exists()
+    assert decisions_path.read_text(encoding="utf-8").splitlines()[0].startswith("roll,window")
+
 
 def test_finalize_per_run_artifacts_keeps_existing_journal(tmp_path):
     run_dir = tmp_path / "run"
@@ -36,3 +40,6 @@ def test_finalize_per_run_artifacts_keeps_existing_journal(tmp_path):
     )
 
     assert journal_path.read_text(encoding="utf-8") == "existing data"
+
+    decisions_path = run_dir / "decisions.csv"
+    assert decisions_path.exists()

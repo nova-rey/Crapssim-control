@@ -41,9 +41,13 @@ cleans up the codebase, and captures the final LTS baseline.
 - Ruff + Black linting
 - LTS tag `v1.0.0-lts`
 
-**Outcome:**  
-CSC 1.0.0-LTS is stable, deterministic, and ready for extended operation 
+**Outcome:**
+CSC 1.0.0-LTS is stable, deterministic, and ready for extended operation
 alongside CrapsSim-Evo and Node-RED without further schema changes.
+
+### Phase 16 · C3 — CLI Fossil Cleanup & Artifact Lock Test
+
+Removed legacy EngineAdapter scaffolding from the CLI, inserted a deprecation notice for outdated entrypoints, and added a regression test to guarantee that `python -m csc run` always writes summary.json, manifest.json, journal.csv, and decisions.csv in each run directory.
 
 ---
 
