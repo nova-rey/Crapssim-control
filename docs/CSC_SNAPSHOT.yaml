@@ -1,5 +1,5 @@
-phase: 15
-checkpoint: 2
-title: Human summary + init + doctor
-description: Add summarize --human (report.md), project scaffolder, and doctor check.
+phase: 16
+checkpoint: 3
+title: CLI Fossil Cleanup & Artifact Lock Test
+description: Removed dead EngineAdapter() code, added deprecation notice for old entrypoints, and locked CLI artifact guarantees with regression test.
 status: active

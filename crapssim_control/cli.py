@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 import csv
 import copy
-import inspect
 import json
 import logging
 import os
@@ -1072,12 +1071,11 @@ def _capture_control_surface_artifacts(
 
 def run(args: argparse.Namespace) -> int:
     """
-    Run path:
-      1) Load & validate spec
-      2) Compute rolls/seed
-      3) Attach engine via EngineAdapter
-      4) Drive the table
-      5) Print result summary
+    Executes a CrapsSim-Control run:
+      1. Loads and validates the spec
+      2. Seeds deterministic RNGs
+      3. Invokes the controller to simulate
+      4. Finalizes per-run artifacts (summary.json, manifest.json, journal.csv, decisions.csv)
     """
     # Load spec
     run_artifacts_dir: Optional[Path] = None
@@ -1283,17 +1281,9 @@ def run(args: argparse.Namespace) -> int:
 
         # Attach engine
         try:
-            from crapssim_control.engine_adapter import (
-                EngineAdapter,
-                resolve_engine_adapter,
-            )  # lazy
+            from crapssim_control.engine_adapter import resolve_engine_adapter  # lazy
 
-            adapter_cls = None
-            reason = None
-            if "EngineAdapter" in locals() and not inspect.isabstract(EngineAdapter):
-                adapter_cls = EngineAdapter
-            else:
-                adapter_cls, reason = resolve_engine_adapter()
+            adapter_cls, reason = resolve_engine_adapter()
 
             if adapter_cls is None:
                 raise RuntimeError(reason or "engine adapter scaffolding not connected")
@@ -1599,7 +1589,7 @@ def _build_parser() -> argparse.ArgumentParser:
         prog="crapssim-ctl",
         description="Crapssim Control - validate specs and run simulations",
     )
-    parser.epilog = "Use `run --explain` to emit decisions.csv alongside run artifacts."
+    parser.epilog = "decisions.csv is written for every run; use --explain for detailed traces."
     parser.add_argument(
         "-v",
         "--verbose",

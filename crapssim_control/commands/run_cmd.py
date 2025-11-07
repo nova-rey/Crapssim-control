@@ -5,6 +5,8 @@ from pathlib import Path
 from shutil import copyfile
 from typing import Any, Optional
 
+from crapssim_control.run.decisions_trace import DecisionsTrace
+
 from crapssim_control.schemas import JOURNAL_SCHEMA_VERSION
 from crapssim_control.utils.io_atomic import write_json_atomic
 
@@ -54,6 +56,7 @@ def _finalize_per_run_artifacts(
 
     summary_path = run_dir / "summary.json"
     manifest_path = run_dir / "manifest.json"
+    decisions_path = run_dir / "decisions.csv"
 
     normalized_summary: Optional[dict[str, Any]] = None
     if isinstance(summary, Mapping) and summary:
@@ -76,6 +79,28 @@ def _finalize_per_run_artifacts(
         manifest_payload = {"run": {"flags": {}}, "identity": {"source": "fallback"}}
 
     write_json_atomic(manifest_path, manifest_payload)
+
+    if not decisions_path.exists():
+        try:
+            trace = DecisionsTrace(run_dir)
+            try:
+                if isinstance(summary, Mapping):
+                    summary_payload = dict(summary)
+                else:
+                    summary_payload = None
+                trace.ensure_summary_row(summary_payload)
+            finally:
+                trace.close()
+        except Exception:
+            try:
+                header = (
+                    "roll,window,rule_id,when_expr,evaluated_true,applied,reason,"
+                    "bankroll,point_on,hand_id,roll_in_hand\n"
+                )
+                with decisions_path.open("w", encoding="utf-8") as handle:
+                    handle.write(header)
+            except Exception:
+                pass
 
     dest = run_dir / "journal.csv"
 
