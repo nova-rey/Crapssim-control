@@ -170,6 +170,11 @@ def _engine_unavailable(reason: str | Exception = "missing or incompatible engin
     return 2
 
 
+def _engine_soft_fail_enabled() -> bool:
+    flag = os.environ.get("CSC_ENGINE_SOFT_FAIL", "0").strip().lower()
+    return flag in {"1", "true", "yes", "on"}
+
+
 def _smart_seed(seed: Optional[int]) -> None:
     if seed is not None:
         random.seed(seed)
@@ -1280,10 +1285,12 @@ def run(args: argparse.Namespace) -> int:
         _reseed_engine(seed_int)
 
         # Attach engine
+        adapter_reason: Optional[str] = None
         try:
             from crapssim_control.engine_adapter import resolve_engine_adapter  # lazy
 
             adapter_cls, reason = resolve_engine_adapter()
+            adapter_reason = reason
 
             if adapter_cls is None:
                 raise RuntimeError(reason or "engine adapter scaffolding not connected")
@@ -1325,6 +1332,45 @@ def run(args: argparse.Namespace) -> int:
                 print("\n--- CSC DEBUG TRACEBACK (attach) ---", flush=True)
                 traceback.print_exc()
                 print("--- END CSC DEBUG ---\n", flush=True)
+            if _engine_soft_fail_enabled():
+                reason_text = adapter_reason or str(e)
+                log.warning(
+                    "Engine unavailable; generating stub artifacts instead of failing hard: %s",
+                    reason_text,
+                )
+                summary_payload = _fallback_summary(f"engine unavailable: {reason_text}")
+                summary_payload.update(
+                    {
+                        "run_id": run_id,
+                        "spec": str(spec_path),
+                        "rolls": 0,
+                        "seed": seed_int,
+                        "result": "engine_unavailable",
+                        "note": str(reason_text),
+                    }
+                )
+                summary_payload.setdefault("errors", []).append(
+                    {
+                        "phase": "engine",
+                        "type": type(e).__name__,
+                        "message": str(e),
+                    }
+                )
+                summary_payload.setdefault("decisions_rows", 0)
+                finalization_state.summary = summary_payload
+                try:
+                    finalization_state.manifest = _build_manifest_payload(
+                        spec_path,
+                        args,
+                        explain_mode=explain_mode,
+                        explain_source=explain_source,
+                        decisions_writer=decisions_writer,
+                        run_id=run_id,
+                    )
+                except Exception:
+                    finalization_state.manifest = {"run": {"flags": {}}, "identity": {"source": "engine_unavailable"}}
+                print("RESULT: engine_unavailable", flush=True)
+                return 0
             return _engine_unavailable(e)
 
         # Drive the table
