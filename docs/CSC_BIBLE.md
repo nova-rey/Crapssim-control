@@ -939,3 +939,19 @@ including reasons for acceptance or rejection. The DSL connects with the
 existing verb/policy architecture, enabling Evo-generated rule sets to operate
 without nondeterministic components. This checkpoint synchronizes the snapshot
 and entrypoint to the finalized Phase 19 state.
+
+---
+
+## Phase 10 — Engine API Integration (HTTP)
+
+### Checkpoints P10·C2–C5
+
+Phase 10 extends the engine-agnostic design by integrating a fully optional
+HTTP engine pathway using the CrapsSim Engine API. Checkpoint C2 adds the
+documentation and CLI/config surface for engine selection and configuration.
+Checkpoint C3 introduces a deterministic parity harness that allows the same
+dice stream to drive both in-process and HTTP engines in lockstep for
+validation. Checkpoint C4 captures seeded baseline artifacts for the HTTP
+engine mode, ensuring reproducibility and auditability. Checkpoint C5 applies
+the phase baseline tag (`v0.41.0-phase10-baseline`) to mark the completion of
+the Engine API integration phase.

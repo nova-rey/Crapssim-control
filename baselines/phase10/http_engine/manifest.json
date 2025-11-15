@@ -1,0 +1,59 @@
+{
+  "run_id": "0152f1df05794775b88c5172405cfc54",
+  "timestamp": "2025-11-15T05:24:50Z",
+  "spec_file": "/workspace/Crapssim-control/specs/martingale_pass.spec.json",
+  "cli_flags": {
+    "strict": false,
+    "strict_source": "default",
+    "demo_fallbacks": false,
+    "demo_fallbacks_source": "default",
+    "embed_analytics": true,
+    "embed_analytics_source": "default",
+    "export": false,
+    "export_source": "default",
+    "explain": false,
+    "explain_source": "default",
+    "webhook_url": null,
+    "webhook_url_source": "default",
+    "webhook_timeout": 2.0,
+    "webhook_enabled": false,
+    "webhook_enabled_source": "default",
+    "evo_enabled": false,
+    "trial_tag": null,
+    "human_summary": false,
+    "human_summary_source": "default"
+  },
+  "schema": {
+    "journal": "1.1",
+    "summary": "1.1"
+  },
+  "engine_version": null,
+  "output_paths": {
+    "summary": "summary.json",
+    "manifest": "manifest.json",
+    "journal": "journal.csv"
+  },
+  "integrations": {
+    "webhook": {
+      "enabled": false,
+      "url_present": false,
+      "timeout": 2.0
+    }
+  },
+  "evo": {
+    "enabled": false,
+    "trial_tag": null
+  },
+  "risk_overrides": {},
+  "ui": {
+    "report_url": null,
+    "journal_url": null
+  },
+  "run": {
+    "flags": {
+      "explain": false,
+      "human_summary": false
+    }
+  },
+  "engine_info": {}
+}

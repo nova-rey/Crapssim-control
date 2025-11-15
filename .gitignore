@@ -30,6 +30,8 @@ baselines/*
 # Allow committed Phase 12 baselines
 !baselines/phase12/**/*.csv
 !baselines/phase12/**/*.json
+!baselines/phase10/**/*.csv
+!baselines/phase10/**/*.json
 # …but keep example specs and docs reports
 !examples/*.json
 !docs/reports/**/*.json

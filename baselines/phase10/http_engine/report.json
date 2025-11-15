@@ -1,0 +1,161 @@
+{
+  "by_bet_family": {
+    "digest": [],
+    "top_name": null,
+    "top_net": null
+  },
+  "capabilities": {
+    "dsl": false,
+    "verbs": [
+      "switch_profile",
+      "press",
+      "regress",
+      "apply_policy"
+    ]
+  },
+  "csv": {
+    "path": "export/journal.csv"
+  },
+  "dsl_schema_version": "1.0",
+  "dsl_trace_count": 0,
+  "flags": {
+    "demo_fallbacks": false,
+    "strict": false
+  },
+  "identity": {
+    "engine_version": "CrapsSim-Control",
+    "journal_schema_version": "1.1",
+    "report_schema_version": "2.0",
+    "run_id": "0152f1df05794775b88c5172405cfc54",
+    "seed": 123456,
+    "summary_schema_version": "1.1"
+  },
+  "journal_schema_version": "1.1",
+  "manifest_path": "export/manifest.json",
+  "memory": {},
+  "metadata": {
+    "artifacts": {
+      "command_tape": null,
+      "journal": "export/journal.csv",
+      "manifest": "export/manifest.json",
+      "report": "export/report.json"
+    },
+    "demo_fallbacks_default": false,
+    "deprecations": [],
+    "engine": {
+      "name": "CrapsSim-Control",
+      "python": "3.12.12",
+      "version": "CrapsSim-Control"
+    },
+    "limits": {
+      "circuit_breaker": {
+        "consecutive_rejects": 10,
+        "cool_down_seconds": 10.0
+      },
+      "per_source_quota": 40,
+      "queue_max_depth": 100,
+      "rate": {
+        "refill_seconds": 2.0,
+        "tokens": 3
+      },
+      "stats": {
+        "enqueued": 0,
+        "executed": 0,
+        "rejected": {}
+      }
+    },
+    "run_flags": {
+      "demo_fallbacks_source": "default",
+      "embed_analytics_source": "default",
+      "evo_enabled_source": "default",
+      "explain_source": "default",
+      "export_source": "default",
+      "external_mode": "live",
+      "external_mode_source": "default",
+      "human_summary_source": "default",
+      "sources": {
+        "demo_fallbacks": "default",
+        "embed_analytics": "default",
+        "evo_enabled": "default",
+        "explain": "default",
+        "export": "default",
+        "external_mode": "default",
+        "human_summary": "default",
+        "strict": "default",
+        "trial_tag": "default",
+        "webhook_enabled": "default"
+      },
+      "strict_source": "default",
+      "trial_tag_source": "default",
+      "values": {
+        "demo_fallbacks": false,
+        "embed_analytics": true,
+        "explain": false,
+        "human_summary": false,
+        "strict": false
+      },
+      "webhook_enabled": false,
+      "webhook_enabled_source": "default",
+      "webhook_url_masked": false,
+      "webhook_url_source": "default"
+    },
+    "validation_engine": "v1"
+  },
+  "mode": "Main",
+  "on_comeout": true,
+  "point": null,
+  "point_cycle": {
+    "avg_rolls_per_hand": 2.0,
+    "established": 0,
+    "made": 0,
+    "pso_rate": 0.0,
+    "seven_outs": 0
+  },
+  "report_schema_version": "2.0",
+  "risk_series": {
+    "peak_bankroll": null,
+    "peak_index": null,
+    "trough_bankroll": null,
+    "trough_index": null
+  },
+  "run_id": "0152f1df05794775b88c5172405cfc54",
+  "source_files": {
+    "csv": "export/journal.csv",
+    "meta": null
+  },
+  "summary": {
+    "actions_total": 0,
+    "bankroll_final": 0.0,
+    "bankroll_low": 0.0,
+    "bankroll_peak": 0.0,
+    "bankroll_start": null,
+    "by_event_type": {},
+    "dsl_schema_version": "1.0",
+    "events_total": 0,
+    "external_executed": 0,
+    "external_rejected": 0,
+    "hands_played": 1,
+    "journal_lines": 0,
+    "loss_streak_max": 0,
+    "max_drawdown": 0.0,
+    "max_drawdown_pct": null,
+    "point_on_time_pct": 0.0,
+    "points_made": 0,
+    "policy_applied_count": 0,
+    "pso_count": 0,
+    "rejections_total": 0,
+    "risk_violations_count": 0,
+    "roi": null,
+    "rolls": 2,
+    "rolls_completed": 0,
+    "rolls_requested": 0,
+    "terminated_early": false,
+    "termination_reason": null,
+    "total_hands": 0,
+    "total_rolls": 0,
+    "trace_schema_version": "1.0",
+    "win_streak_max": 0
+  },
+  "summary_schema_version": "1.1",
+  "trace_schema_version": "1.0"
+}
