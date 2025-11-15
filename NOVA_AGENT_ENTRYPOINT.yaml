@@ -1,6 +1,6 @@
-current_phase: 19
-current_checkpoint: 4
-checkpoint_title: DSL MVP — Deterministic Behavior Switching
-allow_behavior_change: true
+current_phase: 10
+current_checkpoint: 5
+checkpoint_title: Engine API Integration (HTTP) — Baseline & Tag
+allow_behavior_change: false
 notes: >
-  Phase 19 is complete. Next development step pending user selection.
+  Phase 10 is now complete. The next phase begins after user selection.

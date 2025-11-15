@@ -1,5 +1,15 @@
 # Phase Checklist
 
+### Phase 10 — Engine API Integration (HTTP)
+
+| Checkpoint | Title                                   | Status | Summary |
+|-----------|-------------------------------------------|--------|---------|
+| P10·C1    | HTTP Engine Adapter Implementation        | ✅     | Added HttpEngineAdapter, factory wiring, manifest/journal metadata, and tests. |
+| P10·C2    | CLI & Docs Surface for Engine API         | ✅     | Added ENGINE_API_ADAPTER.md and documented configuration, endpoints, determinism. |
+| P10·C3    | Determinism / Parity Harness              | ✅     | Added test harness for forced-dice parity between inprocess and HTTP engine. |
+| P10·C4    | Baseline Artifacts (HTTP Engine)          | ✅     | Captured seeded baseline run artifacts for HTTP engine mode. |
+| P10·C5    | Tag v0.41.0-phase10-baseline              | ✅     | Baseline tagged for fully integrated HTTP engine support. |
+
 
 ### Phase 19 — DSL MVP (Deterministic Behavior Switching)
 

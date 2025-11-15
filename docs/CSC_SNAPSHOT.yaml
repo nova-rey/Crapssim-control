@@ -1,8 +1,8 @@
-phase: 19
-checkpoint: 4
-title: DSL MVP — Deterministic Behavior Switching
+phase: 10
+checkpoint: 5
+title: Engine API Integration (HTTP) — Baseline & Tag
 description: >
-  Phase 19 is complete. CSC now supports an internal deterministic behavior-
-  switching DSL with WHEN/THEN rules, legal decision windows, deterministic
-  evaluation, journaling of all decisions, and integration with verbs/policies.
+  Phase 10 is complete. CSC now supports a full HTTP engine adapter for the
+  CrapsSim Engine API, with CLI integration, documentation, deterministic
+  parity harness, and seeded baseline artifacts.
 status: active
