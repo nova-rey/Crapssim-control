@@ -62,6 +62,7 @@ from .report_builder import (
     attach_trace_metadata,
 )
 from .csv_journal import CSVJournal  # Per-event journaling
+from .engine.factory import build_engine_adapter
 from .engine_adapter import NullAdapter, VanillaAdapter
 from .eval import evaluate, EvalError
 from .events import canonicalize_event, COMEOUT, POINT_ESTABLISHED, ROLL, SEVEN_OUT
@@ -201,12 +202,28 @@ class ControlStrategy:
         elif self._decisions_writer is not None and isinstance(artifacts_dir_value, (str, Path)):
             self._decisions_trace_dir = Path(artifacts_dir_value)
 
-        adapter_enabled = bool(adapter_cfg.get("enabled", False))
-        adapter_impl = str(adapter_cfg.get("impl", "null") or "null")
-        if adapter_enabled and adapter_impl == "vanilla":
-            self.adapter = VanillaAdapter()
+        self._engine_mode: Optional[str] = None
+        engine_value = None
+        if isinstance(run_block, dict):
+            engine_value = run_block.get("engine")
+        if engine_value is not None:
+            try:
+                self.adapter = build_engine_adapter(run_block)
+                self._engine_mode = str(engine_value).strip().lower() or "inprocess"
+            except Exception:
+                logger.exception("Failed to build engine adapter")
+                self.adapter = NullAdapter()
+                self._engine_mode = "error"
         else:
-            self.adapter = NullAdapter()
+            adapter_enabled = bool(adapter_cfg.get("enabled", False))
+            adapter_impl = str(adapter_cfg.get("impl", "null") or "null")
+            if adapter_enabled and adapter_impl == "vanilla":
+                self.adapter = VanillaAdapter()
+                self._engine_mode = "inprocess"
+            else:
+                self.adapter = NullAdapter()
+                self._engine_mode = "null"
+        self._engine_info: Dict[str, Any] = {}
         self.external_mode, self._external_mode_source = self._resolve_external_mode()
         self._command_tape_path = self._resolve_command_tape_path()
         if self.external_mode == "replay":
@@ -309,9 +326,12 @@ class ControlStrategy:
                 self._seed_value = run_seed_val
 
         try:
-            self.adapter.start_session(spec)
+            self.adapter.start_session(spec, self._seed_value)
         except Exception:
             logger.exception("Adapter start_session failed")
+            self._engine_info = {}
+        else:
+            self._engine_info = self._collect_engine_info()
         if self._seed_value is not None:
             set_seed_fn = getattr(self.adapter, "set_seed", None)
             if callable(set_seed_fn):
@@ -1429,6 +1449,22 @@ class ControlStrategy:
             self._seed_value = seed_val
         return {"path": str(path), "append": append, "run_id": run_id, "seed": seed_val}
 
+    def _collect_engine_info(self) -> Dict[str, Any]:
+        adapter = getattr(self, "adapter", None)
+        info: Dict[str, Any] = {}
+        if adapter is not None:
+            getter = getattr(adapter, "get_engine_info", None)
+            if callable(getter):
+                try:
+                    raw = getter()
+                    if isinstance(raw, dict):
+                        info = dict(raw)
+                except Exception:
+                    info = {}
+        if not info and self._engine_mode:
+            info = {"engine_type": self._engine_mode}
+        return info
+
     def _ensure_journal(self) -> Optional[CSVJournal]:
         if self._journal_enabled is False:
             return None
@@ -1455,6 +1491,16 @@ class ControlStrategy:
                 seed=cfg.get("seed"),
                 analytics_columns=analytics_cols,
             )
+            engine_info = self._engine_info or self._collect_engine_info()
+            if isinstance(engine_info, dict) and engine_info.get("engine_type") == "http_api":
+                try:
+                    identity = {
+                        "engine_type": engine_info.get("engine_type"),
+                        "engine_name": engine_info.get("engine_name"),
+                    }
+                    j.write_cover_sheet(identity=identity, extra={"engine_info": engine_info})
+                except Exception:
+                    pass
             self._journal = j
             self._journal_enabled = True
             return j
@@ -2730,6 +2776,7 @@ class ControlStrategy:
                 outputs,
                 engine_version=self.engine_version,
                 run_id=self._run_id,
+                engine_info=self._engine_info or self._collect_engine_info(),
             )
             manifest.setdefault("plugins_loaded", [])
             if plugins_trace:

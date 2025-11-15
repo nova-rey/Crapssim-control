@@ -558,6 +558,30 @@ def _merge_cli_run_flags(spec: Dict[str, Any], args: argparse.Namespace) -> None
         sources["embed_analytics"] = "cli"
         changed = True
 
+    engine_choice = getattr(args, "engine", None)
+    if engine_choice:
+        run_dict["engine"] = str(engine_choice)
+        sources["engine"] = "cli"
+        changed = True
+    engine_url = getattr(args, "engine_url", None)
+    engine_timeout = getattr(args, "engine_timeout_seconds", None)
+    if engine_url or engine_timeout is not None:
+        http_cfg = run_dict.get("engine_http")
+        if not isinstance(http_cfg, dict):
+            http_cfg = {}
+        if engine_url:
+            http_cfg["base_url"] = engine_url
+            sources["engine_http.base_url"] = "cli"
+            changed = True
+        if engine_timeout is not None:
+            try:
+                http_cfg["timeout_seconds"] = float(engine_timeout)
+            except (TypeError, ValueError):
+                http_cfg["timeout_seconds"] = engine_timeout
+            sources["engine_http.timeout_seconds"] = "cli"
+            changed = True
+        run_dict["engine_http"] = http_cfg
+
     if sources:
         run_dict["_csc_flag_sources"] = sources
     elif "_csc_flag_sources" in run_dict:
@@ -1368,7 +1392,10 @@ def run(args: argparse.Namespace) -> int:
                         run_id=run_id,
                     )
                 except Exception:
-                    finalization_state.manifest = {"run": {"flags": {}}, "identity": {"source": "engine_unavailable"}}
+                    finalization_state.manifest = {
+                        "run": {"flags": {}},
+                        "identity": {"source": "engine_unavailable"},
+                    }
                 print("RESULT: engine_unavailable", flush=True)
                 return 0
             return _engine_unavailable(e)
@@ -1758,6 +1785,22 @@ def _build_parser() -> argparse.ArgumentParser:
         "--max-heat",
         type=float,
         help="Maximum total exposure allowed.",
+    )
+    p_run.add_argument(
+        "--engine",
+        choices=["inprocess", "http_api"],
+        help="Select the engine backend (default: inprocess).",
+    )
+    p_run.add_argument(
+        "--engine-url",
+        dest="engine_url",
+        help="Base URL for the CrapsSim Engine API when --engine=http_api.",
+    )
+    p_run.add_argument(
+        "--engine-timeout-seconds",
+        dest="engine_timeout_seconds",
+        type=float,
+        help="HTTP timeout (seconds) for the CrapsSim Engine API adapter.",
     )
     p_run.add_argument(
         "--bet-cap",
