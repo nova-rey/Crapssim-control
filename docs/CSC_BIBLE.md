@@ -955,3 +955,21 @@ validation. Checkpoint C4 captures seeded baseline artifacts for the HTTP
 engine mode, ensuring reproducibility and auditability. Checkpoint C5 applies
 the phase baseline tag (`v0.41.0-phase10-baseline`) to mark the completion of
 the Engine API integration phase.
+
+---
+
+## Production-Readiness Push Kickoff
+
+The production-readiness initiative begins with a clear objective: elevate CSC
+from an advanced orchestration tool into a stable, engine-agnostic companion
+to CrapsSim and a reliable substrate for CrapsSim-Evo. This push consolidates
+core features that must be in place for deterministic simulation,
+reproducibility, truthful capability reporting, and long-term maintenance.
+
+This initiative establishes a roadmap covering engine boundaries, deterministic
+behavior guarantees, capability truthfulness, journaling and reporting schema
+stability, DSL consistency, external control surfaces, Evo integration
+requirements, configuration determinism, baseline reproducibility, and
+hardening measures. Completion of this push marks the point at which CSC can
+be confidently considered production-ready and suitable for integration across
+the CrapsSim ecosystem.
