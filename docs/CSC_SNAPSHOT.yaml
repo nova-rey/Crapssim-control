@@ -1,5 +1,8 @@
-phase: 16
-checkpoint: 3
-title: CLI Fossil Cleanup & Artifact Lock Test
-description: Removed dead EngineAdapter() code, added deprecation notice for old entrypoints, and locked CLI artifact guarantees with regression test.
+phase: 19
+checkpoint: 4
+title: DSL MVP — Deterministic Behavior Switching
+description: >
+  Phase 19 is complete. CSC now supports an internal deterministic behavior-
+  switching DSL with WHEN/THEN rules, legal decision windows, deterministic
+  evaluation, journaling of all decisions, and integration with verbs/policies.
 status: active

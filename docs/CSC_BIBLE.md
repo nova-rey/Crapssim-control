@@ -924,3 +924,18 @@ Added strict-exit logic — when validation fails, `csc run` terminates with exi
 - Replay: sampled pull endpoint for UI dashboards.
 - Unified JSON envelope: `{ ok, error? }`.
 - Optional static UI mount at `/ui` from `ui_static/` or `CSC_UI_STATIC_DIR`.
+
+---
+
+## Phase 19 — DSL MVP (Deterministic Behavior Switching)
+
+**Checkpoint P19·C4 — DSL MVP Documentation Sync**
+
+Phase 19 reached completion with the integration of the internal deterministic
+behavior DSL. CSC now executes strategy logic encoded as WHEN/THEN sentences at
+legal decision windows. All evaluations are deterministic, using only the
+snapshot state of each roll. The system journals each attempted decision,
+including reasons for acceptance or rejection. The DSL connects with the
+existing verb/policy architecture, enabling Evo-generated rule sets to operate
+without nondeterministic components. This checkpoint synchronizes the snapshot
+and entrypoint to the finalized Phase 19 state.
