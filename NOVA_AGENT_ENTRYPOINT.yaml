@@ -1,4 +1,6 @@
-current_phase: 16
-current_checkpoint: 3
-checkpoint_title: CLI Fossil Cleanup & Artifact Lock Test
+current_phase: 19
+current_checkpoint: 4
+checkpoint_title: DSL MVP — Deterministic Behavior Switching
 allow_behavior_change: true
+notes: >
+  Phase 19 is complete. Next development step pending user selection.
