@@ -726,8 +726,8 @@ class EngineAdapter(ABC):
     """
 
     @abstractmethod
-    def start_session(self, spec: Dict[str, Any]) -> None:
-        """Initialize the engine with a simulation spec."""
+    def start_session(self, spec: Dict[str, Any], seed: Optional[int] = None) -> None:
+        """Initialize the engine with a simulation spec and optional seed."""
         raise NotImplementedError
 
     @abstractmethod
@@ -757,7 +757,9 @@ class NullAdapter(EngineAdapter):
     def __init__(self) -> None:
         self._attach_result: Optional[EngineAttachResult] = None
 
-    def start_session(self, spec: Dict[str, Any]) -> None:  # pragma: no cover - trivial
+    def start_session(
+        self, spec: Dict[str, Any], seed: Optional[int] = None
+    ) -> None:  # pragma: no cover - trivial
         self._attach_result = EngineAttachResult(
             table=None,
             controller_player=None,
@@ -972,7 +974,7 @@ class VanillaAdapter(EngineAdapter):
             except Exception:  # pragma: no cover - engine reseed best-effort
                 return
 
-    def start_session(self, spec: Dict[str, Any]) -> None:
+    def start_session(self, spec: Dict[str, Any], seed: Optional[int] = None) -> None:
         try:
             self.transport.start_session(spec or {})
         except Exception:
@@ -1017,7 +1019,9 @@ class VanillaAdapter(EngineAdapter):
         reset_group_state()
         run_cfg = self.spec.get("run") if isinstance(self.spec, dict) else {}
         run_seed: Optional[int] = None
-        if isinstance(run_cfg, dict):
+        if seed is not None:
+            run_seed = self._coerce_seed(seed)
+        if run_seed is None and isinstance(run_cfg, dict):
             run_seed = self._coerce_seed(run_cfg.get("seed"))
         if run_seed is None and isinstance(self.spec, dict):
             run_seed = self._coerce_seed(self.spec.get("seed"))
@@ -3858,9 +3862,8 @@ class CrapsSimAdapter(EngineAdapter):
         self._bet_overlay: Dict[str, float] = {}
 
     # ----- EngineAdapter interface --------------------------------------------------
-    def start_session(self, spec: Dict[str, Any]) -> None:
-        seed = None
-        if isinstance(spec, dict):
+    def start_session(self, spec: Dict[str, Any], seed: Optional[int] = None) -> None:
+        if seed is None and isinstance(spec, dict):
             seed = spec.get("seed") or spec.get("run", {}).get("seed")
         if seed is not None:
             try:

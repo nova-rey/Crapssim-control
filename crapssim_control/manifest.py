@@ -19,6 +19,7 @@ def generate_manifest(
     *,
     engine_version: str = None,
     run_id: str | None = None,
+    engine_info: Mapping[str, Any] | None = None,
 ):
     manifest_run_id = str(run_id) if run_id else str(uuid4())
     manifest = {
@@ -50,6 +51,11 @@ def generate_manifest(
             "human_summary": bool(cli_flags.get("human_summary", False)),
         }
     }
+
+    if isinstance(engine_info, Mapping):
+        manifest["engine_info"] = dict(engine_info)
+    else:
+        manifest["engine_info"] = {}
 
     return manifest
 
