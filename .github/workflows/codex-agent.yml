@@ -1,0 +1,67 @@
+name: Local Codex Agent Runner
+
+on:
+  workflow_dispatch:
+    inputs:
+      job_name:
+        description: 'Short, safe job label (letters/digits/dashes/underscores only, e.g. GI-P5-C2-B)'
+        required: true
+        type: string
+      prompt:
+        description: 'Codex Agent prompt (no-flavor text block)'
+        required: true
+        type: string
+      model:
+        description: 'Codex model to run'
+        required: true
+        type: choice
+        default: gpt-5.1-codex-mini
+        options:
+          - gpt-5.1-codex-mini
+          - gpt-5.1
+          - gpt-5.1-codex-max
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  codex-agent:
+    runs-on: ubuntu-latest
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Ensure docs/AGENT_RUNS directory exists
+        run: mkdir -p docs/AGENT_RUNS
+
+      - name: Run Codex Agent
+        id: run_codex
+        uses: openai/codex-action@v1
+        with:
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          model: ${{ github.event.inputs.model }}
+          prompt: ${{ github.event.inputs.prompt }}
+          output-file: docs/AGENT_RUNS/codex-run-${{ github.run_id }}.md
+
+      - name: Create pull request with agent report
+        uses: peter-evans/create-pull-request@v7
+        with:
+          commit-message: "Codex agent run: ${{ github.event.inputs.job_name }}"
+          branch: agent/${{ github.event.inputs.job_name }}
+          branch-suffix: short-commit-hash
+          title: "Codex agent run: ${{ github.event.inputs.job_name }}"
+          body: |
+            Codex Agent run for job: `${{ github.event.inputs.job_name }}`.
+
+            - Workflow run ID: `${{ github.run_id }}`
+            - Report file: `docs/AGENT_RUNS/codex-run-${{ github.run_id }}.md`
+            - Model used: `${{ github.event.inputs.model }}`
+
+            This PR was created automatically by the Local Codex Agent Runner workflow.
+          delete-branch: true
